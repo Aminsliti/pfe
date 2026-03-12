@@ -18,8 +18,10 @@ import {
 
 export function ProcessManagement() {
   const { hasPermission } = useAuth();
+  const { company } = useAuth();
   const [processes, setProcesses] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -27,12 +29,14 @@ export function ProcessManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCompany, setFilterCompany] = useState('');
   const [message, setMessage] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     bpmn_xml: '',
     category_id: '',
+    company_id: '',
     status: 'draft'
   });
 
@@ -47,6 +51,11 @@ export function ProcessManagement() {
       if (searchTerm) params.append('search', searchTerm);
       if (filterCategory) params.append('category', filterCategory);
       if (filterStatus) params.append('status', filterStatus);
+      
+      // Use user's company as default filter if available
+      if (company && !filterCompany) {
+        params.append('company', company.id);
+      }
 
       const response = await fetch(`http://localhost:3001/api/processes?${params}`);
       if (response.ok) {
@@ -74,12 +83,25 @@ export function ProcessManagement() {
     }
   };
 
+  const loadCompanies = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/companies');
+      if (response.ok) {
+        const data = await response.json();
+        setCompanies(data);
+      }
+    } catch (error) {
+      console.error('Error loading companies:', error);
+    }
+  };
+
   useEffect(() => {
     if (canManageProcesses) {
       loadProcesses();
       loadCategories();
+      loadCompanies();
     }
-  }, [canManageProcesses, searchTerm, filterCategory, filterStatus]);
+  }, [canManageProcesses, searchTerm, filterCategory, filterStatus, filterCompany]);
 
   const handleCreate = () => {
     setEditingProcess(null);
@@ -88,6 +110,7 @@ export function ProcessManagement() {
       description: '',
       bpmn_xml: '',
       category_id: '',
+      company_id: company?.id || '',
       status: 'draft'
     });
     setMessage('');
@@ -99,8 +122,9 @@ export function ProcessManagement() {
     setFormData({
       name: process.name,
       description: process.description,
-      bpmn_xml: process.bpmn_xml || '',
-      category_id: process.category_id || '',
+      bpmn_xml: process.bpmn_xml,
+      category_id: process.category_id,
+      company_id: process.company_id || company?.id || '',
       status: process.status
     });
     setMessage('');
@@ -242,7 +266,7 @@ export function ProcessManagement() {
       )}
 
       <Row className="mb-4">
-        <Col md={4}>
+        <Col md={3}>
           <InputGroup>
             <InputGroup.Text>
               <i className="bi bi-search"></i>
@@ -254,7 +278,7 @@ export function ProcessManagement() {
             />
           </InputGroup>
         </Col>
-        <Col md={3}>
+        <Col md={2}>
           <Form.Select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
             <option value="">All Categories</option>
             {categories.map(cat => (
@@ -262,7 +286,15 @@ export function ProcessManagement() {
             ))}
           </Form.Select>
         </Col>
-        <Col md={3}>
+        <Col md={2}>
+          <Form.Select value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)}>
+            <option value="">All Companies</option>
+            {companies.map(company => (
+              <option key={company.id} value={company.id}>{company.name}</option>
+            ))}
+          </Form.Select>
+        </Col>
+        <Col md={2}>
           <Form.Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
             <option value="">All Status</option>
             <option value="draft">Draft</option>
@@ -270,7 +302,7 @@ export function ProcessManagement() {
             <option value="archived">Archived</option>
           </Form.Select>
         </Col>
-        <Col md={2}>
+        <Col md={1}>
           <Badge bg="info" className="p-2">
             {processes.length} processes
           </Badge>
@@ -294,6 +326,7 @@ export function ProcessManagement() {
                     <thead className="table-light">
                       <tr>
                         <th>Name</th>
+                        <th>Company</th>
                         <th>Category</th>
                         <th>Status</th>
                         <th>Version</th>
@@ -305,7 +338,7 @@ export function ProcessManagement() {
                     <tbody>
                       {processes.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="text-center py-4 text-muted">
+                          <td colSpan="8" className="text-center py-4 text-muted">
                             No processes found
                           </td>
                         </tr>
@@ -322,6 +355,11 @@ export function ProcessManagement() {
                                   </>
                                 )}
                               </div>
+                            </td>
+                            <td>
+                              {process.company_name || (
+                                <Badge bg="light" text="dark">Uncategorized</Badge>
+                              )}
                             </td>
                             <td>
                               {process.category_name || (
@@ -420,6 +458,22 @@ export function ProcessManagement() {
               </Col>
               <Col md={6}>
                 <Form.Group className="mb-3">
+                  <Form.Label>Company</Form.Label>
+                  <Form.Select
+                    value={formData.company_id}
+                    onChange={(e) => setFormData({ ...formData, company_id: e.target.value })}
+                  >
+                    <option value="">Select company</option>
+                    {companies.map(company => (
+                      <option key={company.id} value={company.id}>{company.name}</option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
                   <Form.Label>Status</Form.Label>
                   <Form.Select
                     value={formData.status}
@@ -432,20 +486,6 @@ export function ProcessManagement() {
                 </Form.Group>
               </Col>
             </Row>
-
-            <Form.Group className="mb-3">
-              <Form.Label>BPMN XML</Form.Label>
-              <Form.Control
-                as="textarea"
-                value={formData.bpmn_xml}
-                onChange={(e) => setFormData({ ...formData, bpmn_xml: e.target.value })}
-                placeholder="Paste BPMN XML here (optional)"
-                rows={6}
-              />
-              <Form.Text className="text-muted">
-                You can paste BPMN XML directly or use the Import option to upload a file
-              </Form.Text>
-            </Form.Group>
 
             <div className="d-flex justify-content-end gap-2">
               <Button variant="secondary" onClick={() => setShowModal(false)}>

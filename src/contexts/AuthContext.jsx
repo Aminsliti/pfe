@@ -25,6 +25,7 @@ export const PERMISSIONS = {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
+  const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,9 +33,13 @@ export function AuthProvider({ children }) {
     const savedUser = localStorage.getItem('currentUser');
     const savedPermissions = localStorage.getItem('permissions');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      const parsedUser = JSON.parse(savedUser);
+      setUser(parsedUser);
       if (savedPermissions) {
         setPermissions(JSON.parse(savedPermissions));
+      }
+      if (parsedUser.company) {
+        setCompany(parsedUser.company);
       }
     }
     setLoading(false);
@@ -57,6 +62,12 @@ export function AuthProvider({ children }) {
         setPermissions(data.permissions || []);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         localStorage.setItem('permissions', JSON.stringify(data.permissions || []));
+        
+        // Set company context if available
+        if (data.user.company) {
+          setCompany(data.user.company);
+        }
+        
         return { success: true, user: data.user };
       } else {
         return { success: false, error: data.error || 'Login failed' };
@@ -68,10 +79,13 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
-    setUser(null);
-    setPermissions([]);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('permissions');
+    localStorage.removeItem('company');
+    setUser(null);
+    setPermissions([]);
+    setCompany(null);
+    setLoading(false);
   };
 
   const hasPermission = (permission) => {
@@ -285,6 +299,7 @@ export function AuthProvider({ children }) {
   const value = {
     user,
     permissions,
+    company: company,
     loading,
     login,
     logout,

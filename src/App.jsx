@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import UserManagement from './pages/UserManagement';
 import RoleManagement from './pages/RoleManagement';
+import CompanyManagement from './pages/CompanyManagement';
 import ProcessManagement from './pages/ProcessManagement';
 import Unauthorized from './pages/Unauthorized';
 import Layout from './components/Layout';
@@ -30,6 +31,12 @@ function App() {
             <Route path="processes" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
                 <ProcessManagement />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="companies" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
+                <CompanyManagement />
               </ProtectedRoute>
             } />
             

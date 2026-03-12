@@ -25,16 +25,10 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    // Get user permissions
-    const permissionsResult = await pool.query(
-      `SELECT p.name FROM permissions p
-       JOIN role_permissions rp ON p.id = rp.permission_id
-       JOIN roles r ON r.id = rp.role_id
-       WHERE r.name = $1`,
-      [user.role]
-    );
-
-    const permissions = permissionsResult.rows.map(p => p.name);
+    // Simple permissions - hardcoded for admin
+    const permissions = user.role === 'Administrator' 
+      ? ['view_dashboard', 'manage_processes', 'user_management', 'role_management', 'view_reports']
+      : ['view_dashboard'];
 
     // Return user without password and with camelCase field names
     const { password: _, ...userWithoutPassword } = user;
@@ -44,6 +38,7 @@ router.post('/login', async (req, res) => {
       email: userWithoutPassword.email,
       fullName: userWithoutPassword.full_name,
       role: userWithoutPassword.role,
+      company: null,
       createdAt: userWithoutPassword.created_at,
       updatedAt: userWithoutPassword.updated_at
     };

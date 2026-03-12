@@ -30,12 +30,20 @@ const upload = multer({ storage: storage });
 // Get all processes with search and filtering
 router.get('/processes', async (req, res) => {
   try {
-    const { search, category, status } = req.query;
+    const { search, category, status, company } = req.query;
+    
+    // If user is authenticated, filter by their company by default
+    let companyFilter = company;
+    if (req.user && req.user.company && !company) {
+      companyFilter = req.user.company.id;
+    }
+    
     let query = `
-      SELECT p.*, pc.name as category_name, u.full_name as created_by_name
+      SELECT p.*, pc.name as category_name, u.full_name as created_by_name, c.name as company_name
       FROM processes p
       LEFT JOIN process_categories pc ON p.category_id = pc.id
       LEFT JOIN users u ON p.created_by = u.id
+      LEFT JOIN companies c ON p.company_id = c.id
       WHERE 1=1
     `;
     const params = [];
@@ -56,6 +64,12 @@ router.get('/processes', async (req, res) => {
     if (status) {
       query += ` AND p.status = $${paramIndex}`;
       params.push(status);
+      paramIndex++;
+    }
+
+    if (companyFilter) {
+      query += ` AND p.company_id = $${paramIndex}`;
+      params.push(companyFilter);
       paramIndex++;
     }
 
@@ -109,18 +123,21 @@ router.get('/processes/:id', async (req, res) => {
 // Create new process
 router.post('/processes', async (req, res) => {
   try {
-    const { name, description, bpmn_xml, category_id, status = 'draft' } = req.body;
-    const created_by = 1; // Default to admin user for now
+    const { name, description, bpmn_xml, category_id, company_id, status = 'draft' } = req.body;
+    const created_by = req.user?.id || 1;
 
     if (!name) {
       return res.status(400).json({ error: 'Process name is required' });
     }
 
+    // Use authenticated user's company if no company_id provided
+    const processCompanyId = company_id || (req.user?.company?.id || null);
+
     const result = await pool.query(
-      `INSERT INTO processes (name, description, bpmn_xml, category_id, created_by, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, description, category_id, created_by, status, version, created_at, updated_at`,
-      [name, description, bpmn_xml, category_id || null, created_by, status]
+      `INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at`,
+      [name, description, bpmn_xml, category_id || null, processCompanyId, created_by, status]
     );
 
     const process = result.rows[0];
@@ -143,8 +160,8 @@ router.post('/processes', async (req, res) => {
 router.put('/processes/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, bpmn_xml, category_id, status, change_description } = req.body;
-    const updated_by = req.user?.id || 1;
+    const { name, description, bpmn_xml, category_id, company_id, status, change_description } = req.body;
+    const updated_by = 1; // Default to admin user for now
 
     // Get current process
     const currentResult = await pool.query('SELECT * FROM processes WHERE id = $1', [id]);
@@ -158,11 +175,11 @@ router.put('/processes/:id', async (req, res) => {
     // Update process
     const updateResult = await pool.query(
       `UPDATE processes 
-       SET name = $1, description = $2, bpmn_xml = $3, category_id = $4, status = $5, 
-           version = $6, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7
-       RETURNING id, name, description, category_id, status, version, updated_at`,
-      [name, description, bpmn_xml, category_id, status, newVersion, id]
+       SET name = $1, description = $2, bpmn_xml = $3, category_id = $4, company_id = $5, status = $6, 
+           version = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8
+       RETURNING id, name, description, category_id, company_id, status, version, updated_at`,
+      [name, description, bpmn_xml, category_id || null, company_id || null, status, newVersion, id]
     );
 
     // Create new version
@@ -300,6 +317,17 @@ router.get('/process-categories', async (req, res) => {
   }
 });
 
+// Get companies
+router.get('/companies', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM companies ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get companies error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Create process category
 router.post('/process-categories', async (req, res) => {
   try {
@@ -322,6 +350,75 @@ router.post('/process-categories', async (req, res) => {
     } else {
       res.status(500).json({ error: 'Server error' });
     }
+  }
+});
+
+// Create company
+router.post('/companies', async (req, res) => {
+  try {
+    const { name, description, logo_url } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Company name is required' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO companies (name, description, logo_url) VALUES ($1, $2, $3) RETURNING *',
+      [name, description, logo_url]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Create company error:', error);
+    if (error.code === '23505') {
+      res.status(400).json({ error: 'Company name already exists' });
+    } else {
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+});
+
+// Update company
+router.put('/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, logo_url } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Company name is required' });
+    }
+
+    const result = await pool.query(
+      'UPDATE companies SET name = $1, description = $2, logo_url = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING *',
+      [name, description, logo_url, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update company error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete company
+router.delete('/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query('DELETE FROM companies WHERE id = $1', [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    res.json({ message: 'Company deleted successfully' });
+  } catch (error) {
+    console.error('Delete company error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

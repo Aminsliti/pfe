@@ -16,7 +16,7 @@ import {
 } from 'react-bootstrap';
 
 export function UserManagement() {
-  const { getAllUsers, createUser, updateUser, deleteUser, ROLES } = useAuth();
+  const { getAllUsers, createUser, updateUser, deleteUser, ROLES, company } = useAuth();
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +28,7 @@ export function UserManagement() {
     password: '',
     email: '',
     fullName: '',
-    role: ROLES.VIEWER,
+    role: 'Viewer'
   });
   const [error, setError] = useState('');
 
@@ -38,13 +38,19 @@ export function UserManagement() {
     setLoading(true);
     const data = await getAllUsers();
     setUsers(data);
-    setFilteredUsers(data);
+    
+    // Filter users by company if user has company access
+    const filtered = company 
+      ? data.filter(user => user.company_id === company.id)
+      : data;
+    
+    setFilteredUsers(filtered);
     setLoading(false);
   };
 
   useEffect(() => {
     loadUsers();
-  }, []);
+  }, [company]);
 
   useEffect(() => {
     const filtered = users.filter(user => 

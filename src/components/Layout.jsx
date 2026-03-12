@@ -36,6 +36,12 @@ export function Layout() {
       permission: PERMISSIONS.MANAGE_PROCESSES 
     },
     { 
+      path: '/companies', 
+      label: 'Company Management', 
+      icon: 'bi-building', 
+      permission: PERMISSIONS.USER_MANAGEMENT 
+    },
+    { 
       path: '/users', 
       label: 'User Management', 
       icon: 'bi-people', 
