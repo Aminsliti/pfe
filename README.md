@@ -1,23 +1,28 @@
-# PFE Platform - Authentication & Role-Based Access Control
+# v-bpm - Business Process Management Platform
 
-A full-stack application implementing user authentication and role-based access control (RBAC) for enterprise platforms.
+A modern business process management system with authentication, role-based access control, and hierarchical process organization.
 
 ## Features
 
-### FR-01 – User Authentication
-- Secure login with username/password
-- Backend API authentication using bcrypt for password hashing
-- Session persistence using localStorage
-- Async login handling with proper error management
+### Core Functionality
+- **Process Management**: Create, edit, and organize business processes
+- **Hierarchical View**: Tree-based process organization with categories
+- **Table View**: Flat process listing with filtering and search
+- **BPMN Support**: Import and export BPMN files
+- **Role-Based Access**: 5 user roles with granular permissions
 
-### FR-02 – Role-Based Access Control
-- 5 predefined roles:
-  - **Administrator**: Full system access
-  - **Business Analyst**: Can view reports and manage processes
-  - **Process Owner**: Can manage processes
-  - **Risk Manager**: Can manage risks and view reports
-  - **Viewer**: Can only view dashboard
-- Permission-based route protection
+### User Authentication & Security
+- Secure login with bcrypt password hashing
+- Session persistence using localStorage
+- Company-based data isolation
+- Async authentication with proper error handling
+
+### User Roles & Permissions
+- **Administrator**: Full system access
+- **Business Analyst**: Can view reports and manage processes
+- **Process Owner**: Can manage processes
+- **Risk Manager**: Can manage risks and view reports
+- **Viewer**: Read-only access to dashboard
 
 ### FR-03 – User Management
 - Create new user accounts

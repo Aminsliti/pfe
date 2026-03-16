@@ -27,10 +27,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Get all processes with search and filtering
+// Get all processes with search and filtering (hierarchical)
 router.get('/processes', async (req, res) => {
   try {
-    const { search, category, status, company } = req.query;
+    const { search, category, status, company, hierarchical = 'false' } = req.query;
     
     // If user is authenticated, filter by their company by default
     let companyFilter = company;
@@ -39,9 +39,10 @@ router.get('/processes', async (req, res) => {
     }
     
     let query = `
-      SELECT p.*, pc.name as category_name, u.full_name as created_by_name, c.name as company_name
+      SELECT p.*, 
+             u.full_name as created_by_name, 
+             c.name as company_name
       FROM processes p
-      LEFT JOIN process_categories pc ON p.category_id = pc.id
       LEFT JOIN users u ON p.created_by = u.id
       LEFT JOIN companies c ON p.company_id = c.id
       WHERE 1=1
@@ -55,15 +56,15 @@ router.get('/processes', async (req, res) => {
       paramIndex++;
     }
 
-    if (category) {
-      query += ` AND p.category_id = $${paramIndex}`;
-      params.push(category);
-      paramIndex++;
-    }
-
     if (status) {
       query += ` AND p.status = $${paramIndex}`;
       params.push(status);
+      paramIndex++;
+    }
+
+    if (category) {
+      query += ` AND p.category_id = $${paramIndex}`;
+      params.push(category);
       paramIndex++;
     }
 
@@ -73,15 +74,48 @@ router.get('/processes', async (req, res) => {
       paramIndex++;
     }
 
-    query += ` ORDER BY p.updated_at DESC`;
+    query += ` ORDER BY p.parent_id NULLS FIRST, p.name`;
 
     const result = await pool.query(query, params);
-    res.json(result.rows);
+    
+    let processes = result.rows;
+    
+    // If hierarchical is requested, build tree structure
+    if (hierarchical === 'true') {
+      processes = buildProcessTree(result.rows);
+    }
+    
+    res.json(processes);
   } catch (error) {
-    console.error('Get processes error:', error);
+    console.error('Error fetching processes:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// Helper function to build hierarchical tree structure
+function buildProcessTree(processes) {
+  const processMap = {};
+  const rootProcesses = [];
+  
+  // Create a map of all processes
+  processes.forEach(process => {
+    processMap[process.id] = { ...process, children: [] };
+  });
+  
+  // Build the tree structure
+  processes.forEach(process => {
+    if (process.parent_id === null) {
+      rootProcesses.push(processMap[process.id]);
+    } else {
+      const parent = processMap[process.parent_id];
+      if (parent) {
+        parent.children.push(processMap[process.id]);
+      }
+    }
+  });
+  
+  return rootProcesses;
+}
 
 // Get single process with versions
 router.get('/processes/:id', async (req, res) => {
@@ -132,12 +166,15 @@ router.post('/processes', async (req, res) => {
 
     // Use authenticated user's company if no company_id provided
     const processCompanyId = company_id || (req.user?.company?.id || null);
+    
+    // Default bpmn_xml if not provided
+    const bpmnXml = bpmn_xml || '<?xml version="1.0" encoding="UTF-8"?><definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn"><process id="Process_1" isExecutable="false"></process></definitions>';
 
     const result = await pool.query(
       `INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at`,
-      [name, description, bpmn_xml, category_id || null, processCompanyId, created_by, status]
+      [name, description, bpmnXml, category_id || null, processCompanyId, created_by, status]
     );
 
     const process = result.rows[0];
@@ -146,7 +183,7 @@ router.post('/processes', async (req, res) => {
     await pool.query(
       `INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
        VALUES ($1, $2, $3, $4, $5)`,
-      [process.id, 1, bpmn_xml, created_by, 'Initial version']
+      [process.id, 1, bpmnXml, created_by, 'Initial version']
     );
 
     res.status(201).json(process);

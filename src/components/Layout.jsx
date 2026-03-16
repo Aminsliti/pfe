@@ -10,6 +10,19 @@ import {
   Badge,
   Offcanvas
 } from 'react-bootstrap';
+import logo from '../assets/logo.png';
+
+// v-bpm Logo Component
+const VBPMLogo = ({ size = 30, className = "" }) => (
+  <img 
+    src={logo} 
+    alt="v-bpm Logo" 
+    width={size * 1.5} 
+    height={size} 
+    className={className}
+    style={{ objectFit: 'contain' }}
+  />
+);
 
 export function Layout() {
   const { user, logout, hasPermission } = useAuth();
@@ -60,15 +73,15 @@ export function Layout() {
   const getRoleBadgeVariant = (role) => {
     switch (role) {
       case ROLES.ADMINISTRATOR:
-        return 'danger';
+        return 'danger'; // Red
       case ROLES.BUSINESS_ANALYST:
-        return 'primary';
+        return 'dark'; // Black
       case ROLES.PROCESS_OWNER:
-        return 'success';
+        return 'secondary'; // Grey
       case ROLES.RISK_MANAGER:
-        return 'warning';
+        return 'dark'; // Black
       case ROLES.VIEWER:
-        return 'secondary';
+        return 'secondary'; // Grey
       default:
         return 'secondary';
     }
@@ -76,7 +89,7 @@ export function Layout() {
 
   return (
     <>
-      <Navbar bg="primary" variant="dark" expand={false} className="mb-4 shadow-sm">
+      <Navbar style={{ background: '#dc2626' }} expand={false} className="mb-4 shadow-sm">
         <Container fluid>
           <Button
             variant="outline-light"
@@ -87,10 +100,8 @@ export function Layout() {
           </Button>
           
           <Navbar.Brand href="#" className="d-flex align-items-center fw-bold">
-            <div className="bg-white text-primary rounded-circle p-2 me-2">
-              <i className="bi bi-shield-fill-check"></i>
-            </div>
-            <span>PFE Platform</span>
+            <VBPMLogo size={50} className="me-2" />
+            <span style={{ color: 'white', fontSize: '18px', fontWeight: 600 }}>v-bpm</span>
           </Navbar.Brand>
 
           <Nav className="ms-auto d-none d-lg-flex align-items-center">
@@ -99,7 +110,12 @@ export function Layout() {
                 key={item.path}
                 as={Link}
                 to={item.path}
-                className={`px-3 rounded-3 mx-1 ${location.pathname === item.path ? 'active bg-white text-primary' : 'text-white'}`}
+                className={`px-3 rounded-3 mx-1 ${location.pathname === item.path ? 'active' : 'text-white'}`}
+                style={{ 
+                  background: location.pathname === item.path ? 'white' : 'transparent',
+                  color: location.pathname === item.path ? '#dc2626' : 'white',
+                  fontWeight: location.pathname === item.path ? '600' : '400'
+                }}
               >
                 <i className={`bi ${item.icon} me-2`}></i>
                 {item.label}
@@ -110,7 +126,7 @@ export function Layout() {
           <Dropdown align="end">
             <Dropdown.Toggle variant="outline-light" id="user-dropdown" className="border-0">
               <div className="d-flex align-items-center">
-                <div className="bg-white text-primary rounded-circle p-1 me-2">
+                <div style={{ background: 'white', color: '#dc2626', borderRadius: '50%', padding: '6px', marginRight: '8px' }}>
                   <i className="bi bi-person-fill"></i>
                 </div>
                 <span className="d-none d-md-inline">{user?.fullName}</span>
@@ -118,9 +134,9 @@ export function Layout() {
             </Dropdown.Toggle>
             
             <Dropdown.Menu className="shadow border-0">
-              <Dropdown.Header className="bg-light">
+              <Dropdown.Header style={{ background: '#f9fafb' }}>
                 <div className="d-flex align-items-center">
-                  <div className="bg-primary text-white rounded-circle p-2 me-3">
+                  <div style={{ background: '#dc2626', color: 'white', borderRadius: '50%', padding: '8px', marginRight: '12px' }}>
                     <i className="bi bi-person-fill fs-5"></i>
                   </div>
                   <div>
@@ -136,7 +152,7 @@ export function Layout() {
               </Dropdown.Header>
               <Dropdown.Divider />
               <Dropdown.Item onClick={() => navigate('/dashboard')} className="py-2">
-                <i className="bi bi-speedometer2 me-2 text-primary"></i>
+                <i className="bi bi-speedometer2 me-2" style={{ color: '#dc2626' }}></i>
                 <span>Dashboard</span>
               </Dropdown.Item>
               <Dropdown.Item onClick={handleLogout} className="py-2 text-danger">
@@ -149,22 +165,25 @@ export function Layout() {
       </Navbar>
 
       <Offcanvas show={sidebarShow} onHide={() => setSidebarShow(false)} placement="start">
-        <Offcanvas.Header closeButton className="bg-primary text-white">
+        <Offcanvas.Header closeButton style={{ background: '#dc2626', color: 'white', border: 'none' }}>
           <Offcanvas.Title className="d-flex align-items-center">
-            <div className="bg-white text-primary rounded-circle p-2 me-2">
-              <i className="bi bi-shield-fill-check"></i>
-            </div>
-            <span>PFE Platform</span>
+            <VBPMLogo size={50} className="me-2" />
+            <span>v-bpm</span>
           </Offcanvas.Title>
         </Offcanvas.Header>
-        <Offcanvas.Body className="bg-light">
+        <Offcanvas.Body style={{ background: '#f9fafb' }}>
           <Nav className="flex-column">
             {visibleNavItems.map(item => (
               <Nav.Link
                 key={item.path}
                 as={Link}
                 to={item.path}
-                className={`py-3 px-3 rounded-3 mb-2 ${location.pathname === item.path ? 'active bg-primary text-white' : 'text-dark'}`}
+                className={`py-3 px-3 rounded-3 mb-2 ${location.pathname === item.path ? 'active' : 'text-dark'}`}
+                style={{ 
+                  background: location.pathname === item.path ? '#dc2626' : 'transparent',
+                  color: location.pathname === item.path ? 'white' : '#374151',
+                  fontWeight: location.pathname === item.path ? '600' : '400'
+                }}
                 onClick={() => setSidebarShow(false)}
               >
                 <i className={`bi ${item.icon} me-3 fs-5`}></i>
@@ -175,7 +194,7 @@ export function Layout() {
           
           <div className="mt-auto pt-3 border-top bg-white rounded-3 p-3">
             <div className="d-flex align-items-center mb-3">
-              <div className="bg-primary text-white rounded-circle p-2 me-3">
+              <div style={{ background: '#dc2626', color: 'white', borderRadius: '50%', padding: '8px', marginRight: '12px' }}>
                 <i className="bi bi-person-fill fs-5"></i>
               </div>
               <div>

@@ -12,6 +12,19 @@ import {
   Badge,
   Modal
 } from 'react-bootstrap';
+import logo from '../assets/logo.png';
+
+// v-bpm Logo Component
+const VBPMLogo = ({ size = 60, className = "" }) => (
+  <img 
+    src={logo} 
+    alt="v-bpm Logo" 
+    width={size * 1.5} 
+    height={size} 
+    className={className}
+    style={{ objectFit: 'contain' }}
+  />
+);
 
 export function Login() {
   const [username, setUsername] = useState('');
@@ -273,39 +286,40 @@ export function Login() {
   };
 
   return (
-    <Container fluid className="min-vh-100 bg-light">
+    <Container fluid className="min-vh-100" style={{ background: 'linear-gradient(135deg, #111827 0%, #374151 100%)' }}>
       <Row className="min-vh-100">
-        <Col lg={6} className="d-none d-lg-flex align-items-center justify-content-center bg-primary text-white">
-          <div className="text-center">
-            <i className="bi bi-shield-fill-check display-1 mb-4"></i>
-            <h1 className="display-4 fw-bold mb-3">PFE Platform</h1>
-            <p className="lead mb-4">Enterprise Role-Based Access Control System</p>
-            <div className="d-flex justify-content-center gap-3">
+        <Col lg={6} className="d-none d-lg-flex align-items-center justify-content-center text-white">
+          <div className="text-center px-4">
+            <VBPMLogo size={180} className="mb-4" />
+            <h1 className="display-4 fw-bold mb-3" style={{ color: '#dc2626', fontWeight: 700 }}>v-bpm</h1>
+            <h2 className="h3 mb-3" style={{ color: '#f3f4f6', fontWeight: 500 }}>Business Process Management</h2>
+            <p className="lead mb-4" style={{ color: '#9ca3af' }}>Enterprise Process Management & Automation Platform</p>
+            <div className="d-flex justify-content-center gap-4">
               <div className="text-start">
-                <h6>Features:</h6>
+                <h6 className="mb-3" style={{ color: '#e5e7eb' }}>Core Features:</h6>
                 <ul className="list-unstyled">
-                  <li><i className="bi bi-check-circle me-2"></i>User Management</li>
-                  <li><i className="bi bi-check-circle me-2"></i>Role Management</li>
-                  <li><i className="bi bi-check-circle me-2"></i>Permission Control</li>
-                  <li><i className="bi bi-check-circle me-2"></i>Secure Authentication</li>
+                  <li className="mb-2"><i className="bi bi-check-circle-fill me-2" style={{ color: '#dc2626' }}></i><span style={{ color: '#d1d5db' }}>Process Management</span></li>
+                  <li className="mb-2"><i className="bi bi-check-circle-fill me-2" style={{ color: '#dc2626' }}></i><span style={{ color: '#d1d5db' }}>Hierarchical Organization</span></li>
+                  <li className="mb-2"><i className="bi bi-check-circle-fill me-2" style={{ color: '#dc2626' }}></i><span style={{ color: '#d1d5db' }}>BPMN Support</span></li>
+                  <li className="mb-2"><i className="bi bi-check-circle-fill me-2" style={{ color: '#dc2626' }}></i><span style={{ color: '#d1d5db' }}>Role-Based Access</span></li>
                 </ul>
               </div>
             </div>
           </div>
         </Col>
 
-        <Col lg={6} className="d-flex align-items-center justify-content-center">
+        <Col lg={6} className="d-flex align-items-center justify-content-center" style={{ background: '#f9fafb' }}>
           <div className="w-100" style={{ maxWidth: '450px' }}>
-            <Card className="shadow-lg border-0">
+            <Card className="shadow-lg border-0" style={{ borderRadius: '12px', border: '1px solid #e5e7eb' }}>
               <Card.Body className="p-5">
                 <div className="text-center mb-4">
-                  <i className="bi bi-shield-fill-check text-primary display-4 mb-3"></i>
-                  <h2>Welcome Back</h2>
-                  <p className="text-muted">Sign in to continue to your account</p>
+                  <VBPMLogo size={90} className="mb-3" />
+                  <h2 className="fw-bold" style={{ color: '#111827' }}>Welcome Back</h2>
+                  <p className="text-muted" style={{ color: '#6b7280' }}>Sign in to continue to your account</p>
                 </div>
 
                 {error && (
-                  <Alert variant="danger" className="mb-4">
+                  <Alert variant="danger" className="mb-4" style={{ border: 'none', backgroundColor: '#fef2f2', color: '#dc2626' }}>
                     <i className="bi bi-exclamation-triangle me-2"></i>
                     {error}
                   </Alert>
@@ -313,7 +327,7 @@ export function Login() {
 
                 <Form onSubmit={handleSubmit}>
                   <Form.Group className="mb-3">
-                    <Form.Label htmlFor="username">Username or Email</Form.Label>
+                    <Form.Label htmlFor="username" style={{ color: '#374151', fontWeight: 500 }}>Username or Email</Form.Label>
                     <Form.Control
                       type="text"
                       id="username"
@@ -322,14 +336,15 @@ export function Login() {
                       required
                       placeholder="Enter your username or email"
                       size="lg"
+                      style={{ border: '1px solid #d1d5db', borderRadius: '6px' }}
                     />
-                    <Form.Text className="text-muted">
-                      Try: admin / admin123 OR admin@pfe.com / admin123
+                    <Form.Text className="text-muted" style={{ fontSize: '12px' }}>
+                      Try: admin / admin123 OR admin@vbpm.com / admin123
                     </Form.Text>
                   </Form.Group>
 
                   <Form.Group className="mb-4">
-                    <Form.Label htmlFor="password">Password</Form.Label>
+                    <Form.Label htmlFor="password" style={{ color: '#374151', fontWeight: 500 }}>Password</Form.Label>
                     <Form.Control
                       type="password"
                       id="password"
@@ -338,15 +353,22 @@ export function Login() {
                       required
                       placeholder="Enter your password"
                       size="lg"
+                      style={{ border: '1px solid #d1d5db', borderRadius: '6px' }}
                     />
                   </Form.Group>
 
                   <Button 
                     type="submit" 
-                    variant="primary" 
                     size="lg" 
                     className="w-100 mb-4"
                     disabled={loading}
+                    style={{ 
+                      background: '#dc2626', 
+                      border: 'none', 
+                      borderRadius: '6px',
+                      fontWeight: 500,
+                      padding: '12px'
+                    }}
                   >
                     {loading ? (
                       <>
@@ -367,13 +389,15 @@ export function Login() {
                     variant="link" 
                     className="p-0 text-decoration-none"
                     onClick={openForgotPasswordModal}
+                    style={{ color: '#dc2626' }}
                   >
                     Forgot Password?
                   </Button>
                   <Button 
-                    variant="outline-primary" 
+                    variant="outline-secondary" 
                     size="sm"
                     onClick={openSignUpModal}
+                    style={{ borderColor: '#d1d5db', color: '#374151' }}
                   >
                     <i className="bi bi-person-plus me-2"></i>
                     Sign Up
@@ -381,12 +405,13 @@ export function Login() {
                 </div>
 
                 <div className="text-center">
-                  <p className="text-muted mb-0">
+                  <p className="mb-0" style={{ color: '#6b7280', fontSize: '14px' }}>
                     Don't have an account? 
                     <Button 
                       variant="link" 
                       className="p-0 ms-1 text-decoration-none"
                       onClick={openSignUpModal}
+                      style={{ color: '#dc2626' }}
                     >
                       Sign up here
                     </Button>
@@ -400,15 +425,15 @@ export function Login() {
 
       {/* Sign Up Modal */}
       <Modal show={showSignUp} onHide={() => setShowSignUp(false)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>
-            <i className="bi bi-person-plus me-2"></i>
+        <Modal.Header closeButton style={{ background: '#dc2626', color: 'white', border: 'none' }}>
+          <Modal.Title className="fw-bold">
+            <VBPMLogo size={45} className="me-2" />
             Create New Account
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {signUpError && (
-            <Alert variant="danger">
+            <Alert variant="danger" style={{ border: 'none', backgroundColor: '#fef2f2', color: '#dc2626' }}>
               <i className="bi bi-exclamation-triangle me-2"></i>
               {signUpError}
             </Alert>
@@ -490,10 +515,10 @@ export function Login() {
             </Row>
 
             <div className="d-flex justify-content-end gap-2">
-              <Button variant="secondary" onClick={() => setShowSignUp(false)}>
+              <Button variant="secondary" onClick={() => setShowSignUp(false)} style={{ background: '#6b7280', border: 'none' }}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" disabled={signUpLoading}>
+              <Button type="submit" disabled={signUpLoading} style={{ background: '#dc2626', border: 'none' }}>
                 {signUpLoading ? (
                   <>
                     <span className="spinner-border spinner-border-sm me-2" role="status"></span>
@@ -513,9 +538,9 @@ export function Login() {
 
       {/* Forgot Password Modal */}
       <Modal show={showForgotPassword} onHide={() => setShowForgotPassword(false)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>
-            <i className="bi bi-key me-2"></i>
+        <Modal.Header closeButton style={{ background: '#dc2626', color: 'white', border: 'none' }}>
+          <Modal.Title className="fw-bold">
+            <VBPMLogo size={45} className="me-2" />
             {forgotPasswordStep === 1 && 'Reset Password'}
             {forgotPasswordStep === 2 && 'Enter Verification Code'}
             {forgotPasswordStep === 3 && 'Set New Password'}
@@ -523,7 +548,7 @@ export function Login() {
         </Modal.Header>
         <Modal.Body>
           {forgotPasswordError && (
-            <Alert variant="danger">
+            <Alert variant="danger" style={{ border: 'none', backgroundColor: '#fef2f2', color: '#dc2626' }}>
               <i className="bi bi-exclamation-triangle me-2"></i>
               {forgotPasswordError}
             </Alert>
@@ -547,21 +572,21 @@ export function Login() {
               </Form.Group>
 
               <div className="d-flex justify-content-end gap-2">
-                <Button variant="secondary" onClick={() => setShowForgotPassword(false)}>
+                <Button variant="secondary" onClick={() => setShowForgotPassword(false)} style={{ background: '#6b7280', border: 'none' }}>
                   Cancel
                 </Button>
-                <Button type="submit" variant="primary" disabled={forgotPasswordLoading}>
+                <Button type="submit" disabled={forgotPasswordLoading} style={{ background: '#dc2626', border: 'none' }}>
                   {forgotPasswordLoading ? (
                     <>
                       <span className="spinner-border spinner-border-sm me-2" role="status"></span>
                       Sending...
                     </>
                   ) : (
-                    <>
-                      <i className="bi bi-envelope me-2"></i>
-                      Send Code
-                    </>
-                  )}
+                      <>
+                        <i className="bi bi-envelope me-2"></i>
+                        Send Code
+                      </>
+                    )}
                 </Button>
               </div>
             </Form>
@@ -569,8 +594,8 @@ export function Login() {
 
           {forgotPasswordStep === 2 && (
             <Form onSubmit={handleVerifyCode}>
-              <Alert variant="info">
-                <i className="bi bi-info-circle me-2"></i>
+              <Alert variant="info" style={{ backgroundColor: '#f3f4f6', border: 'none', color: '#374151' }}>
+                <i className="bi bi-info-circle me-2" style={{ color: '#dc2626' }}></i>
                 A verification code has been sent to {forgotPasswordData.email}
               </Alert>
               

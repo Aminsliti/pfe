@@ -1,7 +1,8 @@
 {
-  "name": "pfeproject",
+  "name": "v-bpm-platform",
   "private": true,
   "version": "0.0.0",
+  "description": "v-bpm Business Process Management Platform",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +21,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "lucide-react": "^0.577.0",
     "multer": "^2.1.0",
     "pg": "^8.19.0",
     "react": "^19.2.0",
