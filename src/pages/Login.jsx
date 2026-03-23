@@ -13,11 +13,23 @@ import {
   Modal
 } from 'react-bootstrap';
 import logo from '../assets/logo.png';
+import logo2 from '../assets/logo2.png';
 
-// v-bpm Logo Component
+// v-bpm Logo Components
 const VBPMLogo = ({ size = 60, className = "" }) => (
   <img 
     src={logo} 
+    alt="v-bpm Logo" 
+    width={size * 1.5} 
+    height={size} 
+    className={className}
+    style={{ objectFit: 'contain' }}
+  />
+);
+
+const VBPMLogo2 = ({ size = 60, className = "" }) => (
+  <img 
+    src={logo2} 
     alt="v-bpm Logo" 
     width={size * 1.5} 
     height={size} 
@@ -290,7 +302,7 @@ export function Login() {
       <Row className="min-vh-100">
         <Col lg={6} className="d-none d-lg-flex align-items-center justify-content-center text-white">
           <div className="text-center px-4">
-            <VBPMLogo size={180} className="mb-4" />
+            <VBPMLogo2 size={180} className="mb-4" />
             <h1 className="display-4 fw-bold mb-3" style={{ color: '#dc2626', fontWeight: 700 }}>v-bpm</h1>
             <h2 className="h3 mb-3" style={{ color: '#f3f4f6', fontWeight: 500 }}>Business Process Management</h2>
             <p className="lead mb-4" style={{ color: '#9ca3af' }}>Enterprise Process Management & Automation Platform</p>
@@ -314,7 +326,7 @@ export function Login() {
               <Card.Body className="p-5">
                 <div className="text-center mb-4">
                   <VBPMLogo size={90} className="mb-3" />
-                  <h2 className="fw-bold" style={{ color: '#111827' }}>Welcome Back</h2>
+                  <h2 className="fw-bold" style={{ color: '#111827' }}>Welcome</h2>
                   <p className="text-muted" style={{ color: '#6b7280' }}>Sign in to continue to your account</p>
                 </div>
 
@@ -338,9 +350,7 @@ export function Login() {
                       size="lg"
                       style={{ border: '1px solid #d1d5db', borderRadius: '6px' }}
                     />
-                    <Form.Text className="text-muted" style={{ fontSize: '12px' }}>
-                      Try: admin / admin123 OR admin@vbpm.com / admin123
-                    </Form.Text>
+                    
                   </Form.Group>
 
                   <Form.Group className="mb-4">

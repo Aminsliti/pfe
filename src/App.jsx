@@ -1,3 +1,4 @@
+// src/App.jsx
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -7,9 +8,11 @@ import UserManagement from './pages/UserManagement';
 import RoleManagement from './pages/RoleManagement';
 import CompanyManagement from './pages/CompanyManagement';
 import ProcessManagement from './pages/ProcessManagement';
+import OrgChart from './pages/OrgChart';          // ← NEW
 import Unauthorized from './pages/Unauthorized';
 import Layout from './components/Layout';
 import { ROLES } from './contexts/AuthContext';
+import SimulationScenarios from './pages/SimulationScenarios';
 import './App.css';
 
 function App() {
@@ -19,7 +22,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
-          
+
           <Route path="/" element={
             <ProtectedRoute allowedRoles={Object.values(ROLES)}>
               <Layout />
@@ -27,25 +30,34 @@ function App() {
           }>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
-            
+
             <Route path="processes" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
                 <ProcessManagement />
               </ProtectedRoute>
             } />
-            
+<Route path="simulations" element={
+  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
+    <SimulationScenarios />
+  </ProtectedRoute>
+} />
+            {/* ── Org Chart — all roles can see it */}
+            <Route path="orgchart" element={
+              <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                <OrgChart />
+              </ProtectedRoute>
+            } />
+
             <Route path="companies" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
                 <CompanyManagement />
               </ProtectedRoute>
             } />
-            
             <Route path="users" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
                 <UserManagement />
               </ProtectedRoute>
             } />
-            
             <Route path="roles" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
                 <RoleManagement />
@@ -59,4 +71,3 @@ function App() {
 }
 
 export default App;
-

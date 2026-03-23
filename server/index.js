@@ -3,9 +3,10 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
-
+import orgchartRoutes from './routes/orgchart.js'
 import authRoutes from './routes/auth.js';
 import processRoutes from './routes/processes.js';
+import simulationRoutes from './routes/simulations.js';
 import pool from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +22,8 @@ app.use(express.json());
 // API Routes
 app.use('/api', authRoutes);
 app.use('/api', processRoutes);
+app.use('/api', orgchartRoutes);
+app.use('/api', simulationRoutes); 
 
 // Serve static files from React build in production
 if (process.env.NODE_ENV === 'production') {

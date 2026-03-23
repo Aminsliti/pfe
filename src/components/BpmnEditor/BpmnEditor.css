@@ -1,0 +1,302 @@
+/* ═══════════════════════════════════════════════════════════
+   BpmnEditor.css
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Layout ── */
+.bpmn-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 1055;
+  display: flex;
+  flex-direction: column;
+  background: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.bpmn-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 50px;
+  padding: 0 14px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+  gap: 10px;
+}
+.bpmn-hdr-l, .bpmn-hdr-r { display: flex; align-items: center; gap: 8px; }
+
+.bpmn-logo {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg,#667eea,#764ba2);
+  color: white; display: flex; align-items: center;
+  justify-content: center; font-size: 15px; flex-shrink: 0;
+}
+
+.bpmn-pinfo { display: flex; flex-direction: column; gap: 1px; }
+.bpmn-ptag  { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .07em; }
+.bpmn-pname { font-size: 13px; font-weight: 700; color: #f1f5f9; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+.bpmn-vline { width: 1px; height: 20px; background: #334155; margin: 0 2px; }
+
+.bpmn-tools { display: flex; gap: 3px; }
+.bpmn-tool  {
+  padding: 5px 11px; background: #334155; color: #94a3b8;
+  border: none; border-radius: 6px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: background .15s, color .15s; font-family: inherit;
+}
+.bpmn-tool:hover  { background: #475569; color: #e2e8f0; }
+.bpmn-tool.active { background: #3b5bdb; color: white; }
+
+.bpmn-cluster {
+  display: flex; align-items: center; gap: 2px;
+  background: #0f172a; border-radius: 6px; padding: 3px;
+}
+.bpmn-hb {
+  min-width: 26px; height: 26px; padding: 0 5px;
+  background: transparent; color: #94a3b8; border: none; border-radius: 4px;
+  font-size: 13px; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; transition: background .12s, color .12s; font-family: inherit;
+}
+.bpmn-hb:hover:not(:disabled) { background: #334155; color: #f1f5f9; }
+.bpmn-hb:disabled { opacity: .3; cursor: not-allowed; }
+
+.bpmn-zpct { font-size: 11px; color: #64748b; min-width: 36px; text-align: center; }
+
+.bpmn-hb-sec {
+  padding: 5px 11px; background: #334155; color: #94a3b8;
+  border: none; border-radius: 6px; font-size: 11px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; font-family: inherit;
+}
+.bpmn-hb-sec:hover { background: #475569; color: #f1f5f9; }
+
+.bpmn-hb-pri {
+  padding: 5px 14px; background: #3b5bdb; color: white;
+  border: none; border-radius: 6px; font-size: 12px; font-weight: 700;
+  cursor: pointer; white-space: nowrap; transition: background .15s, transform .12s; font-family: inherit;
+}
+.bpmn-hb-pri:hover:not(:disabled) { background: #2f4ac6; transform: translateY(-1px); }
+.bpmn-hb-pri:disabled { opacity: .6; cursor: not-allowed; }
+.bpmn-hb-pri.st-saved  { background: #059669; }
+.bpmn-hb-pri.st-error  { background: #dc2626; }
+.bpmn-hb-pri.st-saving { background: #64748b; }
+
+.bpmn-hb-cls {
+  width: 28px; height: 28px; background: #334155; color: #94a3b8;
+  border: none; border-radius: 6px; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.bpmn-hb-cls:hover { background: #dc2626; color: white; }
+
+/* ── Body ── */
+.bpmn-body { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Palette ── */
+.bpmn-pal {
+  width: 205px; background: white; border-right: 1px solid #e2e8f0;
+  display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
+  box-shadow: 2px 0 6px #00000010;
+}
+.bpmn-pal-top { padding: 9px; border-bottom: 1px solid #f1f5f9; }
+.bpmn-pal-srch {
+  width: 100%; padding: 6px 9px; border: 1.5px solid #e2e8f0; border-radius: 7px;
+  font-size: 12px; font-family: inherit; outline: none; box-sizing: border-box;
+  color: #334155; background: #f8fafc; transition: border-color .15s, background .15s;
+}
+.bpmn-pal-srch:focus { border-color: #3b5bdb; background: white; }
+
+.bpmn-pal-list { flex: 1; overflow-y: auto; padding: 6px 7px; scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
+.bpmn-pal-list::-webkit-scrollbar { width: 4px; }
+.bpmn-pal-list::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+
+.bpmn-pal-grp  { margin-bottom: 10px; }
+.bpmn-pal-grp-hd { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .1em; padding: 4px 4px 5px; }
+
+.bpmn-pal-item {
+  display: flex; align-items: center; gap: 7px; padding: 6px 7px;
+  border-radius: 6px; cursor: grab; border: 1px solid transparent;
+  transition: background .12s, border-color .12s; margin-bottom: 2px; user-select: none;
+}
+.bpmn-pal-item:hover  { background: #eff6ff; border-color: #bfdbfe; }
+.bpmn-pal-item:active { cursor: grabbing; }
+.bpmn-pal-ico { width: 26px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 12px; flex-shrink: 0; }
+.bpmn-pal-lbl { font-size: 11px; color: #475569; font-weight: 500; }
+
+/* ── Connect hint banner ── */
+.bpmn-conn-banner {
+  padding: 8px 10px; background: #3b5bdb; border-top: 1px solid #2f4ac6;
+  display: flex; align-items: center; justify-content: space-between;
+  color: white; font-size: 11px; font-weight: 500; gap: 6px; flex-shrink: 0;
+}
+.bpmn-conn-banner.has-src { background: #059669; }
+.bpmn-conn-banner span { flex: 1; line-height: 1.4; }
+.bpmn-conn-banner button {
+  background: rgba(255,255,255,.2); border: none; color: white;
+  cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+}
+
+/* ── Canvas ── */
+.bpmn-cvs-wrap {
+  flex: 1; position: relative; overflow: hidden; background: #f1f5f9;
+}
+.bpmn-dotgrid {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+}
+.bpmn-svg { width: 100%; height: 100%; display: block; }
+.bpmn-svg.tool-select  { cursor: default; }
+.bpmn-svg.tool-connect { cursor: crosshair; }
+.bpmn-svg.tool-pan     { cursor: grab; }
+.bpmn-svg.is-pan       { cursor: grabbing; }
+
+/* ── Status bar ── */
+.bpmn-statusbar {
+  position: absolute; bottom: 10px; left: 12px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; background: white; border: 1px solid #e2e8f0;
+  border-radius: 20px; font-size: 10px; color: #94a3b8;
+  pointer-events: none; box-shadow: 0 1px 4px #00000010;
+}
+.bpmn-sb-sep  { color: #cbd5e1; }
+.bpmn-sb-conn { color: #3b5bdb; font-weight: 700; }
+
+/* ── Properties ── */
+.bpmn-props {
+  width: 240px; background: white; border-left: 1px solid #e2e8f0;
+  display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
+  box-shadow: -2px 0 6px #00000010;
+}
+.bpmn-props-hd {
+  padding: 11px 15px; border-bottom: 1px solid #f1f5f9;
+  font-size: 10px; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: .08em; flex-shrink: 0;
+}
+.bpmn-props-empty { padding: 36px 20px; text-align: center; color: #94a3b8; font-size: 12px; }
+.bpmn-props-empty p { margin: 0; line-height: 1.6; }
+
+.bpmn-props-body { padding: 13px; overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
+.bpmn-props-body::-webkit-scrollbar { width: 4px; }
+.bpmn-props-body::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+
+.bpmn-badge {
+  display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+  background: #f8fafc; border-left: 3px solid var(--bc, #3b5bdb);
+  border-radius: 7px; margin-bottom: 14px;
+}
+.bpmn-badge-ico  { font-size: 18px; }
+.bpmn-badge-type { font-size: 12px; font-weight: 700; color: #1e293b; }
+.bpmn-badge-id   { font-size: 10px; color: #94a3b8; font-family: monospace; word-break: break-all; }
+
+.bpmn-pf-lbl { display: block; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; margin-top: 10px; }
+.bpmn-pf-lbl:first-child { margin-top: 0; }
+
+.bpmn-pf-ctrl {
+  width: 100%; padding: 6px 9px; border: 1.5px solid #e2e8f0; border-radius: 6px;
+  font-size: 12px; font-family: inherit; color: #1e293b; outline: none;
+  box-sizing: border-box; transition: border-color .12s; background: white;
+}
+.bpmn-pf-ctrl:focus { border-color: #3b5bdb; }
+.bpmn-pf-ta  { resize: vertical; }
+.bpmn-pf-num { font-family: 'Courier New', monospace; font-size: 11px; }
+
+.bpmn-pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.bpmn-pf-coord-key { display: block; font-size: 9px; font-weight: 700; color: #94a3b8; margin-bottom: 2px; }
+
+.bpmn-pf-del {
+  width: 100%; margin-top: 14px; padding: 7px;
+  background: #fef2f2; color: #dc2626; border: 1.5px solid #fecaca;
+  border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  transition: background .12s, border-color .12s;
+}
+.bpmn-pf-del:hover { background: #fee2e2; border-color: #f87171; }
+
+/* ─────────────────────────────────────────────────────────────
+   SVG Shape Styles
+   ───────────────────────────────────────────────────────────── */
+
+.bpmn-shape { cursor: move; }
+
+/* Selection ring */
+.bpmn-sel-ring {
+  fill: none;
+  stroke: #3b5bdb;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* Source highlight */
+.bpmn-shape.is-src rect,
+.bpmn-shape.is-src circle,
+.bpmn-shape.is-src polygon {
+  filter: drop-shadow(0 0 8px #3b5bdb60);
+}
+
+/* ── Anchor dots ──
+   CRITICAL: These MUST be visible when in connect mode.
+   They use pointer-events:all so they capture clicks.
+*/
+.bpmn-anchor {
+  fill: #3b5bdb;
+  stroke: white;
+  stroke-width: 1.5;
+  cursor: crosshair;
+  pointer-events: all;
+  /* hidden by default, shown via .connect-mode */
+  opacity: 0;
+  transition: opacity 0.15s, r 0.1s;
+}
+
+/* When connectMode prop is true, the group gets .connect-mode class */
+.bpmn-shape.connect-mode .bpmn-anchor {
+  opacity: 1;
+}
+
+/* Also show on hover even outside connect mode (helpful UX) */
+.bpmn-shape:hover .bpmn-anchor {
+  opacity: 0.6;
+}
+
+/* Make anchor bigger on hover for easier clicking */
+.bpmn-anchor:hover {
+  opacity: 1 !important;
+  r: 7px;
+  fill: #2f4ac6;
+}
+
+/* Arrow */
+.bpmn-arrow { cursor: pointer; }
+.bpmn-arrow:hover line:last-of-type { stroke: #64748b; }
+.bpmn-arrow.is-selected line:last-of-type { stroke: #3b5bdb; }
+
+/* SVG text helpers */
+.bpmn-txt-ico-sm {
+  font-size: 11px; text-anchor: middle; dominant-baseline: middle; pointer-events: none;
+}
+.bpmn-txt-ico-lg {
+  font-size: 15px; text-anchor: middle; dominant-baseline: middle;
+  pointer-events: none; font-weight: bold;
+}
+.bpmn-txt-lbl {
+  font-size: 10px; text-anchor: middle; fill: #475569; pointer-events: none;
+}
+.bpmn-txt-task {
+  font-size: 11px; text-anchor: middle; fill: #1e293b;
+  font-weight: 500; pointer-events: none;
+}
+.bpmn-fo-label {
+  font-size: 11px; color: #1e293b; font-weight: 500;
+  line-height: 1.35; overflow: hidden; max-height: 100%;
+  word-break: break-word; font-family: inherit;
+}
+.bpmn-txt-pool {
+  font-size: 11px; text-anchor: middle; fill: #334155;
+  font-weight: 600; pointer-events: none;
+}
+.bpmn-txt-flow {
+  font-size: 10px; fill: #64748b; text-anchor: middle; pointer-events: none;
+}
