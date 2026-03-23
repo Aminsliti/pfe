@@ -8,6 +8,7 @@ import {
 } from 'react-bootstrap';
 import logo from '../assets/logo.png';
 
+
 const VBPMLogo = ({ size = 30, className = "" }) => (
   <img src={logo} alt="v-bpm Logo"
     width={size * 1.5} height={size}
@@ -26,7 +27,8 @@ export function Layout() {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard',          icon: 'bi-speedometer2',     permission: PERMISSIONS.VIEW_DASHBOARD  },
     { path: '/processes', label: 'Process Management', icon: 'bi-diagram-3',        permission: PERMISSIONS.MANAGE_PROCESSES },
-    { path: '/orgchart',  label: 'Org Chart',          icon: 'bi-diagram-3-fill',   permission: PERMISSIONS.VIEW_DASHBOARD  }, // ← NEW
+    { path: '/simulations', label: 'Simulations',      icon: 'bi-clock-history',    permission: PERMISSIONS.MANAGE_PROCESSES },
+    { path: '/orgchart',  label: 'Org Chart',          icon: 'bi-diagram-3-fill',   permission: PERMISSIONS.VIEW_DASHBOARD  },
     { path: '/companies', label: 'Company Management', icon: 'bi-building',         permission: PERMISSIONS.USER_MANAGEMENT  },
     { path: '/users',     label: 'User Management',    icon: 'bi-people',           permission: PERMISSIONS.USER_MANAGEMENT  },
     { path: '/roles',     label: 'Role Management',    icon: 'bi-shield-check',     permission: PERMISSIONS.ROLE_MANAGEMENT  },

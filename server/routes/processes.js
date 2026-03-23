@@ -343,6 +343,47 @@ router.get('/processes/:id/export', async (req, res) => {
   }
 });
 
+// Import BPMN file
+router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => {
+  try {
+    const { name, description, category_id, status } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Process name is required' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'BPMN file is required' });
+    }
+
+    // Read the uploaded file
+    const bpmn_xml = fs.readFileSync(req.file.path, 'utf8');
+    
+    // Clean up the uploaded file
+    fs.unlinkSync(req.file.path);
+
+    // Convert empty string to null for category_id
+    const catId = category_id && category_id.trim() !== '' ? parseInt(category_id) : null;
+
+    // Insert the new process
+    const result = await pool.query(
+      `INSERT INTO processes (name, description, bpmn_xml, category_id, status, version, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, 1, $6, $6)
+       RETURNING *`,
+      [name, description || '', bpmn_xml, catId, status || 'draft', req.user?.id || 1]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Import BPMN error:', error);
+    // Clean up file if it exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ error: 'Failed to import BPMN file: ' + error.message });
+  }
+});
+
 // Get process categories
 router.get('/process-categories', async (req, res) => {
   try {
