@@ -28,8 +28,166 @@ let _ctr = 3000;
 const uid  = () => `el_${++_ctr}_${Math.random().toString(36).slice(2, 5)}`;
 const snap = (v, g = 10) => Math.round(v / g) * g;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-// Get the 4 anchor points of an element in SVG coords
+// ─── BPMN XML Parser ──────────────────────────────────────────────────────────
+// Simple parser to extract elements from BPMN XML and convert to editor format
+function parseBpmnXml(xmlString) {
+  if (!xmlString || !xmlString.trim().startsWith('<')) return null;
+  
+  const elements = [];
+  const connections = [];
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'application/xml');
+  
+  // Helper to get attribute or tag content
+  const getAttr = (el, name) => el.getAttribute(name) || '';
+  const getName = (el) => {
+    const nameAttr = el.getAttribute('name');
+    if (nameAttr) return nameAttr;
+    // Try to find bpmn:name inside
+    const nameEl = el.querySelector('name');
+    return nameEl?.textContent || '';
+  };
+  
+  // Parse child elements within a sub-process
+  const parseSubProcessChildren = (subProcessEl) => {
+    const children = [];
+    const childConnections = [];
+    
+    const addElement = (el, type, defaultW, defaultH) => {
+      const id = getAttr(el, 'id');
+      const name = getName(el);
+      if (id) {
+        children.push({ id, type, label: name, w: defaultW, h: defaultH });
+      }
+    };
+    
+    // Parse events inside sub-process
+    subProcessEl.querySelectorAll(':scope > startEvent').forEach(el => addElement(el, 'startEvent', 44, 44));
+    subProcessEl.querySelectorAll(':scope > endEvent').forEach(el => addElement(el, 'endEvent', 44, 44));
+    subProcessEl.querySelectorAll(':scope > intermediateCatchEvent, :scope > intermediateThrowEvent').forEach(el => addElement(el, 'intermediateEvent', 44, 44));
+    
+    // Parse tasks inside sub-process
+    subProcessEl.querySelectorAll(':scope > userTask').forEach(el => addElement(el, 'userTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > serviceTask').forEach(el => addElement(el, 'serviceTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > scriptTask').forEach(el => addElement(el, 'scriptTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > manualTask').forEach(el => addElement(el, 'manualTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > sendTask').forEach(el => addElement(el, 'sendTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > receiveTask').forEach(el => addElement(el, 'receiveTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > businessRuleTask').forEach(el => addElement(el, 'businessRuleTask', 130, 66));
+    subProcessEl.querySelectorAll(':scope > task').forEach(el => addElement(el, 'userTask', 130, 66));
+    
+    // Parse gateways inside sub-process
+    subProcessEl.querySelectorAll(':scope > exclusiveGateway').forEach(el => addElement(el, 'exclusiveGateway', 52, 52));
+    subProcessEl.querySelectorAll(':scope > parallelGateway').forEach(el => addElement(el, 'parallelGateway', 52, 52));
+    subProcessEl.querySelectorAll(':scope > inclusiveGateway').forEach(el => addElement(el, 'inclusiveGateway', 52, 52));
+    
+    // Parse nested sub-processes (recursive)
+    subProcessEl.querySelectorAll(':scope > subProcess').forEach(el => {
+      const id = getAttr(el, 'id');
+      const name = getName(el);
+      const nestedChildren = parseSubProcessChildren(el);
+      if (id) {
+        children.push({ id, type: 'subProcess', label: name, w: 160, h: 80, children: nestedChildren });
+      }
+    });
+    
+    // Parse sequence flows inside sub-process
+    subProcessEl.querySelectorAll(':scope > sequenceFlow').forEach((flow, idx) => {
+      const id = getAttr(flow, 'id') || `flow_${idx}`;
+      const from = getAttr(flow, 'sourceRef');
+      const to = getAttr(flow, 'targetRef');
+      const name = getName(flow);
+      if (from && to) {
+        childConnections.push({ id, from, to, label: name });
+      }
+    });
+    
+    return { elements: children, connections: childConnections };
+  };
+  
+  // Parse various BPMN elements
+  const parseElements = (selector, type, defaultW, defaultH, container = doc) => {
+    container.querySelectorAll(selector).forEach((el, idx) => {
+      // Skip elements that are inside sub-processes - they're parsed separately
+      if (el.closest('subProcess')) return;
+      
+      const id = getAttr(el, 'id') || `${type}_${idx}`;
+      const name = getName(el);
+      const elementData = {
+        id,
+        type,
+        x: 100 + (elements.length * 30) % 500,
+        y: 100 + Math.floor(elements.length / 5) * 100,
+        w: defaultW,
+        h: defaultH,
+        label: name,
+      };
+      
+      // If it's a sub-process, parse its children
+      if (type === 'subProcess') {
+        elementData.children = parseSubProcessChildren(el);
+      }
+      
+      elements.push(elementData);
+    });
+  };
+  
+  // Parse events
+  parseElements('startEvent, [id^="Start"]', 'startEvent', 44, 44);
+  parseElements('endEvent, [id^="End"]', 'endEvent', 44, 44);
+  parseElements('intermediateCatchEvent, intermediateThrowEvent', 'intermediateEvent', 44, 44);
+  
+  // Parse tasks
+  parseElements('userTask', 'userTask', 130, 66);
+  parseElements('serviceTask', 'serviceTask', 130, 66);
+  parseElements('scriptTask', 'scriptTask', 130, 66);
+  parseElements('manualTask', 'manualTask', 130, 66);
+  parseElements('sendTask', 'sendTask', 130, 66);
+  parseElements('receiveTask', 'receiveTask', 130, 66);
+  parseElements('businessRuleTask', 'businessRuleTask', 130, 66);
+  parseElements('task', 'userTask', 130, 66); // generic task
+  
+  // Parse gateways
+  parseElements('exclusiveGateway', 'exclusiveGateway', 52, 52);
+  parseElements('parallelGateway', 'parallelGateway', 52, 52);
+  parseElements('inclusiveGateway', 'inclusiveGateway', 52, 52);
+  
+  // Parse sub-processes
+  parseElements('subProcess', 'subProcess', 160, 80);
+  
+  // Parse sequence flows (only for top-level, not inside sub-processes)
+  doc.querySelectorAll('sequenceFlow').forEach((flow, idx) => {
+    // Skip flows inside sub-processes
+    if (flow.closest('subProcess')) return;
+    
+    const id = getAttr(flow, 'id') || `flow_${idx}`;
+    const from = getAttr(flow, 'sourceRef');
+    const to = getAttr(flow, 'targetRef');
+    const name = getName(flow);
+    if (from && to) {
+      connections.push({ id, from, to, label: name });
+    }
+  });
+  
+  // If no elements found, return null to use default
+  if (elements.length === 0) return null;
+  
+  // Auto-layout: arrange elements in a flow
+  const startNodes = elements.filter(e => e.type === 'startEvent');
+  const endNodes = elements.filter(e => e.type === 'endEvent');
+  const otherNodes = elements.filter(e => !e.type.endsWith('Event'));
+  
+  // Simple layout: start -> tasks -> end
+  let x = 80;
+  const layout = [...startNodes, ...otherNodes, ...endNodes];
+  layout.forEach((el, i) => {
+    el.x = x;
+    el.y = 200 + (i % 2) * 80;
+    x += el.w + 60;
+  });
+  
+  return { elements, connections };
+}
 const anchors = (el) => [
   { id: 'top',    x: el.x + el.w / 2, y: el.y          },
   { id: 'right',  x: el.x + el.w,     y: el.y + el.h / 2 },
@@ -38,7 +196,7 @@ const anchors = (el) => [
 ];
 
 // ─── Shape ────────────────────────────────────────────────────────────────────
-function Shape({ el, selected, connectMode, pendingSrc, onDragStart, onAnchorClick }) {
+function Shape({ el, selected, connectMode, pendingSrc, onDragStart, onAnchorClick, onSubProcessOpen }) {
   const def = DEFS[el.type] || DEFS.userTask;
   const { x, y, w, h, label, type } = el;
   const isSource = pendingSrc === el.id;
@@ -144,13 +302,16 @@ function Shape({ el, selected, connectMode, pendingSrc, onDragStart, onAnchorCli
   // ── Sub-Process ──
   if (type === 'subProcess') {
     return (
-      <g className={gClass} onPointerDown={e => onDragStart(e, el.id)}>
+      <g className={gClass} 
+        onPointerDown={e => onDragStart(e, el.id)}
+        onDoubleClick={() => onSubProcessOpen && onSubProcessOpen(el)}>
         <rect x={x} y={y} width={w} height={h} fill="#f8fafc" stroke="#475569"
           strokeWidth={1.8} strokeDasharray="7 3" rx={8} />
         {selected && <rect x={x-4} y={y-4} width={w+8} height={h+8} className="bpmn-sel-ring" rx={11} />}
         <rect x={x+w/2-9} y={y+h-17} width={18} height={13} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} rx={3} />
         <text x={x+w/2} y={y+h-7} textAnchor="middle" fontSize={10} fill="#64748b" pointerEvents="none">+</text>
         <text x={x+w/2} y={y+24} className="bpmn-txt-task">{label || 'Sub-Process'}</text>
+        <text x={x+w-10} y={y+12} textAnchor="end" fontSize={9} fill="#94a3b8" pointerEvents="none">dbl-click</text>
         <AnchorDots />
       </g>
     );
@@ -310,10 +471,16 @@ export default function BpmnEditor({ process, onClose, onSave }) {
 
   // ── Diagram state ──
   const [elements, setElements] = useState(() => {
+    // First try to parse as BPMN XML (imported files)
+    const parsed = parseBpmnXml(process?.bpmn_xml);
+    if (parsed?.elements?.length) return parsed.elements;
+    
+    // Then try JSON format (editor's native format)
     try {
       const d = process?.bpmn_xml ? JSON.parse(process.bpmn_xml) : null;
       if (d?.elements?.length) return d.elements;
     } catch { /**/ }
+    
     // default example diagram
     return [
       { id: 'el_s', type: 'startEvent',      x: 80,  y: 200, w: 44,  h: 44,  label: 'Start' },
@@ -326,10 +493,16 @@ export default function BpmnEditor({ process, onClose, onSave }) {
   });
 
   const [connections, setConnections] = useState(() => {
+    // First try to parse as BPMN XML
+    const parsed = parseBpmnXml(process?.bpmn_xml);
+    if (parsed?.connections?.length) return parsed.connections;
+    
+    // Then try JSON format
     try {
       const d = process?.bpmn_xml ? JSON.parse(process.bpmn_xml) : null;
       if (d?.connections?.length) return d.connections;
     } catch { /**/ }
+    
     return [
       { id: 'c_1', from: 'el_s', to: 'el_1', label: '' },
       { id: 'c_2', from: 'el_1', to: 'el_g', label: '' },
@@ -340,6 +513,10 @@ export default function BpmnEditor({ process, onClose, onSave }) {
     ];
   });
 
+  // State for sub-process editing
+  const [subProcessStack, setSubProcessStack] = useState([]);
+  const [showSubProcessModal, setShowSubProcessModal] = useState(false);
+  const [editingSubProcess, setEditingSubProcess] = useState(null);
   // ── UI state ──
   const [selected,   setSelected]   = useState(null);
   const [tool,       setTool]       = useState('select'); // select | connect | pan
@@ -354,7 +531,11 @@ export default function BpmnEditor({ process, onClose, onSave }) {
   const [future,     setFuture]     = useState([]);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
 
-  // ── SVG coordinate helper ──
+  // ── Open sub-process ──
+  const handleSubProcessOpen = useCallback((subProcessEl) => {
+    setEditingSubProcess(subProcessEl);
+    setShowSubProcessModal(true);
+  }, []);
   const toSvg = useCallback((clientX, clientY) => {
     const r = svgRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
     return {
@@ -752,7 +933,8 @@ export default function BpmnEditor({ process, onClose, onSave }) {
                   connectMode={tool === 'connect'}
                   pendingSrc={connSrc?.elId}
                   onDragStart={onDragStart}
-                  onAnchorClick={onAnchorClick} />
+                  onAnchorClick={onAnchorClick}
+                  onSubProcessOpen={el.type === 'subProcess' ? handleSubProcessOpen : undefined} />
               ))}
             </g>
           </svg>
@@ -779,6 +961,115 @@ export default function BpmnEditor({ process, onClose, onSave }) {
             onDelete={deleteEl} />
         </aside>
       </div>
+
+      {/* Sub-Process Modal */}
+      {showSubProcessModal && editingSubProcess && (
+        <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'white',borderRadius:12,padding:0,width:600,maxHeight:'80vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            {/* Header */}
+            <div style={{padding:'20px 24px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <h3 style={{margin:0,fontSize:18,fontWeight:600}}>{editingSubProcess.label || 'Sub-Process'}</h3>
+                <p style={{margin:'4px 0 0',fontSize:12,color:'#64748b'}}>ID: {editingSubProcess.id}</p>
+              </div>
+              <button 
+                onClick={() => setShowSubProcessModal(false)}
+                style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#64748b',padding:'4px 8px'}}>
+                ✕
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div style={{padding:24,overflow:'auto'}}>
+              {editingSubProcess.children?.elements?.length > 0 ? (
+                <div>
+                  <h4 style={{margin:'0 0 16px',fontSize:14,fontWeight:600,color:'#334155'}}>
+                    Child Elements ({editingSubProcess.children.elements.length})
+                  </h4>
+                  <div style={{display:'grid',gap:8}}>
+                    {editingSubProcess.children.elements.map((child, idx) => (
+                      <div 
+                        key={child.id} 
+                        style={{
+                          display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
+                          background:'#f8fafc',borderRadius:8,border:'1px solid #e2e8f0'
+                        }}>
+                        <span style={{
+                          width:28,height:28,borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',
+                          background:child.type?.includes('Task') ? '#dbeafe' : 
+                                    child.type?.includes('Event') ? '#dcfce7' :
+                                    child.type?.includes('Gateway') ? '#fef3c7' : '#f1f5f9',
+                          color:child.type?.includes('Task') ? '#2563eb' :
+                               child.type?.includes('Event') ? '#16a34a' :
+                               child.type?.includes('Gateway') ? '#d97706' : '#64748b',
+                          fontSize:14
+                        }}>
+                          {child.type?.includes('Task') ? '⚙' :
+                           child.type?.includes('start') ? '▶' :
+                           child.type?.includes('end') ? '⏹' :
+                           child.type?.includes('Gateway') ? '◆' :
+                           child.type === 'subProcess' ? '⬡' : '•'}
+                        </span>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:14,fontWeight:500,color:'#1e293b'}}>
+                            {child.label || child.type}
+                          </div>
+                          <div style={{fontSize:11,color:'#64748b',marginTop:2}}>
+                            {child.type} · ID: {child.id}
+                          </div>
+                        </div>
+                        {child.type === 'subProcess' && child.children?.elements?.length > 0 && (
+                          <span style={{fontSize:11,color:'#64748b',background:'#e2e8f0',padding:'2px 8px',borderRadius:4}}>
+                            {child.children.elements.length} nested
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {editingSubProcess.children?.connections?.length > 0 && (
+                    <>
+                      <h4 style={{margin:'24px 0 16px',fontSize:14,fontWeight:600,color:'#334155'}}>
+                        Flows ({editingSubProcess.children.connections.length})
+                      </h4>
+                      <div style={{display:'grid',gap:6}}>
+                        {editingSubProcess.children.connections.map((flow) => (
+                          <div key={flow.id} style={{
+                            display:'flex',alignItems:'center',gap:8,fontSize:12,
+                            padding:'8px 12px',background:'#fffbeb',borderRadius:6,border:'1px solid #fef3c7'
+                          }}>
+                            <span style={{color:'#64748b'}}>{flow.from}</span>
+                            <span style={{color:'#94a3b8'}}>→</span>
+                            <span style={{color:'#64748b'}}>{flow.to}</span>
+                            {flow.label && <span style={{color:'#d97706',marginLeft:'auto'}}>{flow.label}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div style={{textAlign:'center',padding:40,color:'#64748b'}}>
+                  <div style={{fontSize:32,marginBottom:12}}>📭</div>
+                  <p>This sub-process has no child elements.</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Footer */}
+            <div style={{padding:'16px 24px',borderTop:'1px solid #e2e8f0',display:'flex',justifyContent:'flex-end',gap:8}}>
+              <button 
+                onClick={() => setShowSubProcessModal(false)}
+                style={{
+                  padding:'8px 16px',borderRadius:6,border:'1px solid #e2e8f0',
+                  background:'white',cursor:'pointer',fontSize:14
+                }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

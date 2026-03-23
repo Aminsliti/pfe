@@ -635,15 +635,70 @@ export default function SimulationScenarios() {
     }
   };
 
-  // Parse BPMN from the linked process
+  // Parse BPMN XML to extract tasks and gateways
   const bpmnParsed = (() => {
     const linked = processes.find(p => p.id === activeScenario?.process_id);
+    const src = activeScenario?.bpmn_xml || linked?.bpmn_xml;
+    if (!src) return { elements:[], connections:[] };
+    
     try {
-      const src = activeScenario?.bpmn_xml || linked?.bpmn_xml;
-      if (!src) return { elements:[], connections:[] };
+      // Try JSON first (legacy format)
       const d = JSON.parse(src);
       return { elements: d.elements||[], connections: d.connections||[] };
-    } catch { return { elements:[], connections:[] }; }
+    } catch {
+      // Parse BPMN XML
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(src, 'text/xml');
+      
+      // Helper to get element name
+      const getName = (el) => {
+        const nameAttr = el.getAttribute('name');
+        return nameAttr || el.id || el.getAttribute('id');
+      };
+      
+      // Extract elements (tasks, events, gateways, sub-processes)
+      const elements = [];
+      const bpmnElements = xmlDoc.querySelectorAll('[id]');
+      bpmnElements.forEach(el => {
+        const tagName = el.tagName.toLowerCase();
+        const id = el.getAttribute('id');
+        const name = getName(el);
+        
+        if (tagName.includes('task')) {
+          elements.push({ id, label: name, type: tagName.includes('user') ? 'userTask' : 
+                                          tagName.includes('service') ? 'serviceTask' :
+                                          tagName.includes('script') ? 'scriptTask' :
+                                          tagName.includes('manual') ? 'manualTask' :
+                                          tagName.includes('send') ? 'sendTask' :
+                                          tagName.includes('receive') ? 'receiveTask' :
+                                          tagName.includes('business') ? 'businessRuleTask' : 'task' });
+        } else if (tagName.includes('event')) {
+          elements.push({ id, label: name, type: tagName.includes('start') ? 'startEvent' :
+                                          tagName.includes('end') ? 'endEvent' : 'intermediateEvent' });
+        } else if (tagName.includes('gateway')) {
+          elements.push({ id, label: name, type: tagName.includes('exclusive') ? 'exclusiveGateway' :
+                                          tagName.includes('parallel') ? 'parallelGateway' :
+                                          tagName.includes('inclusive') ? 'inclusiveGateway' : 'gateway' });
+        } else if (tagName.includes('subprocess') || tagName.includes('sub-process')) {
+          elements.push({ id, label: name, type: 'subProcess' });
+        }
+      });
+      
+      // Extract connections (sequence flows)
+      const connections = [];
+      const flows = xmlDoc.querySelectorAll('sequenceFlow');
+      flows.forEach(flow => {
+        const id = flow.getAttribute('id');
+        const source = flow.getAttribute('sourceRef');
+        const target = flow.getAttribute('targetRef');
+        const name = getName(flow);
+        if (source && target) {
+          connections.push({ id, from: source, to: target, label: name });
+        }
+      });
+      
+      return { elements, connections };
+    }
   })();
 
   // ── Liste ──

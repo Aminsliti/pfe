@@ -36,7 +36,7 @@ router.get('/simulations/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const sc = await pool.query(`
-      SELECT s.*, p.name AS process_name, u.full_name AS created_by_name
+      SELECT s.*, p.name AS process_name, p.bpmn_xml, u.full_name AS created_by_name
       FROM simulation_scenarios s
       LEFT JOIN processes p ON s.process_id = p.id
       LEFT JOIN users     u ON s.created_by  = u.id
@@ -286,6 +286,84 @@ router.put('/simulations/:id/flows/:flowId', async (req, res) => {
 //  SIMULATION — lancer et stocker les résultats
 // ══════════════════════════════════════════════════════════════════════════════
 
+const SIMULATED_TASK_TYPES = new Set([
+  'task',
+  'userTask',
+  'serviceTask',
+  'scriptTask',
+  'manualTask',
+  'sendTask',
+  'receiveTask',
+  'businessRuleTask',
+  'subProcess',
+  'callActivity',
+]);
+
+function createDefaultTask(taskId, taskName) {
+  return {
+    task_id: taskId,
+    task_name: taskName || taskId,
+    duration_min: 30,
+    duration_type: 'fixed',
+    duration_std: 0,
+    cost: 0,
+  };
+}
+
+function extractTasksFromLegacyJson(definition) {
+  try {
+    const parsed = typeof definition === 'string' ? JSON.parse(definition) : definition;
+    const elements = Array.isArray(parsed?.elements) ? parsed.elements : [];
+    const seen = new Set();
+
+    return elements.reduce((tasks, element) => {
+      if (!element?.id || !SIMULATED_TASK_TYPES.has(element.type) || seen.has(element.id)) {
+        return tasks;
+      }
+
+      seen.add(element.id);
+      tasks.push(createDefaultTask(element.id, element.label || element.name || element.id));
+      return tasks;
+    }, []);
+  } catch {
+    return [];
+  }
+}
+
+function extractTasksFromBpmn(bpmnXml) {
+  if (!bpmnXml || typeof bpmnXml !== 'string') return [];
+
+  const tasks = [];
+  const seen = new Set();
+
+  try {
+    const taskRegex = /<(?:[\w.-]+:)?(userTask|serviceTask|scriptTask|manualTask|sendTask|receiveTask|businessRuleTask|task|subProcess|callActivity)\b([^>]*)\/?>/gi;
+    let match;
+
+    while ((match = taskRegex.exec(bpmnXml)) !== null) {
+      const attrs = match[2] || '';
+      const idMatch = attrs.match(/\bid=(["'])(.*?)\1/i);
+      const taskId = idMatch?.[2];
+
+      if (!taskId || seen.has(taskId)) continue;
+
+      const nameMatch = attrs.match(/\bname=(["'])(.*?)\1/i);
+      seen.add(taskId);
+      tasks.push(createDefaultTask(taskId, nameMatch?.[2] || taskId));
+    }
+  } catch (e) {
+    console.error('Error parsing BPMN:', e);
+  }
+
+  return tasks;
+}
+
+function extractTasksFromDiagram(definition) {
+  const legacyTasks = extractTasksFromLegacyJson(definition);
+  if (legacyTasks.length > 0) return legacyTasks;
+  return extractTasksFromBpmn(definition);
+}
+
 router.post('/simulations/:id/run', async (req, res) => {
   try {
     const { id } = req.params;
@@ -296,21 +374,58 @@ router.post('/simulations/:id/run', async (req, res) => {
       [id]
     );
 
-    // Récupérer toutes les données
-    const [sc, tasks, resources, flows] = await Promise.all([
-      pool.query('SELECT * FROM simulation_scenarios WHERE id=$1', [id]),
-      pool.query('SELECT * FROM simulation_task_data WHERE scenario_id=$1', [id]),
-      pool.query('SELECT * FROM simulation_resources WHERE scenario_id=$1', [id]),
-      pool.query('SELECT * FROM simulation_flow_probabilities WHERE scenario_id=$1', [id]),
-    ]);
+    // Récupérer scénario avec BPMN du processus lié
+    const sc = await pool.query(`
+      SELECT s.*, p.bpmn_xml 
+      FROM simulation_scenarios s
+      LEFT JOIN processes p ON s.process_id = p.id
+      WHERE s.id=$1`, [id]);
 
     if (!sc.rows.length) return notFound(res, 'Simulation');
     const scenario = sc.rows[0];
 
+    // ── AUTO-POPULATE TASKS FROM BPMN ─────────────────────────────────────
+    // Get existing tasks
+    const existingTasks = await pool.query('SELECT task_id FROM simulation_task_data WHERE scenario_id=$1', [id]);
+    const existingIds = new Set(existingTasks.rows.map(r => r.task_id));
+    
+    // Extract tasks from BPMN
+    const bpmnTasks = extractTasksFromDiagram(scenario.bpmn_xml);
+    
+    // Create missing tasks with default values
+    for (const t of bpmnTasks) {
+      if (!existingIds.has(t.task_id)) {
+        await pool.query(`
+          INSERT INTO simulation_task_data
+            (scenario_id, task_id, task_name, duration_min, duration_type, duration_std, cost)
+          SELECT
+            $1::integer,
+            $2::varchar(255),
+            $3::varchar(255),
+            $4::numeric,
+            $5::varchar(50),
+            $6::numeric,
+            $7::numeric
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM simulation_task_data
+            WHERE scenario_id = $1::integer AND task_id = $2::varchar(255)
+          )`,
+          [id, t.task_id, t.task_name, t.duration_min, t.duration_type, t.duration_std, t.cost]
+        );
+      }
+    }
+
+    // Récupérer toutes les données (main including newly created tasks)
+    const [tasks, resources] = await Promise.all([
+      pool.query('SELECT * FROM simulation_task_data WHERE scenario_id=$1', [id]),
+      pool.query('SELECT * FROM simulation_resources WHERE scenario_id=$1', [id]),
+    ]);
+
     // ── Moteur de simulation (Monte Carlo simplifié) ──────────────────────
-    const taskList   = tasks.rows;
-    const flowList   = flows.rows;
-    const N          = scenario.process_instances;
+    const taskList     = tasks.rows;
+    const resourceList = resources.rows;
+    const N            = Number(scenario.process_instances) || 0;
     const warmup     = Math.floor(N * (scenario.warmup_percent / 100));
     const cooldown   = Math.floor(N * (scenario.cooldown_percent / 100));
     const activeN    = N - warmup - cooldown;
@@ -353,15 +468,15 @@ router.post('/simulations/:id/run', async (req, res) => {
     const sorted = [...active].sort((a, b) => a - b);
     const p95    = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
     const p99    = sorted[Math.floor(sorted.length * 0.99)] ?? 0;
-    const minD   = Math.min(...active);
-    const maxD   = Math.max(...active);
+    const minD   = active.length ? Math.min(...active) : 0;
+    const maxD   = active.length ? Math.max(...active) : 0;
 
     // Statistiques par tâche
     const taskResults = taskList.map(t => {
       const arr   = taskStats[t.task_id]?.durations ?? [];
       const tAvg  = arr.reduce((a, b) => a + b, 0) / (arr.length || 1);
       const tSorted = [...arr].sort((a, b) => a - b);
-      const res   = resources.find(r => r.id === t.resource_id);
+      const res   = resourceList.find(r => r.id === t.resource_id);
       const totalCost = tAvg * (N / 60) * (+t.cost || 0); // durée en heures * coût
       return {
         task_id:       t.task_id,

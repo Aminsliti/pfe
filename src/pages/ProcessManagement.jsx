@@ -5,8 +5,13 @@ import {
   Form, Alert, Badge, InputGroup, FormControl, ProgressBar,
 } from 'react-bootstrap';
 import BpmnEditor from '../components/BpmnEditor/BpmnEditor';
+import BpmnEditorModeler from '../components/BpmnEditor/BpmnEditorModeler';
 
 const API = 'http://localhost:3001/api';
+const canUseBpmnModeler = (value) =>
+  typeof value === 'string' &&
+  value.trim().startsWith('<') &&
+  /<(?:[\w.-]+:)?BPMNDiagram\b/i.test(value);
 
 export function ProcessManagement() {
   const { hasPermission } = useAuth();
@@ -73,14 +78,14 @@ export function ProcessManagement() {
   // ── BPMN editor ───────────────────────────────────────────────────────────
   const openBpmnEditor = (p) => setBpmnTarget(p);
 
-  const handleBpmnSave = async (bpmnJson) => {
+  const handleBpmnSave = async (bpmnXml) => {
     if (!bpmnTarget) throw new Error('No process selected');
     const body = {
       name:               bpmnTarget.name,
       description:        bpmnTarget.description || '',
       status:             bpmnTarget.status,
       category_id:        bpmnTarget.category_id || null,
-      bpmn_xml:           bpmnJson,
+      bpmn_xml:           bpmnXml,
       change_description: 'Updated via BPMN editor',
     };
     const res = await fetch(`${API}/processes/${bpmnTarget.id}`, {
@@ -92,7 +97,7 @@ export function ProcessManagement() {
       throw new Error(err.error || 'Save failed');
     }
     const updated = await res.json();
-    setBpmnTarget(prev => ({ ...prev, bpmn_xml: bpmnJson, version: updated.version }));
+    setBpmnTarget(prev => ({ ...prev, bpmn_xml: bpmnXml, version: updated.version }));
     loadProcesses();
   };
 
@@ -210,8 +215,9 @@ export function ProcessManagement() {
 
   // ── Full-screen BPMN editor ───────────────────────────────────────────────
   if (bpmnTarget) {
+    const EditorComponent = canUseBpmnModeler(bpmnTarget.bpmn_xml) ? BpmnEditorModeler : BpmnEditor;
     return (
-      <BpmnEditor
+      <EditorComponent
         process={bpmnTarget}
         onClose={() => { setBpmnTarget(null); loadProcesses(); }}
         onSave={handleBpmnSave}

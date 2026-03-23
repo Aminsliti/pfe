@@ -27,6 +27,47 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+function escapeXml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildDefaultBpmnXml(processName = 'Process') {
+  const safeName = escapeXml(processName);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" name="${safeName}" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1" name="Start" />
+    <bpmn:endEvent id="EndEvent_1" name="End" />
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="EndEvent_1" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="152" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="312" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="188" y="120" />
+        <di:waypoint x="312" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+}
+
+function normalizeOptionalField(value, fallbackValue) {
+  if (value === undefined) return fallbackValue;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  return value ?? null;
+}
+
 // Get all processes with search and filtering (hierarchical)
 router.get('/processes', async (req, res) => {
   try {
@@ -168,7 +209,7 @@ router.post('/processes', async (req, res) => {
     const processCompanyId = company_id || (req.user?.company?.id || null);
     
     // Default bpmn_xml if not provided
-    const bpmnXml = bpmn_xml || '<?xml version="1.0" encoding="UTF-8"?><definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn"><process id="Process_1" isExecutable="false"></process></definitions>';
+    const bpmnXml = bpmn_xml || buildDefaultBpmnXml(name);
 
     const result = await pool.query(
       `INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
@@ -198,7 +239,7 @@ router.put('/processes/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, bpmn_xml, category_id, company_id, status, change_description } = req.body;
-    const updated_by = 1; // Default to admin user for now
+    const updated_by = req.user?.id || 1;
 
     // Get current process
     const currentResult = await pool.query('SELECT * FROM processes WHERE id = $1', [id]);
@@ -207,23 +248,32 @@ router.put('/processes/:id', async (req, res) => {
     }
 
     const currentProcess = currentResult.rows[0];
-    const newVersion = currentProcess.version + 1;
+    const nextName = name || currentProcess.name;
+    const nextDescription = description !== undefined ? description : currentProcess.description;
+    const nextCategoryId = normalizeOptionalField(category_id, currentProcess.category_id);
+    const nextCompanyId = normalizeOptionalField(company_id, currentProcess.company_id);
+    const nextStatus = status || currentProcess.status;
+    const nextBpmnXml =
+      typeof bpmn_xml === 'string' && bpmn_xml.trim() !== ''
+        ? bpmn_xml
+        : (currentProcess.bpmn_xml || buildDefaultBpmnXml(nextName));
+    const newVersion = (currentProcess.version || 0) + 1;
 
     // Update process
     const updateResult = await pool.query(
       `UPDATE processes 
-       SET name = $1, description = $2, bpmn_xml = $3, category_id = $4, company_id = $5, status = $6, 
-           version = $7, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8
-       RETURNING id, name, description, category_id, company_id, status, version, updated_at`,
-      [name, description, bpmn_xml, category_id || null, company_id || null, status, newVersion, id]
+        SET name = $1, description = $2, bpmn_xml = $3, category_id = $4, company_id = $5, status = $6, 
+            version = $7, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $8
+        RETURNING id, name, description, category_id, company_id, status, version, updated_at`,
+      [nextName, nextDescription, nextBpmnXml, nextCategoryId, nextCompanyId, nextStatus, newVersion, id]
     );
 
     // Create new version
     await pool.query(
       `INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [id, newVersion, bpmn_xml, updated_by, change_description || 'Updated process']
+        VALUES ($1, $2, $3, $4, $5)`,
+      [id, newVersion, nextBpmnXml, updated_by, change_description || 'Updated process']
     );
 
     res.json(updateResult.rows[0]);
