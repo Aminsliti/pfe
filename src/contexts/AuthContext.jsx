@@ -1,12 +1,13 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
 const AuthContext = createContext(null);
 
-// API base URL
 const API_URL = 'http://localhost:3001/api';
+const ORIGINAL_FETCH = globalThis.fetch.bind(globalThis);
 
 export const ROLES = {
   ADMINISTRATOR: 'Administrator',
+  COMPANY_ADMINISTRATOR: 'Company Administrator',
   BUSINESS_ANALYST: 'Business Analyst',
   PROCESS_OWNER: 'Process Owner',
   RISK_MANAGER: 'Risk Manager',
@@ -22,6 +23,71 @@ export const PERMISSIONS = {
   MANAGE_RISKS: 'manage_risks',
 };
 
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem('currentUser') || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function resolveRequestUrl(input) {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  if (input instanceof URL) {
+    return input.toString();
+  }
+
+  if (typeof Request !== 'undefined' && input instanceof Request) {
+    return input.url;
+  }
+
+  return '';
+}
+
+function shouldAttachUserHeader(url) {
+  return url.startsWith(API_URL) || url.startsWith('/api/') || url.includes('://localhost:3001/api');
+}
+
+function createAuthedFetch() {
+  return (input, init = undefined) => {
+    const requestUrl = resolveRequestUrl(input);
+    const currentUser = getStoredUser();
+
+    if (!currentUser?.id || !shouldAttachUserHeader(requestUrl)) {
+      return ORIGINAL_FETCH(input, init);
+    }
+
+    const sourceHeaders =
+      init?.headers || (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined);
+    const headers = new Headers(sourceHeaders);
+
+    if (!headers.has('x-user-id')) {
+      headers.set('x-user-id', String(currentUser.id));
+    }
+
+    return ORIGINAL_FETCH(input, {
+      ...init,
+      headers,
+    });
+  };
+}
+
+async function parseResponse(response, fallbackError = 'Request failed') {
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const payload = isJson ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const errorText = isJson ? payload?.error : payload;
+    throw new Error(errorText || fallbackError);
+  }
+
+  return payload;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
@@ -29,25 +95,36 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for persisted session
-    const savedUser = localStorage.getItem('currentUser');
+    const authedFetch = createAuthedFetch();
+    globalThis.fetch = authedFetch;
+
+    return () => {
+      globalThis.fetch = ORIGINAL_FETCH;
+    };
+  }, []);
+
+  useEffect(() => {
+    const savedUser = getStoredUser();
     const savedPermissions = localStorage.getItem('permissions');
+
     if (savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
+      setUser(savedUser);
+      setCompany(savedUser.company || null);
       if (savedPermissions) {
-        setPermissions(JSON.parse(savedPermissions));
-      }
-      if (parsedUser.company) {
-        setCompany(parsedUser.company);
+        try {
+          setPermissions(JSON.parse(savedPermissions));
+        } catch {
+          setPermissions([]);
+        }
       }
     }
+
     setLoading(false);
   }, []);
 
   const login = async (username, password) => {
     try {
-      const response = await fetch(`${API_URL}/login`, {
+      const response = await ORIGINAL_FETCH(`${API_URL}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -55,26 +132,19 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await response.json();
+      const data = await parseResponse(response, 'Login failed');
+      const nextPermissions = data.permissions || [];
 
-      if (response.ok) {
-        setUser(data.user);
-        setPermissions(data.permissions || []);
-        localStorage.setItem('currentUser', JSON.stringify(data.user));
-        localStorage.setItem('permissions', JSON.stringify(data.permissions || []));
-        
-        // Set company context if available
-        if (data.user.company) {
-          setCompany(data.user.company);
-        }
-        
-        return { success: true, user: data.user };
-      } else {
-        return { success: false, error: data.error || 'Login failed' };
-      }
+      setUser(data.user);
+      setPermissions(nextPermissions);
+      setCompany(data.user.company || null);
+      localStorage.setItem('currentUser', JSON.stringify(data.user));
+      localStorage.setItem('permissions', JSON.stringify(nextPermissions));
+
+      return { success: true, user: data.user };
     } catch (error) {
       console.error('Login error:', error);
-      return { success: false, error: 'Network error. Please try again.' };
+      return { success: false, error: error.message || 'Network error. Please try again.' };
     }
   };
 
@@ -93,24 +163,15 @@ export function AuthProvider({ children }) {
     return permissions.includes(permission);
   };
 
-  const hasRole = (role) => {
-    if (!user) return false;
-    return user.role === role;
-  };
+  const hasRole = (role) => user?.role === role;
+  const hasAnyRole = (roles) => Boolean(user?.role) && roles.includes(user.role);
+  const isGlobalAdmin = () => user?.role === ROLES.ADMINISTRATOR;
+  const isCompanyAdmin = () => user?.role === ROLES.COMPANY_ADMINISTRATOR;
 
-  const hasAnyRole = (roles) => {
-    if (!user) return false;
-    return roles.includes(user.role);
-  };
-
-  // User management functions - API calls
   const getAllUsers = async () => {
     try {
       const response = await fetch(`${API_URL}/users`);
-      if (response.ok) {
-        return await response.json();
-      }
-      return [];
+      return await parseResponse(response, 'Failed to load users');
     } catch (error) {
       console.error('Error fetching users:', error);
       return [];
@@ -127,14 +188,11 @@ export function AuthProvider({ children }) {
         body: JSON.stringify(userData),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        return { success: true, user: data };
-      }
-      return { success: false, error: data.error };
+      const data = await parseResponse(response, 'Failed to create user');
+      return { success: true, user: data };
     } catch (error) {
       console.error('Error creating user:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
@@ -148,14 +206,11 @@ export function AuthProvider({ children }) {
         body: JSON.stringify(userData),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        return { success: true, user: data };
-      }
-      return { success: false, error: data.error };
+      const data = await parseResponse(response, 'Failed to update user');
+      return { success: true, user: data };
     } catch (error) {
       console.error('Error updating user:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
@@ -165,25 +220,18 @@ export function AuthProvider({ children }) {
         method: 'DELETE',
       });
 
-      if (response.ok) {
-        return { success: true };
-      }
-      const data = await response.json();
-      return { success: false, error: data.error };
+      await parseResponse(response, 'Failed to delete user');
+      return { success: true };
     } catch (error) {
       console.error('Error deleting user:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
-  // Role management functions - API calls
   const getAllRoles = async () => {
     try {
       const response = await fetch(`${API_URL}/roles`);
-      if (response.ok) {
-        return await response.json();
-      }
-      return [];
+      return await parseResponse(response, 'Failed to load roles');
     } catch (error) {
       console.error('Error fetching roles:', error);
       return [];
@@ -193,10 +241,7 @@ export function AuthProvider({ children }) {
   const getAllPermissions = async () => {
     try {
       const response = await fetch(`${API_URL}/permissions`);
-      if (response.ok) {
-        return await response.json();
-      }
-      return [];
+      return await parseResponse(response, 'Failed to load permissions');
     } catch (error) {
       console.error('Error fetching permissions:', error);
       return [];
@@ -206,10 +251,7 @@ export function AuthProvider({ children }) {
   const getRolesWithPermissions = async () => {
     try {
       const response = await fetch(`${API_URL}/roles-with-permissions`);
-      if (response.ok) {
-        return await response.json();
-      }
-      return [];
+      return await parseResponse(response, 'Failed to load roles');
     } catch (error) {
       console.error('Error fetching roles with permissions:', error);
       return [];
@@ -226,14 +268,11 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ permissionIds }),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        return { success: true };
-      }
-      return { success: false, error: data.error };
+      await parseResponse(response, 'Failed to update role permissions');
+      return { success: true };
     } catch (error) {
       console.error('Error updating role permissions:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
@@ -247,14 +286,11 @@ export function AuthProvider({ children }) {
         body: JSON.stringify(roleData),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        return { success: true, role: data };
-      }
-      return { success: false, error: data.error };
+      const data = await parseResponse(response, 'Failed to create role');
+      return { success: true, role: data };
     } catch (error) {
       console.error('Error creating role:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
@@ -268,14 +304,11 @@ export function AuthProvider({ children }) {
         body: JSON.stringify(roleData),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        return { success: true, role: data };
-      }
-      return { success: false, error: data.error };
+      const data = await parseResponse(response, 'Failed to update role');
+      return { success: true, role: data };
     } catch (error) {
       console.error('Error updating role:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
@@ -285,27 +318,26 @@ export function AuthProvider({ children }) {
         method: 'DELETE',
       });
 
-      if (response.ok) {
-        return { success: true };
-      }
-      const data = await response.json();
-      return { success: false, error: data.error };
+      await parseResponse(response, 'Failed to delete role');
+      return { success: true };
     } catch (error) {
       console.error('Error deleting role:', error);
-      return { success: false, error: 'Network error' };
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
   const value = {
     user,
     permissions,
-    company: company,
+    company,
     loading,
     login,
     logout,
     hasPermission,
     hasRole,
     hasAnyRole,
+    isGlobalAdmin,
+    isCompanyAdmin,
     createUser,
     updateUser,
     deleteUser,
@@ -321,11 +353,7 @@ export function AuthProvider({ children }) {
     PERMISSIONS,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
@@ -337,4 +365,3 @@ export function useAuth() {
 }
 
 export default AuthContext;
-

@@ -16,8 +16,10 @@ export function Dashboard() {
     switch (role) {
       case ROLES.ADMINISTRATOR:
         return 'danger';
-      case ROLES.BUSINESS_ANALYST:
+      case ROLES.COMPANY_ADMINISTRATOR:
         return 'primary';
+      case ROLES.BUSINESS_ANALYST:
+        return 'info';
       case ROLES.PROCESS_OWNER:
         return 'success';
       case ROLES.RISK_MANAGER:
@@ -76,6 +78,9 @@ export function Dashboard() {
                 </ListGroup.Item>
                 <ListGroup.Item>
                   <strong>User ID:</strong> {user?.id}
+                </ListGroup.Item>
+                <ListGroup.Item>
+                  <strong>Company:</strong> {user?.company?.name || 'No company assigned'}
                 </ListGroup.Item>
               </ListGroup>
             </Card.Body>

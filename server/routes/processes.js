@@ -4,14 +4,20 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from '../db.js';
-// import { Moddle } from 'bpmn-moddle'; // Temporarily disabled for demo
+import {
+  PERMISSIONS,
+  ensureAuthenticated,
+  ensureCompanyAccess,
+  ensurePermission,
+  isCompanyAdmin,
+  isGlobalAdmin,
+} from '../utils/access.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../uploads');
@@ -21,11 +27,18 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
-  }
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
+
+function normalizeInteger(value, fallbackValue = null) {
+  if (value === undefined) return fallbackValue;
+  if (value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallbackValue;
+}
 
 function escapeXml(value = '') {
   return String(value)
@@ -62,27 +75,90 @@ function buildDefaultBpmnXml(processName = 'Process') {
 </bpmn:definitions>`;
 }
 
-function normalizeOptionalField(value, fallbackValue) {
-  if (value === undefined) return fallbackValue;
-  if (typeof value === 'string' && value.trim() === '') return null;
-  return value ?? null;
+function buildProcessTree(processes) {
+  const processMap = {};
+  const rootProcesses = [];
+
+  processes.forEach((process) => {
+    processMap[process.id] = { ...process, children: [] };
+  });
+
+  processes.forEach((process) => {
+    if (process.parent_id === null) {
+      rootProcesses.push(processMap[process.id]);
+    } else {
+      const parent = processMap[process.parent_id];
+      if (parent) {
+        parent.children.push(processMap[process.id]);
+      }
+    }
+  });
+
+  return rootProcesses;
 }
 
-// Get all processes with search and filtering (hierarchical)
+async function getProcessById(id) {
+  const result = await pool.query(
+    `
+      SELECT
+        p.*,
+        pc.name AS category_name,
+        u.full_name AS created_by_name,
+        c.name AS company_name
+      FROM processes p
+      LEFT JOIN process_categories pc ON pc.id = p.category_id
+      LEFT JOIN users u ON u.id = p.created_by
+      LEFT JOIN companies c ON c.id = p.company_id
+      WHERE p.id = $1
+    `,
+    [id]
+  );
+
+  return result.rows[0] || null;
+}
+
+function resolveProcessCompanyId(req, requestedCompanyId, fallbackCompanyId = null) {
+  if (isGlobalAdmin(req.user)) {
+    return normalizeInteger(requestedCompanyId, fallbackCompanyId);
+  }
+
+  return req.user.companyId ?? null;
+}
+
+function ensureAssignedCompany(req, res, companyId) {
+  if (companyId) {
+    return true;
+  }
+
+  res.status(400).json({ error: 'A company must be assigned to this record.' });
+  return false;
+}
+
+function cleanupUploadedFile(file) {
+  if (file?.path && fs.existsSync(file.path)) {
+    fs.unlinkSync(file.path);
+  }
+}
+
 router.get('/processes', async (req, res) => {
   try {
-    const { search, category, status, company, hierarchical = 'false' } = req.query;
-    
-    // If user is authenticated, filter by their company by default
-    let companyFilter = company;
-    if (req.user && req.user.company && !company) {
-      companyFilter = req.user.company.id;
+    if (!ensureAuthenticated(req, res)) {
+      return;
     }
-    
+
+    const { search, category, status, company, hierarchical = 'false' } = req.query;
+    const requestedCompanyId = normalizeInteger(company, null);
+    const companyFilter = isGlobalAdmin(req.user) ? requestedCompanyId : req.user.companyId;
+
+    if (!isGlobalAdmin(req.user) && !companyFilter) {
+      return res.json([]);
+    }
+
     let query = `
-      SELECT p.*, 
-             u.full_name as created_by_name, 
-             c.name as company_name
+      SELECT
+        p.*,
+        u.full_name AS created_by_name,
+        c.name AS company_name
       FROM processes p
       LEFT JOIN users u ON p.created_by = u.id
       LEFT JOIN companies c ON p.company_id = c.id
@@ -94,38 +170,32 @@ router.get('/processes', async (req, res) => {
     if (search) {
       query += ` AND (p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
-      paramIndex++;
+      paramIndex += 1;
     }
 
     if (status) {
       query += ` AND p.status = $${paramIndex}`;
       params.push(status);
-      paramIndex++;
+      paramIndex += 1;
     }
 
-    if (category) {
+    const categoryId = normalizeInteger(category, null);
+    if (categoryId) {
       query += ` AND p.category_id = $${paramIndex}`;
-      params.push(category);
-      paramIndex++;
+      params.push(categoryId);
+      paramIndex += 1;
     }
 
     if (companyFilter) {
       query += ` AND p.company_id = $${paramIndex}`;
       params.push(companyFilter);
-      paramIndex++;
+      paramIndex += 1;
     }
 
-    query += ` ORDER BY p.parent_id NULLS FIRST, p.name`;
+    query += ' ORDER BY p.parent_id NULLS FIRST, p.name';
 
     const result = await pool.query(query, params);
-    
-    let processes = result.rows;
-    
-    // If hierarchical is requested, build tree structure
-    if (hierarchical === 'true') {
-      processes = buildProcessTree(result.rows);
-    }
-    
+    const processes = hierarchical === 'true' ? buildProcessTree(result.rows) : result.rows;
     res.json(processes);
   } catch (error) {
     console.error('Error fetching processes:', error);
@@ -133,125 +203,120 @@ router.get('/processes', async (req, res) => {
   }
 });
 
-// Helper function to build hierarchical tree structure
-function buildProcessTree(processes) {
-  const processMap = {};
-  const rootProcesses = [];
-  
-  // Create a map of all processes
-  processes.forEach(process => {
-    processMap[process.id] = { ...process, children: [] };
-  });
-  
-  // Build the tree structure
-  processes.forEach(process => {
-    if (process.parent_id === null) {
-      rootProcesses.push(processMap[process.id]);
-    } else {
-      const parent = processMap[process.parent_id];
-      if (parent) {
-        parent.children.push(processMap[process.id]);
-      }
-    }
-  });
-  
-  return rootProcesses;
-}
-
-// Get single process with versions
 router.get('/processes/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    // Get process details
-    const processResult = await pool.query(`
-      SELECT p.*, pc.name as category_name, u.full_name as created_by_name
-      FROM processes p
-      LEFT JOIN process_categories pc ON p.category_id = pc.id
-      LEFT JOIN users u ON p.created_by = u.id
-      WHERE p.id = $1
-    `, [id]);
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
 
-    if (processResult.rows.length === 0) {
+    const process = await getProcessById(req.params.id);
+    if (!process) {
       return res.status(404).json({ error: 'Process not found' });
     }
 
-    // Get process versions
-    const versionsResult = await pool.query(`
-      SELECT pv.*, u.full_name as created_by_name
-      FROM process_versions pv
-      LEFT JOIN users u ON pv.created_by = u.id
-      WHERE pv.process_id = $1
-      ORDER BY pv.version_number DESC
-    `, [id]);
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
+    }
 
-    const process = processResult.rows[0];
-    process.versions = versionsResult.rows;
+    const versionsResult = await pool.query(
+      `
+        SELECT pv.*, u.full_name AS created_by_name
+        FROM process_versions pv
+        LEFT JOIN users u ON u.id = pv.created_by
+        WHERE pv.process_id = $1
+        ORDER BY pv.version_number DESC
+      `,
+      [req.params.id]
+    );
 
-    res.json(process);
+    res.json({
+      ...process,
+      versions: versionsResult.rows,
+    });
   } catch (error) {
     console.error('Get process error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Create new process
 router.post('/processes', async (req, res) => {
   try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
     const { name, description, bpmn_xml, category_id, company_id, status = 'draft' } = req.body;
-    const created_by = req.user?.id || 1;
+    const createdBy = req.user.id;
 
     if (!name) {
       return res.status(400).json({ error: 'Process name is required' });
     }
 
-    // Use authenticated user's company if no company_id provided
-    const processCompanyId = company_id || (req.user?.company?.id || null);
-    
-    // Default bpmn_xml if not provided
-    const bpmnXml = bpmn_xml || buildDefaultBpmnXml(name);
+    const processCompanyId = resolveProcessCompanyId(req, company_id);
+    if (!ensureAssignedCompany(req, res, processCompanyId)) {
+      return;
+    }
 
+    const bpmnXml = bpmn_xml || buildDefaultBpmnXml(name);
     const result = await pool.query(
-      `INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at`,
-      [name, description, bpmnXml, category_id || null, processCompanyId, created_by, status]
+      `
+        INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at
+      `,
+      [name, description || null, bpmnXml, normalizeInteger(category_id, null), processCompanyId, createdBy, status]
     );
 
     const process = result.rows[0];
 
-    // Create initial version
     await pool.query(
-      `INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [process.id, 1, bpmnXml, created_by, 'Initial version']
+      `
+        INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [process.id, 1, bpmnXml, createdBy, 'Initial version']
     );
 
     res.status(201).json(process);
   } catch (error) {
     console.error('Create process error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    res.status(500).json({ error: `Server error: ${error.message}` });
   }
 });
 
-// Update process
 router.put('/processes/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { name, description, bpmn_xml, category_id, company_id, status, change_description } = req.body;
-    const updated_by = req.user?.id || 1;
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
 
-    // Get current process
-    const currentResult = await pool.query('SELECT * FROM processes WHERE id = $1', [id]);
-    if (currentResult.rows.length === 0) {
+    const currentProcess = await getProcessById(req.params.id);
+    if (!currentProcess) {
       return res.status(404).json({ error: 'Process not found' });
     }
 
-    const currentProcess = currentResult.rows[0];
+    if (!ensureCompanyAccess(req, res, currentProcess.company_id)) {
+      return;
+    }
+
+    const {
+      name,
+      description,
+      bpmn_xml,
+      category_id,
+      company_id,
+      status,
+      change_description,
+    } = req.body;
+
     const nextName = name || currentProcess.name;
     const nextDescription = description !== undefined ? description : currentProcess.description;
-    const nextCategoryId = normalizeOptionalField(category_id, currentProcess.category_id);
-    const nextCompanyId = normalizeOptionalField(company_id, currentProcess.company_id);
+    const nextCategoryId = normalizeInteger(category_id, currentProcess.category_id);
+    const nextCompanyId = resolveProcessCompanyId(req, company_id, currentProcess.company_id);
+    if (!ensureAssignedCompany(req, res, nextCompanyId)) {
+      return;
+    }
+
     const nextStatus = status || currentProcess.status;
     const nextBpmnXml =
       typeof bpmn_xml === 'string' && bpmn_xml.trim() !== ''
@@ -259,21 +324,30 @@ router.put('/processes/:id', async (req, res) => {
         : (currentProcess.bpmn_xml || buildDefaultBpmnXml(nextName));
     const newVersion = (currentProcess.version || 0) + 1;
 
-    // Update process
     const updateResult = await pool.query(
-      `UPDATE processes 
-        SET name = $1, description = $2, bpmn_xml = $3, category_id = $4, company_id = $5, status = $6, 
-            version = $7, updated_at = CURRENT_TIMESTAMP
+      `
+        UPDATE processes
+        SET
+          name = $1,
+          description = $2,
+          bpmn_xml = $3,
+          category_id = $4,
+          company_id = $5,
+          status = $6,
+          version = $7,
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = $8
-        RETURNING id, name, description, category_id, company_id, status, version, updated_at`,
-      [nextName, nextDescription, nextBpmnXml, nextCategoryId, nextCompanyId, nextStatus, newVersion, id]
+        RETURNING id, name, description, category_id, company_id, status, version, updated_at
+      `,
+      [nextName, nextDescription, nextBpmnXml, nextCategoryId, nextCompanyId, nextStatus, newVersion, req.params.id]
     );
 
-    // Create new version
     await pool.query(
-      `INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-        VALUES ($1, $2, $3, $4, $5)`,
-      [id, newVersion, nextBpmnXml, updated_by, change_description || 'Updated process']
+      `
+        INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [req.params.id, newVersion, nextBpmnXml, req.user.id, change_description || 'Updated process']
     );
 
     res.json(updateResult.rows[0]);
@@ -283,17 +357,22 @@ router.put('/processes/:id', async (req, res) => {
   }
 });
 
-// Delete process
 router.delete('/processes/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
 
-    const result = await pool.query('DELETE FROM processes WHERE id = $1', [id]);
-
-    if (result.rowCount === 0) {
+    const process = await getProcessById(req.params.id);
+    if (!process) {
       return res.status(404).json({ error: 'Process not found' });
     }
 
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
+    }
+
+    await pool.query('DELETE FROM processes WHERE id = $1', [req.params.id]);
     res.json({ message: 'Process deleted successfully' });
   } catch (error) {
     console.error('Delete process error:', error);
@@ -301,142 +380,126 @@ router.delete('/processes/:id', async (req, res) => {
   }
 });
 
-// Import BPMN file
 router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      cleanupUploadedFile(req.file);
+      return;
     }
 
-    const { name, description, category_id } = req.body;
-    const created_by = req.user?.id || 1;
+    const { name, description, category_id, company_id, status = 'draft' } = req.body;
+    if (!name) {
+      cleanupUploadedFile(req.file);
+      return res.status(400).json({ error: 'Process name is required' });
+    }
 
-    // Read BPMN file
-    const bpmn_xml = fs.readFileSync(req.file.path, 'utf8');
+    if (!req.file) {
+      return res.status(400).json({ error: 'BPMN file is required' });
+    }
 
-    // Basic BPMN validation - check if it contains BPMN elements
-    if (!bpmn_xml.includes('bpmn:definitions') && !bpmn_xml.includes('definitions')) {
-      fs.unlinkSync(req.file.path); // Clean up uploaded file
+    const processCompanyId = resolveProcessCompanyId(req, company_id);
+    if (!ensureAssignedCompany(req, res, processCompanyId)) {
+      cleanupUploadedFile(req.file);
+      return;
+    }
+
+    const bpmnXml = fs.readFileSync(req.file.path, 'utf8');
+    if (!bpmnXml.includes('bpmn:definitions') && !bpmnXml.includes('<definitions')) {
+      cleanupUploadedFile(req.file);
       return res.status(400).json({ error: 'Invalid BPMN file format' });
     }
 
-    // Create process
     const result = await pool.query(
-      `INSERT INTO processes (name, description, bpmn_xml, category_id, created_by, status)
-       VALUES ($1, $2, $3, $4, $5, 'draft')
-       RETURNING id, name, description, category_id, status, version, created_at`,
-      [name, description, bpmn_xml, category_id, created_by]
+      `
+        INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at
+      `,
+      [
+        name,
+        description || null,
+        bpmnXml,
+        normalizeInteger(category_id, null),
+        processCompanyId,
+        req.user.id,
+        status || 'draft',
+      ]
     );
 
-    const process = result.rows[0];
-
-    // Create initial version
     await pool.query(
-      `INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [process.id, 1, bpmn_xml, created_by, 'Imported from BPMN file']
+      `
+        INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [result.rows[0].id, 1, bpmnXml, req.user.id, 'Imported from BPMN file']
     );
 
-    // Clean up uploaded file
-    fs.unlinkSync(req.file.path);
-
-    res.status(201).json(process);
+    cleanupUploadedFile(req.file);
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Import BPMN error:', error);
-    if (req.file) {
-      fs.unlinkSync(req.file.path); // Clean up uploaded file
-    }
-    res.status(500).json({ error: 'Server error' });
+    cleanupUploadedFile(req.file);
+    res.status(500).json({ error: `Failed to import BPMN file: ${error.message}` });
   }
 });
 
-// Export BPMN file
 router.get('/processes/:id/export', async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
     const { version } = req.query;
 
-    let bpmn_xml;
-    let filename;
-
     if (version) {
-      // Export specific version
       const versionResult = await pool.query(
-        'SELECT pv.*, p.name FROM process_versions pv JOIN processes p ON pv.process_id = p.id WHERE pv.process_id = $1 AND pv.version_number = $2',
-        [id, version]
+        `
+          SELECT pv.bpmn_xml, pv.version_number, p.name, p.company_id
+          FROM process_versions pv
+          JOIN processes p ON p.id = pv.process_id
+          WHERE pv.process_id = $1 AND pv.version_number = $2
+        `,
+        [req.params.id, version]
       );
-      
-      if (versionResult.rows.length === 0) {
+
+      if (!versionResult.rows.length) {
         return res.status(404).json({ error: 'Process version not found' });
       }
-      
-      bpmn_xml = versionResult.rows[0].bpmn_xml;
-      filename = `${versionResult.rows[0].name}_v${version}.bpmn`;
-    } else {
-      // Export latest version
-      const processResult = await pool.query('SELECT * FROM processes WHERE id = $1', [id]);
-      
-      if (processResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Process not found' });
+
+      const row = versionResult.rows[0];
+      if (!ensureCompanyAccess(req, res, row.company_id)) {
+        return;
       }
-      
-      bpmn_xml = processResult.rows[0].bpmn_xml;
-      filename = `${processResult.rows[0].name}.bpmn`;
+
+      res.setHeader('Content-Type', 'application/xml');
+      res.setHeader('Content-Disposition', `attachment; filename="${row.name}_v${row.version_number}.bpmn"`);
+      return res.send(row.bpmn_xml);
+    }
+
+    const process = await getProcessById(req.params.id);
+    if (!process) {
+      return res.status(404).json({ error: 'Process not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
     }
 
     res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(bpmn_xml);
+    res.setHeader('Content-Disposition', `attachment; filename="${process.name}.bpmn"`);
+    res.send(process.bpmn_xml);
   } catch (error) {
     console.error('Export BPMN error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Import BPMN file
-router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => {
-  try {
-    const { name, description, category_id, status } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Process name is required' });
-    }
-    
-    if (!req.file) {
-      return res.status(400).json({ error: 'BPMN file is required' });
-    }
-
-    // Read the uploaded file
-    const bpmn_xml = fs.readFileSync(req.file.path, 'utf8');
-    
-    // Clean up the uploaded file
-    fs.unlinkSync(req.file.path);
-
-    // Convert empty string to null for category_id
-    const catId = category_id && category_id.trim() !== '' ? parseInt(category_id) : null;
-
-    // Insert the new process
-    const result = await pool.query(
-      `INSERT INTO processes (name, description, bpmn_xml, category_id, status, version, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, $5, 1, $6, $6)
-       RETURNING *`,
-      [name, description || '', bpmn_xml, catId, status || 'draft', req.user?.id || 1]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('Import BPMN error:', error);
-    // Clean up file if it exists
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    res.status(500).json({ error: 'Failed to import BPMN file: ' + error.message });
-  }
-});
-
-// Get process categories
 router.get('/process-categories', async (req, res) => {
   try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
     const result = await pool.query('SELECT * FROM process_categories ORDER BY name');
     res.json(result.rows);
   } catch (error) {
@@ -445,29 +508,20 @@ router.get('/process-categories', async (req, res) => {
   }
 });
 
-// Get companies
-router.get('/companies', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM companies ORDER BY name');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get companies error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Create process category
 router.post('/process-categories', async (req, res) => {
   try {
-    const { name, description } = req.body;
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
 
+    const { name, description } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
     const result = await pool.query(
       'INSERT INTO process_categories (name, description) VALUES ($1, $2) RETURNING *',
-      [name, description]
+      [name, description || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -481,18 +535,43 @@ router.post('/process-categories', async (req, res) => {
   }
 });
 
-// Create company
+router.get('/companies', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    if (isGlobalAdmin(req.user)) {
+      const result = await pool.query('SELECT * FROM companies ORDER BY name');
+      return res.json(result.rows);
+    }
+
+    if (!req.user.companyId) {
+      return res.json([]);
+    }
+
+    const result = await pool.query('SELECT * FROM companies WHERE id = $1', [req.user.companyId]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get companies error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.post('/companies', async (req, res) => {
   try {
-    const { name, description, logo_url } = req.body;
+    if (!isGlobalAdmin(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can create companies.' });
+    }
 
+    const { name, description, logo_url } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Company name is required' });
     }
 
     const result = await pool.query(
       'INSERT INTO companies (name, description, logo_url) VALUES ($1, $2, $3) RETURNING *',
-      [name, description, logo_url]
+      [name, description || null, logo_url || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -506,22 +585,37 @@ router.post('/companies', async (req, res) => {
   }
 });
 
-// Update company
 router.put('/companies/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { name, description, logo_url } = req.body;
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
 
+    if (!isGlobalAdmin(req.user) && !isCompanyAdmin(req.user)) {
+      return res.status(403).json({ error: 'You do not have permission to update companies.' });
+    }
+
+    const companyId = normalizeInteger(req.params.id, null);
+    if (!ensureCompanyAccess(req, res, companyId)) {
+      return;
+    }
+
+    const { name, description, logo_url } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Company name is required' });
     }
 
     const result = await pool.query(
-      'UPDATE companies SET name = $1, description = $2, logo_url = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING *',
-      [name, description, logo_url, id]
+      `
+        UPDATE companies
+        SET name = $1, description = $2, logo_url = $3, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $4
+        RETURNING *
+      `,
+      [name, description || null, logo_url || null, companyId]
     );
 
-    if (result.rows.length === 0) {
+    if (!result.rows.length) {
       return res.status(404).json({ error: 'Company not found' });
     }
 
@@ -532,14 +626,14 @@ router.put('/companies/:id', async (req, res) => {
   }
 });
 
-// Delete company
 router.delete('/companies/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!isGlobalAdmin(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can delete companies.' });
+    }
 
-    const result = await pool.query('DELETE FROM companies WHERE id = $1', [id]);
-
-    if (result.rowCount === 0) {
+    const result = await pool.query('DELETE FROM companies WHERE id = $1 RETURNING id', [req.params.id]);
+    if (!result.rowCount) {
       return res.status(404).json({ error: 'Company not found' });
     }
 

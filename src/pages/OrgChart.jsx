@@ -330,7 +330,7 @@ function OrgNodeFields({ form, setForm, companies, users, parentOptions, parentL
 
 export function OrgChart() {
   const { user } = useAuth();
-  const canEdit = user?.role !== ROLES.VIEWER;
+  const canEdit = user?.role === ROLES.ADMINISTRATOR || user?.role === ROLES.COMPANY_ADMINISTRATOR;
 
   const [nodes, setNodes] = useState([]);
   const [companies, setCompanies] = useState([]);

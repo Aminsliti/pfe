@@ -1,159 +1,206 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth, ROLES } from '../contexts/AuthContext';
-import { 
-  Container, 
-  Row, 
-  Col, 
-  Card, 
-  Button, 
-  Modal, 
-  Form, 
+import {
   Alert,
-  Table,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Container,
+  Form,
   InputGroup,
-  FormControl,
-  Badge
+  Modal,
+  Row,
+  Table,
 } from 'react-bootstrap';
 
+const API_URL = 'http://localhost:3001/api';
+
+const EMPTY_FORM = {
+  username: '',
+  password: '',
+  email: '',
+  fullName: '',
+  role: ROLES.VIEWER,
+  companyId: '',
+};
+
 export function UserManagement() {
-  const { getAllUsers, createUser, updateUser, deleteUser, ROLES, company } = useAuth();
+  const {
+    user,
+    company,
+    getAllUsers,
+    createUser,
+    updateUser,
+    deleteUser,
+    isGlobalAdmin,
+    isCompanyAdmin,
+  } = useAuth();
   const [users, setUsers] = useState([]);
-  const [filteredUsers, setFilteredUsers] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-    email: '',
-    fullName: '',
-    role: 'Viewer'
-  });
+  const [formData, setFormData] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
-  const roleOptions = Object.values(ROLES);
+  const globalAdmin = isGlobalAdmin();
+  const companyAdmin = isCompanyAdmin();
+
+  const roleOptions = useMemo(() => {
+    if (globalAdmin) {
+      return Object.values(ROLES);
+    }
+
+    return [
+      ROLES.COMPANY_ADMINISTRATOR,
+      ROLES.BUSINESS_ANALYST,
+      ROLES.PROCESS_OWNER,
+      ROLES.RISK_MANAGER,
+      ROLES.VIEWER,
+    ];
+  }, [globalAdmin]);
 
   const loadUsers = async () => {
     setLoading(true);
     const data = await getAllUsers();
-    setUsers(data);
-    
-    // Filter users by company if user has company access
-    const filtered = company 
-      ? data.filter(user => user.company_id === company.id)
-      : data;
-    
-    setFilteredUsers(filtered);
+    setUsers(Array.isArray(data) ? data : []);
     setLoading(false);
+  };
+
+  const loadCompanies = async () => {
+    try {
+      const response = await fetch(`${API_URL}/companies`);
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      setCompanies(Array.isArray(data) ? data : []);
+    } catch (requestError) {
+      console.error('Error fetching companies:', requestError);
+    }
   };
 
   useEffect(() => {
     loadUsers();
-  }, [company]);
+    loadCompanies();
+  }, []);
 
-  useEffect(() => {
-    const filtered = users.filter(user => 
-      user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setFilteredUsers(filtered);
-  }, [searchTerm, users]);
+  const filteredUsers = users.filter((item) => {
+    const haystack = [
+      item.username,
+      item.fullName,
+      item.email,
+      item.role,
+      item.companyName,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
 
-  const handleCreate = () => {
+    return haystack.includes(searchTerm.toLowerCase());
+  });
+
+  const resetForm = () => {
     setEditingUser(null);
     setFormData({
-      username: '',
-      password: '',
-      email: '',
-      fullName: '',
-      role: ROLES.VIEWER,
+      ...EMPTY_FORM,
+      role: roleOptions[0] || ROLES.VIEWER,
+      companyId: globalAdmin ? '' : String(company?.id || ''),
     });
+  };
+
+  const handleCreate = () => {
+    resetForm();
     setError('');
     setShowModal(true);
   };
 
-  const handleEdit = (user) => {
-    setEditingUser(user);
+  const handleEdit = (selectedUser) => {
+    setEditingUser(selectedUser);
     setFormData({
-      username: user.username,
+      username: selectedUser.username || '',
       password: '',
-      email: user.email,
-      fullName: user.fullName,
-      role: user.role,
+      email: selectedUser.email || '',
+      fullName: selectedUser.fullName || '',
+      role: selectedUser.role || ROLES.VIEWER,
+      companyId: selectedUser.companyId ? String(selectedUser.companyId) : '',
     });
     setError('');
     setShowModal(true);
   };
 
   const handleDelete = async (userId) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      const result = await deleteUser(userId);
-      if (result.success) {
-        loadUsers();
-      } else {
-        setError(result.error);
-      }
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-
-    if (!formData.username || !formData.fullName || !formData.email) {
-      setError('Please fill in all required fields');
+    if (!window.confirm('Are you sure you want to delete this user?')) {
       return;
     }
 
-    if (!editingUser && !formData.password) {
-      setError('Password is required for new users');
-      return;
-    }
-
-    let result;
-    if (editingUser) {
-      const updateData = {
-        username: formData.username,
-        email: formData.email,
-        fullName: formData.fullName,
-        role: formData.role,
-      };
-      if (formData.password) {
-        updateData.password = formData.password;
-      }
-      result = await updateUser(editingUser.id, updateData);
-    } else {
-      result = await createUser(formData);
-    }
-
+    const result = await deleteUser(userId);
     if (result.success) {
       loadUsers();
-      setShowModal(false);
     } else {
       setError(result.error);
     }
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+
+    if (!formData.username || !formData.fullName || !formData.email) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+
+    if (!editingUser && !formData.password) {
+      setError('Password is required for new users.');
+      return;
+    }
+
+    if (formData.role !== ROLES.ADMINISTRATOR && !formData.companyId) {
+      setError('A company is required for non-administrator users.');
+      return;
+    }
+
+    const payload = {
+      username: formData.username.trim(),
+      email: formData.email.trim(),
+      fullName: formData.fullName.trim(),
+      role: formData.role,
+      companyId: formData.companyId ? Number(formData.companyId) : null,
+    };
+
+    if (formData.password) {
+      payload.password = formData.password;
+    }
+
+    const result = editingUser
+      ? await updateUser(editingUser.id, payload)
+      : await createUser(payload);
+
+    if (!result.success) {
+      setError(result.error || 'Failed to save the user.');
+      return;
+    }
+
+    await loadUsers();
+    setShowModal(false);
   };
 
   const getRoleBadgeVariant = (role) => {
     switch (role) {
       case ROLES.ADMINISTRATOR:
         return 'danger';
-      case ROLES.BUSINESS_ANALYST:
+      case ROLES.COMPANY_ADMINISTRATOR:
         return 'primary';
+      case ROLES.BUSINESS_ANALYST:
+        return 'info';
       case ROLES.PROCESS_OWNER:
         return 'success';
       case ROLES.RISK_MANAGER:
         return 'warning';
-      case ROLES.VIEWER:
-        return 'secondary';
       default:
         return 'secondary';
     }
@@ -163,31 +210,46 @@ export function UserManagement() {
     <Container fluid className="py-4">
       <Row className="mb-4">
         <Col>
-          <div className="d-flex justify-content-between align-items-center">
-            <h2>User Management</h2>
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h2 className="mb-1">User Management</h2>
+              <p className="text-muted mb-0">
+                {globalAdmin
+                  ? 'Manage users across all companies and assign company administrators.'
+                  : `Manage users inside ${company?.name || 'your company'} only.`}
+              </p>
+            </div>
             <Button variant="success" onClick={handleCreate}>
-              <i className="bi bi-plus-circle me-2"></i>Create User
+              <i className="bi bi-plus-circle me-2"></i>
+              Create User
             </Button>
           </div>
         </Col>
       </Row>
 
+      {(companyAdmin || company) && (
+        <Alert variant="info">
+          <strong>Company scope:</strong> {company?.name || 'Assigned company'}.
+          Users on this page can only access data from that company.
+        </Alert>
+      )}
+
       <Row className="mb-4">
-        <Col md={6}>
+        <Col md={7} xl={6}>
           <InputGroup>
             <InputGroup.Text>
               <i className="bi bi-search"></i>
             </InputGroup.Text>
-            <FormControl
-              placeholder="Search users by name, email, username, or role..."
+            <Form.Control
+              placeholder="Search by name, email, username, role, or company..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(event) => setSearchTerm(event.target.value)}
             />
           </InputGroup>
         </Col>
-        <Col md={6} className="text-md-end mt-3 mt-md-0">
+        <Col md={5} xl={6} className="text-md-end mt-3 mt-md-0">
           <Badge bg="info" className="p-2">
-            {filteredUsers.length} of {users.length} users
+            {filteredUsers.length} user{filteredUsers.length === 1 ? '' : 's'}
           </Badge>
         </Col>
       </Row>
@@ -213,46 +275,46 @@ export function UserManagement() {
                         <th>Full Name</th>
                         <th>Email</th>
                         <th>Role</th>
+                        <th>Company</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredUsers.length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="text-center py-4 text-muted">
+                          <td colSpan="7" className="text-center py-4 text-muted">
                             {searchTerm ? 'No users found matching your search.' : 'No users available.'}
                           </td>
                         </tr>
                       ) : (
-                        filteredUsers.map(user => (
-                          <tr key={user.id}>
-                            <td>{user.id}</td>
+                        filteredUsers.map((item) => (
+                          <tr key={item.id}>
+                            <td>{item.id}</td>
+                            <td><strong>{item.username}</strong></td>
+                            <td>{item.fullName}</td>
+                            <td>{item.email}</td>
                             <td>
-                              <strong>{user.username}</strong>
+                              <Badge bg={getRoleBadgeVariant(item.role)}>{item.role}</Badge>
                             </td>
-                            <td>{user.fullName}</td>
-                            <td>{user.email}</td>
-                            <td>
-                              <Badge bg={getRoleBadgeVariant(user.role)}>
-                                {user.role}
-                              </Badge>
-                            </td>
+                            <td>{item.companyName || 'No company'}</td>
                             <td>
                               <Button
                                 variant="outline-primary"
                                 size="sm"
                                 className="me-2"
-                                onClick={() => handleEdit(user)}
+                                onClick={() => handleEdit(item)}
                               >
                                 <i className="bi bi-pencil"></i> Edit
                               </Button>
-                              <Button
-                                variant="outline-danger"
-                                size="sm"
-                                onClick={() => handleDelete(user.id)}
-                              >
-                                <i className="bi bi-trash"></i> Delete
-                              </Button>
+                              {item.id !== user?.id && (
+                                <Button
+                                  variant="outline-danger"
+                                  size="sm"
+                                  onClick={() => handleDelete(item.id)}
+                                >
+                                  <i className="bi bi-trash"></i> Delete
+                                </Button>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -268,9 +330,7 @@ export function UserManagement() {
 
       <Modal show={showModal} onHide={() => setShowModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>
-            {editingUser ? 'Edit User' : 'Create New User'}
-          </Modal.Title>
+          <Modal.Title>{editingUser ? 'Edit User' : 'Create New User'}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {error && <Alert variant="danger">{error}</Alert>}
@@ -282,23 +342,19 @@ export function UserManagement() {
                   <Form.Label>Username *</Form.Label>
                   <Form.Control
                     type="text"
-                    name="username"
                     value={formData.username}
-                    onChange={handleChange}
+                    onChange={(event) => setFormData((current) => ({ ...current, username: event.target.value }))}
                     required
                   />
                 </Form.Group>
               </Col>
               <Col md={6}>
                 <Form.Group className="mb-3">
-                  <Form.Label>
-                    Password {editingUser ? '(leave blank to keep current)' : '*'}
-                  </Form.Label>
+                  <Form.Label>Password {editingUser ? '(leave blank to keep current)' : '*'}</Form.Label>
                   <Form.Control
                     type="password"
-                    name="password"
                     value={formData.password}
-                    onChange={handleChange}
+                    onChange={(event) => setFormData((current) => ({ ...current, password: event.target.value }))}
                     required={!editingUser}
                   />
                 </Form.Group>
@@ -311,9 +367,8 @@ export function UserManagement() {
                   <Form.Label>Full Name *</Form.Label>
                   <Form.Control
                     type="text"
-                    name="fullName"
                     value={formData.fullName}
-                    onChange={handleChange}
+                    onChange={(event) => setFormData((current) => ({ ...current, fullName: event.target.value }))}
                     required
                   />
                 </Form.Group>
@@ -323,28 +378,51 @@ export function UserManagement() {
                   <Form.Label>Email *</Form.Label>
                   <Form.Control
                     type="email"
-                    name="email"
                     value={formData.email}
-                    onChange={handleChange}
+                    onChange={(event) => setFormData((current) => ({ ...current, email: event.target.value }))}
                     required
                   />
                 </Form.Group>
               </Col>
             </Row>
 
-            <Form.Group className="mb-3">
-              <Form.Label>Role *</Form.Label>
-              <Form.Select
-                name="role"
-                value={formData.role}
-                onChange={handleChange}
-                required
-              >
-                {roleOptions.map(role => (
-                  <option key={role} value={role}>{role}</option>
-                ))}
-              </Form.Select>
-            </Form.Group>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Role *</Form.Label>
+                  <Form.Select
+                    value={formData.role}
+                    onChange={(event) => setFormData((current) => ({ ...current, role: event.target.value }))}
+                    required
+                  >
+                    {roleOptions.map((role) => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Company {formData.role === ROLES.ADMINISTRATOR ? '(optional)' : '*'}</Form.Label>
+                  <Form.Select
+                    value={formData.companyId}
+                    disabled={!globalAdmin}
+                    onChange={(event) => setFormData((current) => ({ ...current, companyId: event.target.value }))}
+                    required={formData.role !== ROLES.ADMINISTRATOR}
+                  >
+                    <option value="">Select company</option>
+                    {companies.map((item) => (
+                      <option key={item.id} value={item.id}>{item.name}</option>
+                    ))}
+                  </Form.Select>
+                  {!globalAdmin && (
+                    <Form.Text>
+                      Company administrators can only create or edit users inside their own company.
+                    </Form.Text>
+                  )}
+                </Form.Group>
+              </Col>
+            </Row>
 
             <div className="d-flex justify-content-end gap-2">
               <Button variant="secondary" onClick={() => setShowModal(false)}>

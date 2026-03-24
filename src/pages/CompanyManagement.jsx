@@ -43,7 +43,7 @@ function getInitials(name = '') {
 }
 
 export function CompanyManagement() {
-  const { hasPermission } = useAuth();
+  const { company, isCompanyAdmin, isGlobalAdmin } = useAuth();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -52,7 +52,9 @@ export function CompanyManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState(EMPTY_FORM);
 
-  const canManageCompanies = hasPermission('user_management');
+  const canManageCompanies = isGlobalAdmin() || isCompanyAdmin();
+  const canCreateCompanies = isGlobalAdmin();
+  const canDeleteCompanies = isGlobalAdmin();
 
   const setMessage = (text, variant = 'success') => {
     setFeedback({ text, variant });
@@ -115,6 +117,11 @@ export function CompanyManagement() {
   };
 
   const handleDelete = async (companyId) => {
+    if (!canDeleteCompanies) {
+      setMessage('Only global administrators can delete companies.', 'danger');
+      return;
+    }
+
     if (!window.confirm('Are you sure you want to delete this company?')) {
       return;
     }
@@ -221,14 +228,17 @@ export function CompanyManagement() {
           <span className="company-hero__eyebrow">Administration</span>
           <h1>Company Management</h1>
           <p>
-            Manage the legal entities and workspaces that structure processes,
-            users, and reporting across the platform.
+            {canCreateCompanies
+              ? 'Manage the legal entities and workspaces that structure processes, users, and reporting across the platform.'
+              : `Update the company profile for ${company?.name || 'your assigned company'}.`}
           </p>
         </div>
-        <Button className="company-hero__button" onClick={handleCreate}>
-          <i className="bi bi-plus-circle me-2"></i>
-          Create Company
-        </Button>
+        {canCreateCompanies && (
+          <Button className="company-hero__button" onClick={handleCreate}>
+            <i className="bi bi-plus-circle me-2"></i>
+            Create Company
+          </Button>
+        )}
       </section>
 
       {feedback.text && (
@@ -248,7 +258,7 @@ export function CompanyManagement() {
             <Card.Body>
               <span className="company-metric-card__label">Total companies</span>
               <strong>{companies.length}</strong>
-              <p>All entities available in the workspace.</p>
+              <p>{canCreateCompanies ? 'All entities available in the workspace.' : 'Companies visible from your access scope.'}</p>
             </Card.Body>
           </Card>
         </Col>
@@ -311,7 +321,9 @@ export function CompanyManagement() {
               <p>
                 {searchTerm
                   ? 'Try adjusting the search term or clear the filter.'
-                  : 'Create the first company to start structuring the workspace.'}
+                  : canCreateCompanies
+                    ? 'Create the first company to start structuring the workspace.'
+                    : 'Your company profile will appear here once it is available.'}
               </p>
             </div>
           ) : (
@@ -371,14 +383,18 @@ export function CompanyManagement() {
                               <i className="bi bi-pencil me-2"></i>
                               Edit
                             </Dropdown.Item>
-                            <Dropdown.Divider />
-                            <Dropdown.Item
-                              className="text-danger"
-                              onClick={() => handleDelete(company.id)}
-                            >
-                              <i className="bi bi-trash me-2"></i>
-                              Delete
-                            </Dropdown.Item>
+                            {canDeleteCompanies && (
+                              <>
+                                <Dropdown.Divider />
+                                <Dropdown.Item
+                                  className="text-danger"
+                                  onClick={() => handleDelete(company.id)}
+                                >
+                                  <i className="bi bi-trash me-2"></i>
+                                  Delete
+                                </Dropdown.Item>
+                              </>
+                            )}
                           </Dropdown.Menu>
                         </Dropdown>
                       </td>

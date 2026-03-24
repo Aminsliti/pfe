@@ -133,8 +133,10 @@ export function RoleManagement() {
     switch (roleName) {
       case 'Administrator':
         return 'danger';
-      case 'Business Analyst':
+      case 'Company Administrator':
         return 'primary';
+      case 'Business Analyst':
+        return 'info';
       case 'Process Owner':
         return 'success';
       case 'Risk Manager':
@@ -150,8 +152,10 @@ export function RoleManagement() {
     switch (roleName) {
       case 'Administrator':
         return 'bg-danger';
-      case 'Business Analyst':
+      case 'Company Administrator':
         return 'bg-primary';
+      case 'Business Analyst':
+        return 'bg-info';
       case 'Process Owner':
         return 'bg-success';
       case 'Risk Manager':

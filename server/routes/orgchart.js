@@ -1,5 +1,11 @@
 import express from 'express';
 import pool from '../db.js';
+import {
+  ensureAuthenticated,
+  ensureCompanyAccess,
+  isCompanyAdmin,
+  isGlobalAdmin,
+} from '../utils/access.js';
 
 const router = express.Router();
 
@@ -13,6 +19,18 @@ const TYPE_COLORS = {
 };
 
 let schemaPromise = null;
+
+function canEditOrgChart(user) {
+  return isGlobalAdmin(user) || isCompanyAdmin(user);
+}
+
+function isNodeAccessibleToUser(node, user) {
+  if (isGlobalAdmin(user)) {
+    return true;
+  }
+
+  return Boolean(user?.companyId) && node?.companyId === user.companyId;
+}
 
 function normalizeText(value) {
   if (value === undefined || value === null) return null;
@@ -311,7 +329,15 @@ async function seedDefaultOrgChart() {
   }
 }
 
-async function getNodes(client = pool) {
+async function getNodes(client = pool, companyId = null) {
+  const params = [];
+  let whereClause = '';
+
+  if (companyId !== null) {
+    whereClause = 'WHERE n.company_id = $1';
+    params.push(companyId);
+  }
+
   const result = await client.query(`
     SELECT
       n.id,
@@ -334,8 +360,9 @@ async function getNodes(client = pool) {
     FROM org_chart_nodes n
     LEFT JOIN companies c ON c.id = n.company_id
     LEFT JOIN users u ON u.id = n.user_id
+    ${whereClause}
     ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.name
-  `);
+  `, params);
 
   return result.rows.map(serializeNode);
 }
@@ -433,16 +460,51 @@ async function updateSubtreeCompany(client, nodeId, companyId) {
   );
 }
 
+async function getAssignableUser(client, userId) {
+  if (userId === null) {
+    return null;
+  }
+
+  const result = await client.query(
+    'SELECT id, company_id, full_name, role FROM users WHERE id = $1',
+    [userId]
+  );
+
+  return result.rows[0] || null;
+}
+
 router.get('/orgchart/meta', async (req, res) => {
   try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
     await ensureOrgChartSchema();
+
+    const companyFilter = isGlobalAdmin(req.user) ? null : req.user.companyId;
+    if (!isGlobalAdmin(req.user) && !companyFilter) {
+      return res.json({ companies: [], users: [], nodeTypes: Array.from(NODE_TYPES) });
+    }
+
+    const companyParams = [];
+    const userParams = [];
+    let companyWhere = '';
+    let userWhere = '';
+
+    if (companyFilter) {
+      companyWhere = 'WHERE id = $1';
+      userWhere = 'WHERE u.company_id = $1';
+      companyParams.push(companyFilter);
+      userParams.push(companyFilter);
+    }
 
     const [companiesResult, usersResult] = await Promise.all([
       pool.query(`
         SELECT id, name, description
         FROM companies
+        ${companyWhere}
         ORDER BY name
-      `),
+      `, companyParams),
       pool.query(`
         SELECT
           u.id,
@@ -453,8 +515,9 @@ router.get('/orgchart/meta', async (req, res) => {
           c.name AS company_name
         FROM users u
         LEFT JOIN companies c ON c.id = u.company_id
+        ${userWhere}
         ORDER BY u.full_name
-      `),
+      `, userParams),
     ]);
 
     res.json({
@@ -481,8 +544,16 @@ router.get('/orgchart/meta', async (req, res) => {
 
 router.get('/orgchart/nodes', async (req, res) => {
   try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
     await ensureOrgChartSchema();
-    const nodes = await getNodes();
+    if (!isGlobalAdmin(req.user) && !req.user.companyId) {
+      return res.json([]);
+    }
+
+    const nodes = await getNodes(pool, isGlobalAdmin(req.user) ? null : req.user.companyId);
     res.json(nodes);
   } catch (error) {
     console.error('orgchart/nodes error:', error);
@@ -495,6 +566,10 @@ router.post('/orgchart/nodes', async (req, res) => {
   const client = await pool.connect();
 
   try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+    }
+
     const parentId = normalizeInteger(req.body.parentId);
     const requestedCompanyId = normalizeInteger(req.body.companyId);
     const userId = normalizeInteger(req.body.userId);
@@ -518,7 +593,36 @@ router.post('/orgchart/nodes', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Parent node not found.' });
       }
+      if (!isNodeAccessibleToUser(parentNode, req.user)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You cannot create nodes under another company.' });
+      }
       companyId = companyId ?? parentNode.companyId;
+    }
+
+    if (!isGlobalAdmin(req.user)) {
+      companyId = req.user.companyId;
+    }
+
+    if (companyId !== null && !ensureCompanyAccess(req, res, companyId)) {
+      await client.query('ROLLBACK');
+      return;
+    }
+
+    if (!isGlobalAdmin(req.user) && !companyId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Company administrators must belong to a company.' });
+    }
+
+    const assignedUser = await getAssignableUser(client, isVacant ? null : userId);
+    if (userId !== null && !assignedUser) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Assigned user not found.' });
+    }
+
+    if (assignedUser && assignedUser.company_id !== companyId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Assigned user must belong to the same company.' });
     }
 
     const sortOrder = await getNextSortOrder(client, parentId);
@@ -572,6 +676,10 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
   const client = await pool.connect();
 
   try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+    }
+
     const nodeId = normalizeInteger(req.params.id);
     const parentId = req.body.parentId === undefined
       ? undefined
@@ -590,6 +698,10 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Organigram node not found.' });
     }
+    if (!isNodeAccessibleToUser(existing, req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You cannot edit nodes from another company.' });
+    }
 
     const nextParentId = parentId === undefined ? existing.parentId : parentId;
     const isParentValid = await ensureValidParent(client, nodeId, nextParentId);
@@ -605,7 +717,20 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Selected parent node does not exist.' });
       }
+      if (!isNodeAccessibleToUser(parentNode, req.user)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You cannot move nodes under another company.' });
+      }
       nextCompanyId = parentNode.companyId;
+    }
+
+    if (!isGlobalAdmin(req.user)) {
+      nextCompanyId = req.user.companyId;
+    }
+
+    if (nextCompanyId !== null && !ensureCompanyAccess(req, res, nextCompanyId)) {
+      await client.query('ROLLBACK');
+      return;
     }
 
     const nextType = req.body.nodeType === undefined
@@ -620,6 +745,15 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
     const nextUserId = nextVacant
       ? null
       : (requestedUserId === undefined ? existing.userId : requestedUserId);
+    const assignedUser = await getAssignableUser(client, nextUserId);
+    if (nextUserId !== null && !assignedUser) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Assigned user not found.' });
+    }
+    if (assignedUser && assignedUser.company_id !== nextCompanyId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Assigned user must belong to the same company.' });
+    }
     const nextSortOrder = nextParentId !== existing.parentId
       ? await getNextSortOrder(client, nextParentId)
       : existing.sortOrder;
@@ -677,6 +811,10 @@ router.patch('/orgchart/nodes/:id/move', async (req, res) => {
   const client = await pool.connect();
 
   try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+    }
+
     const nodeId = normalizeInteger(req.params.id);
     const parentId = normalizeInteger(req.body.parentId);
 
@@ -686,6 +824,10 @@ router.patch('/orgchart/nodes/:id/move', async (req, res) => {
     if (!node) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Organigram node not found.' });
+    }
+    if (!isNodeAccessibleToUser(node, req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You cannot move nodes from another company.' });
     }
 
     const isParentValid = await ensureValidParent(client, nodeId, parentId);
@@ -701,7 +843,15 @@ router.patch('/orgchart/nodes/:id/move', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Target parent not found.' });
       }
+      if (!isNodeAccessibleToUser(parentNode, req.user)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You cannot move nodes under another company.' });
+      }
       nextCompanyId = parentNode.companyId;
+    }
+
+    if (!isGlobalAdmin(req.user)) {
+      nextCompanyId = req.user.companyId;
     }
 
     const sortOrder = await getNextSortOrder(client, parentId);
@@ -738,6 +888,10 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
   const client = await pool.connect();
 
   try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+    }
+
     const nodeId = normalizeInteger(req.params.id);
     await client.query('BEGIN');
 
@@ -745,6 +899,10 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
     if (!node) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Organigram node not found.' });
+    }
+    if (!isNodeAccessibleToUser(node, req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You cannot delete nodes from another company.' });
     }
 
     const nextSortOrder = await getNextSortOrder(client, node.parentId);

@@ -7,7 +7,7 @@ import orgchartRoutes from './routes/orgchart.js'
 import authRoutes from './routes/auth.js';
 import processRoutes from './routes/processes.js';
 import simulationRoutes from './routes/simulations.js';
-import pool from './db.js';
+import { attachRequestUser } from './utils/access.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(attachRequestUser);
 
 // API Routes
 app.use('/api', authRoutes);
@@ -33,29 +34,6 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
 }
-
-// Middleware to attach user info to requests
-app.use(async (req, res, next) => {
-  // Skip authentication for login and register routes
-  if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/forgot-password')) {
-    return next();
-  }
-
-  // Get user info for authenticated routes
-  if (req.user) {
-    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
-    if (userResult.rows.length > 0) {
-      req.user = {
-        ...req.user,
-        company: userResult.rows[0].company_id ? {
-          id: userResult.rows[0].company_id,
-          name: userResult.rows[0].company_name
-        } : null
-      };
-    }
-  }
-  next();
-});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -91,4 +69,3 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
-

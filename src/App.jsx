@@ -33,7 +33,7 @@ function App() {
             <Route path="dashboard" element={<Dashboard />} />
 
             <Route path="processes" element={
-              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
+              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
                 <ProcessManagement />
               </ProtectedRoute>
             } />
@@ -43,7 +43,7 @@ function App() {
               </ProtectedRoute>
             } />
 <Route path="simulations" element={
-  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
+  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
     <SimulationScenarios />
   </ProtectedRoute>
 } />
@@ -55,12 +55,12 @@ function App() {
             } />
 
             <Route path="companies" element={
-              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
+              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
                 <CompanyManagement />
               </ProtectedRoute>
             } />
             <Route path="users" element={
-              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
+              <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
                 <UserManagement />
               </ProtectedRoute>
             } />

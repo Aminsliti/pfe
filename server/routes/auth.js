@@ -1,8 +1,32 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
+import {
+  buildRequestUser,
+  canManageRoles,
+  ensurePermission,
+  ensureCompanyAccess,
+  isGlobalAdmin,
+  sanitizeUserPayloadForRole,
+  PERMISSIONS,
+} from '../utils/access.js';
 
 const router = express.Router();
+
+function normalizeCompanyId(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function validateScopedUserCompany(res, role, companyId) {
+  if (role !== 'Administrator' && !companyId) {
+    res.status(400).json({ error: 'Non-administrator users must be assigned to a company.' });
+    return false;
+  }
+
+  return true;
+}
 
 // Login
 router.post('/login', async (req, res) => {
@@ -25,27 +49,11 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    // Simple permissions - hardcoded for admin
-    const permissions = user.role === 'Administrator' 
-      ? ['view_dashboard', 'manage_processes', 'user_management', 'role_management', 'view_reports']
-      : ['view_dashboard'];
-
-    // Return user without password and with camelCase field names
-    const { password: _, ...userWithoutPassword } = user;
-    const userData = {
-      id: userWithoutPassword.id,
-      username: userWithoutPassword.username,
-      email: userWithoutPassword.email,
-      fullName: userWithoutPassword.full_name,
-      role: userWithoutPassword.role,
-      company: null,
-      createdAt: userWithoutPassword.created_at,
-      updatedAt: userWithoutPassword.updated_at
-    };
+    const requestUser = await buildRequestUser(user.id);
     
     res.json({ 
-      user: userData,
-      permissions
+      user: requestUser,
+      permissions: requestUser.permissions || [],
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -56,8 +64,36 @@ router.post('/login', async (req, res) => {
 // Get all users
 router.get('/users', async (req, res) => {
   try {
+    if (!ensurePermission(req, res, PERMISSIONS.USER_MANAGEMENT)) {
+      return;
+    }
+
+    const params = [];
+    let query = `
+      SELECT
+        u.id,
+        u.username,
+        u.email,
+        u.full_name,
+        u.role,
+        u.company_id,
+        u.created_at,
+        u.updated_at,
+        c.name AS company_name
+      FROM users u
+      LEFT JOIN companies c ON c.id = u.company_id
+    `;
+
+    if (!isGlobalAdmin(req.user)) {
+      query += ' WHERE u.company_id = $1';
+      params.push(req.user.companyId);
+    }
+
+    query += ' ORDER BY u.id';
+
     const result = await pool.query(
-      'SELECT id, username, email, full_name, role, created_at, updated_at FROM users ORDER BY id'
+      query,
+      params
     );
     
     const users = result.rows.map(user => ({
@@ -66,6 +102,8 @@ router.get('/users', async (req, res) => {
       email: user.email,
       fullName: user.full_name,
       role: user.role,
+      companyId: user.company_id,
+      companyName: user.company_name,
       createdAt: user.created_at,
       updatedAt: user.updated_at
     }));
@@ -80,7 +118,21 @@ router.get('/users', async (req, res) => {
 // Create user
 router.post('/users', async (req, res) => {
   try {
-    const { username, password, email, fullName, role } = req.body;
+    if (!ensurePermission(req, res, PERMISSIONS.USER_MANAGEMENT)) {
+      return;
+    }
+
+    const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
+    const { username, password, email, fullName, role, companyId } = scopedPayload;
+    const nextCompanyId = isGlobalAdmin(req.user) ? normalizeCompanyId(companyId) : req.user.companyId;
+
+    if (!nextCompanyId && !isGlobalAdmin(req.user)) {
+      return res.status(400).json({ error: 'A company administrator must belong to a company.' });
+    }
+
+    if (!validateScopedUserCompany(res, role, nextCompanyId)) {
+      return;
+    }
     
     // Check if username already exists
     const existingUser = await pool.query(
@@ -96,17 +148,26 @@ router.post('/users', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     const result = await pool.query(
-      'INSERT INTO users (username, password, email, full_name, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, full_name, role',
-      [username, hashedPassword, email, fullName, role]
+      `
+        INSERT INTO users (username, password, email, full_name, role, company_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, username, email, full_name, role, company_id
+      `,
+      [username, hashedPassword, email, fullName, role, nextCompanyId]
     );
     
     const user = result.rows[0];
+    const companyResult = user.company_id
+      ? await pool.query('SELECT name FROM companies WHERE id = $1', [user.company_id])
+      : { rows: [] };
     res.status(201).json({
       id: user.id,
       username: user.username,
       email: user.email,
       fullName: user.full_name,
-      role: user.role
+      role: user.role,
+      companyId: user.company_id,
+      companyName: companyResult.rows[0]?.name || null,
     });
   } catch (error) {
     console.error('Create user error:', error);
@@ -117,20 +178,63 @@ router.post('/users', async (req, res) => {
 // Update user
 router.put('/users/:id', async (req, res) => {
   try {
+    if (!ensurePermission(req, res, PERMISSIONS.USER_MANAGEMENT)) {
+      return;
+    }
+
     const { id } = req.params;
-    const { username, password, email, fullName, role } = req.body;
+    const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
+    const { username, password, email, fullName, role, companyId } = scopedPayload;
+
+    const existingUser = await pool.query(
+      'SELECT id, company_id, role FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (!existingUser.rows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, existingUser.rows[0].company_id)) {
+      return;
+    }
+
+    const nextCompanyId = isGlobalAdmin(req.user)
+      ? normalizeCompanyId(companyId)
+      : existingUser.rows[0].company_id;
+
+    if (!validateScopedUserCompany(res, role, nextCompanyId)) {
+      return;
+    }
     
-    let query = 'UPDATE users SET username = $1, email = $2, full_name = $3, role = $4, updated_at = CURRENT_TIMESTAMP';
-    let params = [username, email, fullName, role, id];
+    let query = `
+      UPDATE users
+      SET username = $1,
+          email = $2,
+          full_name = $3,
+          role = $4,
+          company_id = $5,
+          updated_at = CURRENT_TIMESTAMP
+    `;
+    let params = [username, email, fullName, role, nextCompanyId, id];
     
     // If password is provided, hash and update it
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      query = 'UPDATE users SET username = $1, password = $2, email = $3, full_name = $4, role = $5, updated_at = CURRENT_TIMESTAMP';
-      params = [username, hashedPassword, email, fullName, role, id];
+      query = `
+        UPDATE users
+        SET username = $1,
+            password = $2,
+            email = $3,
+            full_name = $4,
+            role = $5,
+            company_id = $6,
+            updated_at = CURRENT_TIMESTAMP
+      `;
+      params = [username, hashedPassword, email, fullName, role, nextCompanyId, id];
     }
     
-    query += ' RETURNING id, username, email, full_name, role';
+    query += ' WHERE id = $' + params.length + ' RETURNING id, username, email, full_name, role, company_id';
     
     const result = await pool.query(query, params);
     
@@ -139,12 +243,17 @@ router.put('/users/:id', async (req, res) => {
     }
     
     const user = result.rows[0];
+    const companyResult = user.company_id
+      ? await pool.query('SELECT name FROM companies WHERE id = $1', [user.company_id])
+      : { rows: [] };
     res.json({
       id: user.id,
       username: user.username,
       email: user.email,
       fullName: user.full_name,
-      role: user.role
+      role: user.role,
+      companyId: user.company_id,
+      companyName: companyResult.rows[0]?.name || null,
     });
   } catch (error) {
     console.error('Update user error:', error);
@@ -155,7 +264,20 @@ router.put('/users/:id', async (req, res) => {
 // Delete user
 router.delete('/users/:id', async (req, res) => {
   try {
+    if (!ensurePermission(req, res, PERMISSIONS.USER_MANAGEMENT)) {
+      return;
+    }
+
     const { id } = req.params;
+
+    const existingUser = await pool.query('SELECT id, company_id FROM users WHERE id = $1', [id]);
+    if (!existingUser.rows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, existingUser.rows[0].company_id)) {
+      return;
+    }
     
     const result = await pool.query(
       'DELETE FROM users WHERE id = $1 RETURNING id',
@@ -176,6 +298,9 @@ router.delete('/users/:id', async (req, res) => {
 // Get all roles
 router.get('/roles', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const result = await pool.query('SELECT * FROM roles ORDER BY id');
     res.json(result.rows);
   } catch (error) {
@@ -187,6 +312,9 @@ router.get('/roles', async (req, res) => {
 // Get all permissions
 router.get('/permissions', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const result = await pool.query('SELECT * FROM permissions ORDER BY id');
     res.json(result.rows);
   } catch (error) {
@@ -198,6 +326,9 @@ router.get('/permissions', async (req, res) => {
 // Get role permissions
 router.get('/roles/:roleId/permissions', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const { roleId } = req.params;
     const result = await pool.query(
       `SELECT p.* FROM permissions p
@@ -215,6 +346,9 @@ router.get('/roles/:roleId/permissions', async (req, res) => {
 // Get all roles with their permissions
 router.get('/roles-with-permissions', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const rolesResult = await pool.query('SELECT * FROM roles ORDER BY id');
     const roles = rolesResult.rows;
 
@@ -245,6 +379,9 @@ router.get('/roles-with-permissions', async (req, res) => {
 // Update role permissions
 router.put('/roles/:roleId/permissions', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const { roleId } = req.params;
     const { permissionIds } = req.body;
     
@@ -269,6 +406,9 @@ router.put('/roles/:roleId/permissions', async (req, res) => {
 // Create role
 router.post('/roles', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const { name, description } = req.body;
     
     const result = await pool.query(
@@ -291,6 +431,9 @@ router.post('/roles', async (req, res) => {
 // Update role
 router.put('/roles/:id', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const { id } = req.params;
     const { name, description } = req.body;
     
@@ -317,6 +460,9 @@ router.put('/roles/:id', async (req, res) => {
 // Delete role
 router.delete('/roles/:id', async (req, res) => {
   try {
+    if (!canManageRoles(req.user)) {
+      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+    }
     const { id } = req.params;
     
     // Check if role is being used by users
@@ -445,4 +591,3 @@ router.post('/reset-password', async (req, res) => {
 });
 
 export default router;
-

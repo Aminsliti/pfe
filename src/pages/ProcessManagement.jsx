@@ -6,10 +6,12 @@ import BpmnEditorModeler from '../components/BpmnEditor/BpmnEditorModeler';
 const API = 'http://localhost:3001/api';
 
 export function ProcessManagement() {
-  const { hasPermission } = useAuth();
+  const { company, hasPermission, isGlobalAdmin } = useAuth();
+  const globalAdmin = isGlobalAdmin();
   const canManage = hasPermission('manage_processes');
   const [processes, setProcesses] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -23,12 +25,12 @@ export function ProcessManagement() {
   const [categoriesExpanded, setCategoriesExpanded] = useState(true);
   const [collapsedCategories, setCollapsedCategories] = useState({});
   const [uncategorisedExpanded, setUncategorisedExpanded] = useState(true);
-  const [importForm, setImportForm] = useState({ name: '', description: '', category_id: '', status: 'draft' });
+  const [importForm, setImportForm] = useState({ name: '', description: '', category_id: '', company_id: globalAdmin ? '' : String(company?.id || ''), status: 'draft' });
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
   const [importSuccess, setImportSuccess] = useState('');
-  const [formData, setFormData] = useState({ name: '', description: '', bpmn_xml: '', category_id: '', status: 'draft' });
+  const [formData, setFormData] = useState({ name: '', description: '', bpmn_xml: '', category_id: '', company_id: globalAdmin ? '' : String(company?.id || ''), status: 'draft' });
   const fileInputRef = useRef(null);
 
   const showMsg = (text, type = 'success') => {
@@ -61,7 +63,19 @@ export function ProcessManagement() {
     } catch {}
   };
 
-  useEffect(() => { if (canManage) loadCategories(); }, [canManage]);
+  const loadCompanies = async () => {
+    try {
+      const response = await fetch(`${API}/companies`);
+      if (response.ok) setCompanies(await response.json());
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (canManage) {
+      loadCategories();
+      loadCompanies();
+    }
+  }, [canManage]);
   useEffect(() => { if (canManage) loadProcesses(); }, [canManage, searchTerm, filterCat, filterStatus]);
   useEffect(() => {
     setCollapsedCategories((previous) => {
@@ -86,7 +100,14 @@ export function ProcessManagement() {
   const openBpmnEditor = (process) => setBpmnTarget(process);
   const openCreate = (defaultCategoryId = '') => {
     setEditingProcess(null);
-    setFormData({ name: '', description: '', bpmn_xml: '', category_id: defaultCategoryId, status: 'draft' });
+    setFormData({
+      name: '',
+      description: '',
+      bpmn_xml: '',
+      category_id: defaultCategoryId,
+      company_id: globalAdmin ? '' : String(company?.id || ''),
+      status: 'draft',
+    });
     setShowModal(true);
   };
   const openEditDetails = (process) => {
@@ -96,6 +117,7 @@ export function ProcessManagement() {
       description: process.description || '',
       bpmn_xml: process.bpmn_xml || '',
       category_id: process.category_id || '',
+      company_id: process.company_id || (globalAdmin ? '' : String(company?.id || '')),
       status: process.status,
     });
     setShowModal(true);
@@ -126,7 +148,13 @@ export function ProcessManagement() {
   };
 
   const openImportModal = () => {
-    setImportForm({ name: '', description: '', category_id: '', status: 'draft' });
+    setImportForm({
+      name: '',
+      description: '',
+      category_id: '',
+      company_id: globalAdmin ? '' : String(company?.id || ''),
+      status: 'draft',
+    });
     setImportFile(null);
     setImportError('');
     setImportSuccess('');
@@ -160,6 +188,7 @@ export function ProcessManagement() {
       form.append('name', importForm.name.trim());
       form.append('description', importForm.description || '');
       form.append('category_id', importForm.category_id || '');
+      form.append('company_id', importForm.company_id || '');
       form.append('status', importForm.status);
       const response = await fetch(`${API}/processes/import`, { method: 'POST', body: form });
       const data = await response.json();
@@ -378,6 +407,22 @@ export function ProcessManagement() {
               <Col md={6}><Form.Group className="mb-3"><Form.Label>Category</Form.Label><Form.Select value={formData.category_id} onChange={(event) => setFormData({ ...formData, category_id: event.target.value })}><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Form.Select></Form.Group></Col>
               <Col md={6}><Form.Group className="mb-3"><Form.Label>Status</Form.Label><Form.Select value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value })}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
             </Row>
+            <Row>
+              <Col md={12}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Company {globalAdmin ? '*' : ''}</Form.Label>
+                  <Form.Select
+                    value={formData.company_id}
+                    disabled={!globalAdmin}
+                    onChange={(event) => setFormData({ ...formData, company_id: event.target.value })}
+                    required={globalAdmin}
+                  >
+                    <option value="">Select company</option>
+                    {companies.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
             <div className="d-flex justify-content-end gap-2"><Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button><Button type="submit" variant="danger">{editingProcess ? 'Update' : 'Create'}</Button></div>
           </Form>
         </Modal.Body>
@@ -399,7 +444,19 @@ export function ProcessManagement() {
                 <Col md={4}><Form.Group className="mb-3"><Form.Label>Initial status</Form.Label><Form.Select value={importForm.status} onChange={(event) => setImportForm((previous) => ({ ...previous, status: event.target.value }))}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
               </Row>
               <Form.Group className="mb-3"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={importForm.description} onChange={(event) => setImportForm((previous) => ({ ...previous, description: event.target.value }))} placeholder="Optional" /></Form.Group>
-              <Form.Group className="mb-4"><Form.Label>Category</Form.Label><Form.Select value={importForm.category_id} onChange={(event) => setImportForm((previous) => ({ ...previous, category_id: event.target.value }))}><option value="">No category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Form.Select></Form.Group>
+              <Form.Group className="mb-3"><Form.Label>Category</Form.Label><Form.Select value={importForm.category_id} onChange={(event) => setImportForm((previous) => ({ ...previous, category_id: event.target.value }))}><option value="">No category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Form.Select></Form.Group>
+              <Form.Group className="mb-4">
+                <Form.Label>Company {globalAdmin ? '*' : ''}</Form.Label>
+                <Form.Select
+                  value={importForm.company_id}
+                  disabled={!globalAdmin}
+                  onChange={(event) => setImportForm((previous) => ({ ...previous, company_id: event.target.value }))}
+                  required={globalAdmin}
+                >
+                  <option value="">Select company</option>
+                  {companies.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+                </Form.Select>
+              </Form.Group>
               {importing && <ProgressBar animated now={100} label="Importing..." className="mb-3" />}
               <div className="d-flex justify-content-end gap-2">
                 <Button variant="secondary" onClick={() => setShowImport(false)} disabled={importing}>Cancel</Button>

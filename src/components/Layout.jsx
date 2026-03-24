@@ -46,6 +46,7 @@ export function Layout() {
   const getRoleBadgeVariant = (role) => {
     const map = {
       Administrator: 'danger',
+      'Company Administrator': 'primary',
       'Business Analyst': 'dark',
       'Process Owner': 'secondary',
       'Risk Manager': 'dark',
@@ -354,7 +355,7 @@ export function Layout() {
                 </span>
                 <span className="vbpm-user-copy">
                   <strong>{user?.fullName}</strong>
-                  <small>{user?.email}</small>
+                  <small>{user?.company?.name ? `${user.email} · ${user.company.name}` : user?.email}</small>
                 </span>
               </div>
               <div className="d-flex align-items-center justify-content-between mt-3 gap-2">
@@ -441,7 +442,7 @@ export function Layout() {
                 </span>
                 <span className="vbpm-user-copy">
                   <strong>{user?.fullName}</strong>
-                  <small>{user?.email}</small>
+                  <small>{user?.company?.name ? `${user.email} · ${user.company.name}` : user?.email}</small>
                 </span>
               </div>
               <div className="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
