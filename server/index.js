@@ -1,52 +1,13 @@
-import express from 'express';
-import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import 'dotenv/config';
-import orgchartRoutes from './routes/orgchart.js'
-import authRoutes from './routes/auth.js';
-import processRoutes from './routes/processes.js';
-import simulationRoutes from './routes/simulations.js';
-import { attachRequestUser } from './utils/access.js';
+import createApp from './app.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
 const PORT = process.env.PORT || 3001;
+const app = createApp();
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(attachRequestUser);
-
-// API Routes
-app.use('/api', authRoutes);
-app.use('/api', processRoutes);
-app.use('/api', orgchartRoutes);
-app.use('/api', simulationRoutes); 
-
-// Serve static files from React build in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../dist')));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
-  });
-}
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
   process.exit(1);
@@ -56,12 +17,10 @@ const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Handle server errors
 server.on('error', (error) => {
   console.error('Server error:', error);
 });
 
-// Keep the process alive
 process.on('SIGINT', () => {
   console.log('Received SIGINT, shutting down gracefully...');
   server.close(() => {

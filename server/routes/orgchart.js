@@ -20,6 +20,10 @@ const TYPE_COLORS = {
 
 let schemaPromise = null;
 
+export function resetOrgChartSchemaCache() {
+  schemaPromise = null;
+}
+
 function canEditOrgChart(user) {
   return isGlobalAdmin(user) || isCompanyAdmin(user);
 }

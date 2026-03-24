@@ -3,7 +3,12 @@ import { createContext, useContext, useEffect, useState } from 'react';
 const AuthContext = createContext(null);
 
 const API_URL = 'http://localhost:3001/api';
-const ORIGINAL_FETCH = globalThis.fetch.bind(globalThis);
+const ORIGINAL_FETCH =
+  typeof globalThis.fetch === 'function'
+    ? globalThis.fetch.bind(globalThis)
+    : async () => {
+        throw new Error('Fetch is not available in this environment.');
+      };
 
 export const ROLES = {
   ADMINISTRATOR: 'Administrator',
@@ -23,7 +28,7 @@ export const PERMISSIONS = {
   MANAGE_RISKS: 'manage_risks',
 };
 
-function getStoredUser() {
+export function getStoredUser() {
   try {
     return JSON.parse(localStorage.getItem('currentUser') || 'null');
   } catch {
@@ -31,7 +36,7 @@ function getStoredUser() {
   }
 }
 
-function resolveRequestUrl(input) {
+export function resolveRequestUrl(input) {
   if (typeof input === 'string') {
     return input;
   }
@@ -47,17 +52,17 @@ function resolveRequestUrl(input) {
   return '';
 }
 
-function shouldAttachUserHeader(url) {
+export function shouldAttachUserHeader(url) {
   return url.startsWith(API_URL) || url.startsWith('/api/') || url.includes('://localhost:3001/api');
 }
 
-function createAuthedFetch() {
+export function createAuthedFetch(fetchImpl = ORIGINAL_FETCH) {
   return (input, init = undefined) => {
     const requestUrl = resolveRequestUrl(input);
     const currentUser = getStoredUser();
 
     if (!currentUser?.id || !shouldAttachUserHeader(requestUrl)) {
-      return ORIGINAL_FETCH(input, init);
+      return fetchImpl(input, init);
     }
 
     const sourceHeaders =
@@ -68,7 +73,7 @@ function createAuthedFetch() {
       headers.set('x-user-id', String(currentUser.id));
     }
 
-    return ORIGINAL_FETCH(input, {
+    return fetchImpl(input, {
       ...init,
       headers,
     });

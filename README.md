@@ -1,162 +1,125 @@
-# v-bpm - Business Process Management Platform
+# V-BPM Platform
 
-A modern business process management system with authentication, role-based access control, and hierarchical process organization.
+V-BPM is a business process management platform built with React, Express, and PostgreSQL. It supports BPMN-based process modeling, simulation scenarios, role-based access control, multi-company data isolation, and an interactive organigram editor.
 
-## Features
+## Main Capabilities
 
-### Core Functionality
-- **Process Management**: Create, edit, and organize business processes
-- **Hierarchical View**: Tree-based process organization with categories
-- **Table View**: Flat process listing with filtering and search
-- **BPMN Support**: Import and export BPMN files
-- **Role-Based Access**: 5 user roles with granular permissions
+- BPMN process management with import/export and versioning
+- Multi-company access control with global admins and company admins
+- Process simulation with resources, task timings, gateway probabilities, and stored results
+- Interactive organization chart editor with drag-and-drop re-parenting
+- User, role, and company administration
+- Jest + Supertest test suite for frontend and backend flows
 
-### User Authentication & Security
-- Secure login with bcrypt password hashing
-- Session persistence using localStorage
-- Company-based data isolation
-- Async authentication with proper error handling
+## Documentation
 
-### User Roles & Permissions
-- **Administrator**: Full system access
-- **Business Analyst**: Can view reports and manage processes
-- **Process Owner**: Can manage processes
-- **Risk Manager**: Can manage risks and view reports
-- **Viewer**: Read-only access to dashboard
+- Full project documentation: [PROJECT_DOCUMENTATION.md](./PROJECT_DOCUMENTATION.md)
 
-### FR-03 – User Management
-- Create new user accounts
-- Modify existing user accounts
-- Delete user accounts
-- Administrator-only access
+That document covers:
 
-### FR-04 – Role & Permission Management
-- View all roles and their permissions
-- Administrator-only access
+- architecture and request flow
+- frontend modules and pages
+- backend modules and API endpoints
+- RBAC and company scoping rules
+- database schema and bootstrap behavior
+- simulation engine behavior
+- test suite and build pipeline
+- deployment, troubleshooting, and known limitations
 
-## Tech Stack
+## Quick Start
 
-- **Frontend**: React 19 + Vite + React Router
-- **Backend**: Express.js + PostgreSQL
-- **Authentication**: Session-based with bcrypt
+### 1. Install dependencies
 
-## Project Structure
-
-```
-pfeproject/
-├── server/                    # Backend server
-│   ├── db.js                 # Database connection
-│   ├── index.js              # Express server setup
-│   ├── init-db.js            # Database initialization
-│   └── routes/
-│       └── auth.js           # Authentication routes
-├── src/                      # Frontend source
-│   ├── components/
-│   │   ├── Layout.jsx       # Main layout component
-│   │   ├── ProtectedRoute.jsx # Route protection
-│   ├── contexts/
-│   │   └── AuthContext.jsx  # Authentication context
-│   ├── pages/
-│   │   ├── Dashboard.jsx     # Dashboard page
-│   │   ├── Login.jsx         # Login page
-│   │   ├── RoleManagement.jsx # Role management
-│   │   ├── Unauthorized.jsx  # Unauthorized page
-│   │   └── UserManagement.jsx # User management
-│   ├── App.jsx               # Main app component
-│   └── main.jsx              # Entry point
-├── package.json
-└── vite.config.js
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- PostgreSQL 14+
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/Aminsliti/pfe.git
-cd pfe
-```
-
-2. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Set up environment variables:
-Create a `.env` file in the root directory:
+### 2. Configure environment
+
+Create or update `.env` in the project root:
+
 ```env
-DB_USER=postgres
-DB_PASSWORD=your_password
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=pfe
+DB_NAME=maintest
+DB_USER=postgres
+DB_PASSWORD=vitalis
 PORT=3001
 ```
 
-4. Initialize the database:
+### 3. Initialize the base database
+
 ```bash
-npm run init-db
+npm run init:db
 ```
 
-5. Start the development servers:
+Important:
 
-Start the backend server:
+- `server/init-db.js` is a development bootstrap script.
+- It recreates the `processes` and `process_versions` tables.
+- Do not run it against production data without reviewing it first.
+
+### 4. Create simulation tables
+
+```bash
+node server/migrate-simulations.js
+```
+
+### 5. Start the backend
+
 ```bash
 npm run dev:server
 ```
 
-Start the frontend (in a new terminal):
+### 6. Start the frontend
+
 ```bash
 npm run dev
 ```
 
-The application will be available at:
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3001
+Default URLs:
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:3001/api`
 
 ## Demo Accounts
 
-| Username | Password    | Role              |
-|----------|-------------|-------------------|
-| admin    | admin123    | Administrator     |
-| analyst  | analyst123  | Business Analyst |
-| owner    | owner123    | Process Owner     |
-| risk     | risk123     | Risk Manager      |
-| viewer   | viewer123   | Viewer            |
+These are created by `server/init-db.js`:
 
-## API Endpoints
-
-### Authentication
-- `POST /api/login` - User login
-
-### Users
-- `GET /api/users` - Get all users
-- `POST /api/users` - Create user
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user
-
-### Roles & Permissions
-- `GET /api/roles` - Get all roles
-- `GET /api/permissions` - Get all permissions
-- `GET /api/roles-with-permissions` - Get roles with their permissions
-- `GET /api/roles/:roleId/permissions` - Get permissions for a role
+| Username | Password   | Role               |
+|----------|------------|--------------------|
+| `admin`  | `admin123` | Administrator      |
+| `analyst`| `analyst123` | Business Analyst |
+| `owner`  | `owner123` | Process Owner      |
+| `risk`   | `risk123`  | Risk Manager       |
+| `viewer` | `viewer123`| Viewer             |
 
 ## Available Scripts
 
-- `npm run dev` - Start frontend development server
-- `npm run dev:server` - Start backend server
-- `npm run build` - Build for production
-- `npm run lint` - Run ESLint
-- `npm run preview` - Preview production build
-- `npm run init-db` - Initialize database schema
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Start the Vite frontend dev server |
+| `npm run dev:server` | Start the Express backend |
+| `npm run init:db` | Bootstrap the base schema and demo data |
+| `npm run build` | Create a production frontend build |
+| `npm run preview` | Preview the production frontend build |
+| `npm run lint` | Run ESLint |
+| `npm test` | Run the Jest test suite |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:coverage` | Run tests with coverage output |
 
-## License
+## Quality Status
 
-MIT
+Current local verification:
+
+- Jest suites: passing
+- Production build: passing
+- Frontend route-level lazy loading: enabled
+- BPMN editor lazy loading: enabled
+
+## Notes
+
+- All non-public backend routes require an `x-user-id` header.
+- The frontend injects that automatically after login through `AuthContext`.
+- The org chart schema is created lazily the first time the org chart API is used.
 

@@ -1,9 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar } from 'react-bootstrap';
-import BpmnEditorModeler from '../components/BpmnEditor/BpmnEditorModeler';
 
 const API = 'http://localhost:3001/api';
+const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditorModeler'));
+
+function ModelerFallback() {
+  return (
+    <Container fluid className="py-4">
+      <div className="d-flex flex-column align-items-center justify-content-center" style={{ minHeight: '70vh' }}>
+        <div className="spinner-border text-danger" role="status" />
+        <p className="mt-3 mb-0 text-muted">Loading BPMN editor...</p>
+      </div>
+    </Container>
+  );
+}
 
 export function ProcessManagement() {
   const { company, hasPermission, isGlobalAdmin } = useAuth();
@@ -261,7 +272,18 @@ export function ProcessManagement() {
   const uncategorised = processes.filter((process) => !process.category_id);
 
   if (bpmnTarget) {
-    return <BpmnEditorModeler process={bpmnTarget} onClose={() => { setBpmnTarget(null); loadProcesses(); }} onSave={handleBpmnSave} />;
+    return (
+      <Suspense fallback={<ModelerFallback />}>
+        <BpmnEditorModeler
+          process={bpmnTarget}
+          onClose={() => {
+            setBpmnTarget(null);
+            loadProcesses();
+          }}
+          onSave={handleBpmnSave}
+        />
+      </Suspense>
+    );
   }
 
   if (!canManage) {
@@ -269,7 +291,20 @@ export function ProcessManagement() {
   }
 
   const ProcessRow = ({ process, indent = false }) => (
-    <div className="d-flex align-items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid #f1f5f9', paddingLeft: indent ? 64 : 16 }}>
+    <div
+      className="d-flex align-items-center gap-2 px-3 py-2"
+      style={{
+        borderBottom: '1px solid #f1f5f9',
+        paddingLeft: indent ? 300 : 16,
+        background: indent ? '#fff1f2' : 'white',
+        boxShadow: indent ? 'inset 8px 0 0 #fca5a5' : 'none',
+      }}
+    >
+      {indent && (
+        <span style={{ color: '#ef4444', fontSize: 18, flexShrink: 0, marginRight: 10 }}>
+          <i className="bi bi-arrow-return-right" />
+        </span>
+      )}
       <i className="bi bi-file-earmark-text text-muted" style={{ fontSize: 15, flexShrink: 0 }} />
       <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{process.name}</span>
       {process.description && <span className="text-muted d-none d-lg-inline" style={{ fontSize: 11, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{process.description}</span>}
@@ -355,7 +390,7 @@ export function ProcessManagement() {
                   </button>
                   <button type="button" className="me-2" title="Add process" onClick={() => openCreate(String(category.id))} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 16, padding: '0 4px' }}><i className="bi bi-plus-lg" /></button>
                 </div>
-                {!isCollapsed && (category.procs.length === 0 ? <div style={{ padding: '6px 16px 6px 64px', fontSize: 11, color: '#cbd5e1', borderBottom: '1px solid #f8fafc' }}>No processes</div> : category.procs.map((process) => <ProcessRow key={process.id} process={process} indent />))}
+                {!isCollapsed && (category.procs.length === 0 ? <div style={{ padding: '6px 16px 6px 300px', fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #f8fafc', background: '#fff1f2', boxShadow: 'inset 8px 0 0 #fca5a5' }}>No processes</div> : category.procs.map((process) => <ProcessRow key={process.id} process={process} indent />))}
               </div>
             );
           })}
