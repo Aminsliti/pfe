@@ -213,7 +213,7 @@
 
 /* Palette - Glassmorphism */
 .bpmn-modeler-palette {
-  width: 220px;
+  width: 188px;
   background: rgba(30, 41, 59, 0.95);
   backdrop-filter: blur(20px);
   display: flex;
@@ -365,7 +365,7 @@
 
 /* Properties Panel */
 .bpmn-modeler-properties {
-  width: 240px;
+  width: 208px;
   background: rgba(30, 41, 59, 0.95);
   backdrop-filter: blur(20px);
   display: flex;

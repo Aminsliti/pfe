@@ -37,13 +37,315 @@ function buildFallbackXml(processName = 'Process') {
 </bpmn:definitions>`;
 }
 
+const LEGACY_TYPE_TO_BPMN = {
+  startEvent: 'bpmn:startEvent',
+  endEvent: 'bpmn:endEvent',
+  intermediateEvent: 'bpmn:intermediateCatchEvent',
+  userTask: 'bpmn:userTask',
+  serviceTask: 'bpmn:serviceTask',
+  scriptTask: 'bpmn:scriptTask',
+  manualTask: 'bpmn:manualTask',
+  sendTask: 'bpmn:sendTask',
+  receiveTask: 'bpmn:receiveTask',
+  businessRuleTask: 'bpmn:businessRuleTask',
+  exclusiveGateway: 'bpmn:exclusiveGateway',
+  parallelGateway: 'bpmn:parallelGateway',
+  inclusiveGateway: 'bpmn:inclusiveGateway',
+  subProcess: 'bpmn:subProcess',
+  callActivity: 'bpmn:callActivity',
+  annotation: 'bpmn:textAnnotation',
+};
+
+const XML_NODE_TYPE_MAP = {
+  startEvent: 'bpmn:startEvent',
+  endEvent: 'bpmn:endEvent',
+  intermediateCatchEvent: 'bpmn:intermediateCatchEvent',
+  intermediateThrowEvent: 'bpmn:intermediateThrowEvent',
+  userTask: 'bpmn:userTask',
+  serviceTask: 'bpmn:serviceTask',
+  scriptTask: 'bpmn:scriptTask',
+  manualTask: 'bpmn:manualTask',
+  sendTask: 'bpmn:sendTask',
+  receiveTask: 'bpmn:receiveTask',
+  businessRuleTask: 'bpmn:businessRuleTask',
+  task: 'bpmn:task',
+  exclusiveGateway: 'bpmn:exclusiveGateway',
+  parallelGateway: 'bpmn:parallelGateway',
+  inclusiveGateway: 'bpmn:inclusiveGateway',
+  eventBasedGateway: 'bpmn:eventBasedGateway',
+  subProcess: 'bpmn:subProcess',
+  callActivity: 'bpmn:callActivity',
+  textAnnotation: 'bpmn:textAnnotation',
+};
+
+const BPMN_DEFAULT_SIZE = {
+  'bpmn:startEvent': { w: 36, h: 36 },
+  'bpmn:endEvent': { w: 36, h: 36 },
+  'bpmn:intermediateCatchEvent': { w: 36, h: 36 },
+  'bpmn:intermediateThrowEvent': { w: 36, h: 36 },
+  'bpmn:userTask': { w: 120, h: 80 },
+  'bpmn:serviceTask': { w: 120, h: 80 },
+  'bpmn:scriptTask': { w: 120, h: 80 },
+  'bpmn:manualTask': { w: 120, h: 80 },
+  'bpmn:sendTask': { w: 120, h: 80 },
+  'bpmn:receiveTask': { w: 120, h: 80 },
+  'bpmn:businessRuleTask': { w: 120, h: 80 },
+  'bpmn:task': { w: 120, h: 80 },
+  'bpmn:exclusiveGateway': { w: 50, h: 50 },
+  'bpmn:parallelGateway': { w: 50, h: 50 },
+  'bpmn:inclusiveGateway': { w: 50, h: 50 },
+  'bpmn:eventBasedGateway': { w: 50, h: 50 },
+  'bpmn:subProcess': { w: 160, h: 100 },
+  'bpmn:callActivity': { w: 140, h: 90 },
+  'bpmn:textAnnotation': { w: 110, h: 50 },
+};
+
+const supportsModelerDiagram = (value) =>
+  typeof value === 'string' &&
+  value.trim().startsWith('<') &&
+  /<(?:[\w.-]+:)?BPMNDiagram\b/i.test(value);
+
+const sanitizeId = (value, fallback = 'Element') => {
+  const source = String(value || fallback).trim() || fallback;
+  const safe = source.replace(/[^A-Za-z0-9_.-]/g, '_');
+  return /^[A-Za-z_]/.test(safe) ? safe : `Id_${safe}`;
+};
+
+const anchorPoints = (shape) => [
+  { x: shape.x + shape.w / 2, y: shape.y },
+  { x: shape.x + shape.w, y: shape.y + shape.h / 2 },
+  { x: shape.x + shape.w / 2, y: shape.y + shape.h },
+  { x: shape.x, y: shape.y + shape.h / 2 },
+];
+
+const pickWaypoints = (source, target) => {
+  let best = null;
+  anchorPoints(source).forEach((from) => {
+    anchorPoints(target).forEach((to) => {
+      const distance = (from.x - to.x) ** 2 + (from.y - to.y) ** 2;
+      if (!best || distance < best.distance) {
+        best = { from, to, distance };
+      }
+    });
+  });
+  return [best.from, best.to];
+};
+
+function buildRenderableXml({ processName = 'Process', processId = 'Process_1', nodes = [], flows = [] }) {
+  if (!nodes.length) {
+    return buildFallbackXml(processName);
+  }
+
+  const safeProcessId = sanitizeId(processId, 'Process_1');
+  const shapeMarkup = nodes.map((node) => {
+    const width = node.w || BPMN_DEFAULT_SIZE[node.type]?.w || 120;
+    const height = node.h || BPMN_DEFAULT_SIZE[node.type]?.h || 80;
+    return `      <bpmndi:BPMNShape id="${node.id}_di" bpmnElement="${node.id}">
+        <dc:Bounds x="${node.x}" y="${node.y}" width="${width}" height="${height}" />
+      </bpmndi:BPMNShape>`;
+  });
+
+  const edgeMarkup = flows.map((flow) => {
+    const source = nodes.find((node) => node.id === flow.from);
+    const target = nodes.find((node) => node.id === flow.to);
+    if (!source || !target) return null;
+    const [from, to] = pickWaypoints(source, target);
+    return `      <bpmndi:BPMNEdge id="${flow.id}_di" bpmnElement="${flow.id}">
+        <di:waypoint x="${from.x}" y="${from.y}" />
+        <di:waypoint x="${to.x}" y="${to.y}" />
+      </bpmndi:BPMNEdge>`;
+  }).filter(Boolean);
+
+  const nodeMarkup = nodes.map((node) => {
+    const nameAttr = node.label ? ` name="${escapeXml(node.label)}"` : '';
+    return `    <${node.type} id="${node.id}"${nameAttr} />`;
+  });
+
+  const flowMarkup = flows.map((flow) => {
+    const nameAttr = flow.label ? ` name="${escapeXml(flow.label)}"` : '';
+    return `    <bpmn:sequenceFlow id="${flow.id}" sourceRef="${flow.from}" targetRef="${flow.to}"${nameAttr} />`;
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="${safeProcessId}" name="${escapeXml(processName)}" isExecutable="false">
+${nodeMarkup.join('\n')}
+${flowMarkup.join('\n')}
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${safeProcessId}">
+${shapeMarkup.join('\n')}
+${edgeMarkup.join('\n')}
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+}
+
+function buildXmlFromLegacyEditor(rawValue, processName) {
+  if (typeof rawValue !== 'string') return null;
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || !Array.isArray(parsed.elements)) return null;
+
+    const idMap = new Map();
+    const nodes = parsed.elements
+      .map((element, index) => {
+        const type = LEGACY_TYPE_TO_BPMN[element.type];
+        if (!type) return null;
+
+        const id = sanitizeId(element.id, `Element_${index + 1}`);
+        idMap.set(element.id, id);
+        return {
+          id,
+          type,
+          label: element.label || element.name || '',
+          x: Number.isFinite(element.x) ? element.x : 120 + index * 160,
+          y: Number.isFinite(element.y) ? element.y : 160,
+          w: Number.isFinite(element.w) ? element.w : BPMN_DEFAULT_SIZE[type]?.w,
+          h: Number.isFinite(element.h) ? element.h : BPMN_DEFAULT_SIZE[type]?.h,
+        };
+      })
+      .filter(Boolean);
+
+    if (!nodes.length) return null;
+
+    const validIds = new Set(nodes.map((node) => node.id));
+    const flows = Array.isArray(parsed.connections)
+      ? parsed.connections
+          .map((connection, index) => ({
+            id: sanitizeId(connection.id, `Flow_${index + 1}`),
+            from: idMap.get(connection.from),
+            to: idMap.get(connection.to),
+            label: connection.label || '',
+          }))
+          .filter((connection) => validIds.has(connection.from) && validIds.has(connection.to))
+      : [];
+
+    return buildRenderableXml({ processName, nodes, flows });
+  } catch {
+    return null;
+  }
+}
+
+function buildXmlFromSimpleBpmn(rawValue, processName) {
+  if (typeof rawValue !== 'string' || !rawValue.trim().startsWith('<')) return null;
+  if (!/(?:<[\w.-]+:)?process\b/i.test(rawValue)) return null;
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawValue, 'application/xml');
+    if (doc.querySelector('parsererror')) return null;
+
+    const processElement = Array.from(doc.getElementsByTagName('*')).find((node) => node.localName === 'process');
+    if (!processElement) return null;
+
+    const nodes = [];
+    const flows = [];
+    let order = 0;
+
+    Array.from(processElement.children).forEach((child) => {
+      const localName = child.localName;
+      if (localName === 'sequenceFlow') {
+        flows.push({
+          id: sanitizeId(child.getAttribute('id'), `Flow_${flows.length + 1}`),
+          from: sanitizeId(child.getAttribute('sourceRef'), `From_${flows.length + 1}`),
+          to: sanitizeId(child.getAttribute('targetRef'), `To_${flows.length + 1}`),
+          label: child.getAttribute('name') || '',
+        });
+        return;
+      }
+
+      const type = XML_NODE_TYPE_MAP[localName];
+      if (!type) return;
+
+      nodes.push({
+        id: sanitizeId(child.getAttribute('id'), `${localName}_${order + 1}`),
+        type,
+        label: child.getAttribute('name') || '',
+        order: order++,
+      });
+    });
+
+    if (!nodes.length) return null;
+
+    const outgoing = new Map();
+    const incomingCount = new Map(nodes.map((node) => [node.id, 0]));
+    flows.forEach((flow) => {
+      outgoing.set(flow.from, [...(outgoing.get(flow.from) || []), flow.to]);
+      incomingCount.set(flow.to, (incomingCount.get(flow.to) || 0) + 1);
+    });
+
+    const queue = nodes
+      .filter((node) => node.type === 'bpmn:startEvent' || (incomingCount.get(node.id) || 0) === 0)
+      .map((node) => node.id);
+    const levels = new Map(queue.map((id) => [id, 0]));
+
+    while (queue.length) {
+      const current = queue.shift();
+      const currentLevel = levels.get(current) || 0;
+      (outgoing.get(current) || []).forEach((targetId) => {
+        const nextLevel = currentLevel + 1;
+        if (!levels.has(targetId) || nextLevel > levels.get(targetId)) {
+          levels.set(targetId, nextLevel);
+          queue.push(targetId);
+        }
+      });
+    }
+
+    let fallbackLevel = Math.max(0, ...levels.values(), 0);
+    const rowsByLevel = new Map();
+    const positionedNodes = nodes.map((node) => {
+      const type = node.type;
+      const size = BPMN_DEFAULT_SIZE[type] || { w: 120, h: 80 };
+      let level = levels.get(node.id);
+      if (level === undefined) {
+        fallbackLevel += 1;
+        level = fallbackLevel;
+      }
+      const row = rowsByLevel.get(level) || 0;
+      rowsByLevel.set(level, row + 1);
+      return {
+        id: node.id,
+        type,
+        label: node.label,
+        w: size.w,
+        h: size.h,
+        x: 120 + level * 180,
+        y: 120 + row * 120,
+      };
+    });
+
+    const validIds = new Set(positionedNodes.map((node) => node.id));
+    const validFlows = flows.filter((flow) => validIds.has(flow.from) && validIds.has(flow.to));
+
+    return buildRenderableXml({
+      processName: processElement.getAttribute('name') || processName,
+      processId: processElement.getAttribute('id') || 'Process_1',
+      nodes: positionedNodes,
+      flows: validFlows,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProcessXml(rawValue, processName) {
+  if (supportsModelerDiagram(rawValue)) return rawValue;
+  return (
+    buildXmlFromLegacyEditor(rawValue, processName) ||
+    buildXmlFromSimpleBpmn(rawValue, processName) ||
+    buildFallbackXml(processName)
+  );
+}
+
 const BpmnEditorModeler = ({ process, onClose, onSave }) => {
   const containerRef = useRef(null);
   const modelerRef = useRef(null);
   const mainContainerRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [xml, setXml] = useState(process?.bpmn_xml || null);
+  const [xml, setXml] = useState(() => normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
   const [selectedElement, setSelectedElement] = useState(null);
   const [properties, setProperties] = useState({});
   const [saving, setSaving] = useState(false);
@@ -75,9 +377,7 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
 
   // Set XML from process
   useEffect(() => {
-    if (process?.bpmn_xml) {
-      setXml(process.bpmn_xml);
-    }
+    setXml(normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
   }, [process]);
 
   // Filter elements based on search

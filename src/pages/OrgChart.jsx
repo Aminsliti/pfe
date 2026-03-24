@@ -1,711 +1,754 @@
-// src/pages/OrgChart.jsx
-// Fixed: no foreignObject (causes grey screen), correct parent_id type coercion,
-// pure SVG text wrapping, stable layout algorithm.
-
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useDeferredValue, useEffect, useState } from 'react';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Container,
+  Form,
+  InputGroup,
+  Modal,
+  Row,
+  Spinner,
+} from 'react-bootstrap';
+import { ROLES, useAuth } from '../contexts/AuthContext';
+import './OrgChart.css';
 
 const API = 'http://localhost:3001/api';
+const CARD_WIDTH = 280;
+const CARD_HEIGHT = 164;
+const H_GAP = 40;
+const V_GAP = 108;
+const CANVAS_PADDING = 40;
 
-// ─── Colors per category ──────────────────────────────────────────────────────
-const CAT_PALETTE = [
-  '#dc2626', '#1d4ed8', '#15803d', '#b45309',
-  '#7c3aed', '#0e7490', '#be185d', '#374151',
-];
-const catColorCache = {};
-let catColorIndex = 0;
-function catColor(name) {
-  if (!name) return '#374151';
-  if (!catColorCache[name]) {
-    catColorCache[name] = CAT_PALETTE[catColorIndex % CAT_PALETTE.length];
-    catColorIndex++;
-  }
-  return catColorCache[name];
-}
-
-const STATUS = {
-  draft:     { fill: '#fef9c3', text: '#854d0e', stroke: '#fde047', label: 'Draft'     },
-  published: { fill: '#dcfce7', text: '#166534', stroke: '#86efac', label: 'Published' },
-  active:    { fill: '#dcfce7', text: '#166534', stroke: '#86efac', label: 'Active'    },
-  archived:  { fill: '#f1f5f9', text: '#475569', stroke: '#cbd5e1', label: 'Archived'  },
-  review:    { fill: '#dbeafe', text: '#1e40af', stroke: '#93c5fd', label: 'Review'    },
+const TYPE_META = {
+  company: { label: 'Company', icon: 'bi-building', color: '#dc2626' },
+  division: { label: 'Division', icon: 'bi-diagram-2', color: '#2563eb' },
+  department: { label: 'Department', icon: 'bi-kanban', color: '#7c3aed' },
+  team: { label: 'Team', icon: 'bi-people', color: '#0891b2' },
+  position: { label: 'Position', icon: 'bi-person-badge', color: '#475569' },
 };
-function getStatus(s) { return STATUS[s] || STATUS.draft; }
 
-function initials(name = '') {
-  return (name || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+const EMPTY_FORM = {
+  name: '',
+  title: '',
+  nodeType: 'department',
+  companyId: '',
+  parentId: '',
+  userId: '',
+  description: '',
+  color: '#2563eb',
+  isVacant: false,
+};
+
+function nodeMeta(nodeType) {
+  return TYPE_META[nodeType] || TYPE_META.position;
 }
 
-// ─── Layout constants ─────────────────────────────────────────────────────────
-const NW = 210;   // node width
-const NH = 100;   // node height
-const HG = 30;    // horizontal gap between siblings
-const VG = 60;    // vertical gap between levels
+function toForm(node = null, overrides = {}) {
+  return {
+    name: node?.name || '',
+    title: node?.title || '',
+    nodeType: node?.nodeType || 'department',
+    companyId: node?.companyId ? String(node.companyId) : '',
+    parentId: node?.parentId ? String(node.parentId) : '',
+    userId: node?.userId ? String(node.userId) : '',
+    description: node?.description || '',
+    color: node?.color || nodeMeta(node?.nodeType).color || '#2563eb',
+    isVacant: Boolean(node?.isVacant),
+    ...overrides,
+  };
+}
 
-// ─── Build tree, measure widths, assign positions ─────────────────────────────
-function buildTree(processes) {
-  // Coerce all ids to numbers for safe comparison
-  const byId = {};
-  processes.forEach(p => {
-    byId[+p.id] = { ...p, id: +p.id, parent_id: p.parent_id != null ? +p.parent_id : null, _children: [] };
+function initials(value = '') {
+  return (
+    value
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || 'OG'
+  );
+}
+
+function formatDate(value) {
+  if (!value) return 'Not available';
+  return new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function matchesSearch(node, term) {
+  if (!term) return true;
+  const haystack = [
+    node.name,
+    node.title,
+    node.userName,
+    node.userRole,
+    node.companyName,
+    node.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(term);
+}
+
+function buildVisibleIds(nodes, search, companyFilter) {
+  const companyNodes = nodes.filter((node) => {
+    if (companyFilter === 'all') return true;
+    if (companyFilter === 'unassigned') return node.companyId === null;
+    return String(node.companyId) === companyFilter;
   });
 
-  const roots = [];
-  Object.values(byId).forEach(p => {
-    if (p.parent_id != null && byId[p.parent_id]) {
-      byId[p.parent_id]._children.push(p);
-    } else {
-      roots.push(p);
+  if (!search) {
+    return new Set(companyNodes.map((node) => node.id));
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const visible = new Set();
+  companyNodes.forEach((node) => {
+    if (!matchesSearch(node, search)) return;
+    let current = node;
+    while (current) {
+      visible.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : null;
     }
   });
+  return visible;
+}
 
-  function measure(node) {
-    if (!node._children.length) { node._w = NW; return NW; }
-    let total = node._children.reduce((sum, c, i) => sum + measure(c) + (i > 0 ? HG : 0), 0);
-    node._w = Math.max(total, NW);
-    return node._w;
-  }
+function buildLayout(nodes) {
+  const byId = new Map();
+  const roots = [];
 
-  function place(node, x, y) {
-    node._x = x + (node._w - NW) / 2;
-    node._y = y;
-    let cx = x;
-    node._children.forEach((c, i) => {
-      place(c, cx, y + NH + VG);
-      cx += c._w + (i < node._children.length - 1 ? HG : 0);
-    });
-  }
-
-  roots.forEach(r => measure(r));
-
-  let rx = 0;
-  roots.forEach((r, i) => {
-    place(r, rx, 0);
-    rx += r._w + (i < roots.length - 1 ? HG * 3 : 0);
+  nodes.forEach((node) => byId.set(node.id, { ...node, children: [] }));
+  byId.forEach((node) => {
+    const parent = node.parentId ? byId.get(node.parentId) : null;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
   });
 
-  const nodes = [], edges = [];
-  function collect(n) {
-    nodes.push(n);
-    n._children.forEach(c => { edges.push([n, c]); collect(c); });
-  }
+  const sortTree = (items) => {
+    items.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || String(a.name).localeCompare(String(b.name)));
+    items.forEach((item) => sortTree(item.children));
+  };
+  sortTree(roots);
+
+  const measure = (node) => {
+    if (!node.children.length) {
+      node.branchWidth = CARD_WIDTH;
+      return node.branchWidth;
+    }
+    let width = 0;
+    node.children.forEach((child, index) => {
+      width += measure(child) + (index > 0 ? H_GAP : 0);
+    });
+    node.branchWidth = Math.max(width, CARD_WIDTH);
+    return node.branchWidth;
+  };
+
+  const place = (node, left, top) => {
+    node.left = left + (node.branchWidth - CARD_WIDTH) / 2;
+    node.top = top;
+    let cursor = left;
+    node.children.forEach((child) => {
+      place(child, cursor, top + CARD_HEIGHT + V_GAP);
+      cursor += child.branchWidth + H_GAP;
+    });
+  };
+
+  roots.forEach((root) => measure(root));
+  let rootCursor = 0;
+  roots.forEach((root, index) => {
+    place(root, rootCursor, 0);
+    rootCursor += root.branchWidth + (index < roots.length - 1 ? H_GAP * 2 : 0);
+  });
+
+  const laidOut = [];
+  const edges = [];
+  const collect = (node) => {
+    laidOut.push(node);
+    node.children.forEach((child) => {
+      edges.push([node, child]);
+      collect(child);
+    });
+  };
   roots.forEach(collect);
 
-  const totalW = roots.reduce((s, r, i) => s + r._w + (i < roots.length - 1 ? HG * 3 : 0), 0);
-  const totalH = nodes.reduce((m, n) => Math.max(m, n._y + NH), 0);
-
-  return { nodes, edges, totalW: Math.max(totalW, 600), totalH };
+  return {
+    nodes: laidOut,
+    edges,
+    width: Math.max(rootCursor + CANVAS_PADDING * 2, 720),
+    height: Math.max(
+      laidOut.reduce((max, node) => Math.max(max, node.top + CARD_HEIGHT), 0) + CANVAS_PADDING * 2,
+      420
+    ),
+  };
 }
 
-// ─── SVG text wrap helper (pure SVG, no foreignObject) ───────────────────────
-function SvgText({ x, y, text, maxW, fontSize, fontWeight, fill, lineHeight = 14, maxLines = 2 }) {
-  // Approximate char width
-  const charW   = fontSize * 0.55;
-  const maxChar = Math.floor(maxW / charW);
-  const words   = (text || '').split(' ');
-  const lines   = [];
-  let cur = '';
+function wouldCycle(nodes, nodeId, parentId) {
+  if (parentId === null || parentId === undefined) return false;
+  if (nodeId === parentId) return true;
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  let current = byId.get(parentId);
+  while (current) {
+    if (current.id === nodeId) return true;
+    current = current.parentId ? byId.get(current.parentId) : null;
+  }
+  return false;
+}
 
-  words.forEach(w => {
-    const test = cur ? cur + ' ' + w : w;
-    if (test.length > maxChar && cur) {
-      lines.push(cur);
-      cur = w;
-    } else {
-      cur = test;
+function childCount(nodes, nodeId) {
+  return nodes.filter((node) => node.parentId === nodeId).length;
+}
+
+function descendantCount(nodes, nodeId) {
+  const children = nodes.filter((node) => node.parentId === nodeId);
+  return children.reduce((total, child) => total + 1 + descendantCount(nodes, child.id), 0);
+}
+
+async function parseApiPayload(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const payload = isJson ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    if (response.status === 404 && response.url.includes('/api/orgchart/')) {
+      throw new Error('Org chart API not found on port 3001. Restart the backend so it loads the new organigram routes.');
     }
-  });
-  if (cur) lines.push(cur);
 
-  const display = lines.slice(0, maxLines);
-  if (lines.length > maxLines) {
-    display[maxLines - 1] = display[maxLines - 1].slice(0, -3) + '…';
+    if (isJson && payload?.error) {
+      throw new Error(payload.error);
+    }
+
+    throw new Error(fallbackMessage);
   }
 
-  const startY = y - ((display.length - 1) * lineHeight) / 2;
-
-  return (
-    <>
-      {display.map((line, i) => (
-        <text key={i} x={x} y={startY + i * lineHeight}
-          textAnchor="middle" fontSize={fontSize}
-          fontWeight={fontWeight} fill={fill}
-          fontFamily="'Segoe UI', system-ui, sans-serif">
-          {line}
-        </text>
-      ))}
-    </>
-  );
+  return payload;
 }
 
-// ─── Single node SVG group ────────────────────────────────────────────────────
-function OrgNode({ node, isSelected, onClick, userMap }) {
-  const cc    = catColor(node.category_name);
-  const st    = getStatus(node.status);
-  const owner = userMap[+node.created_by];
-  const ownerName = owner ? (owner.fullName || owner.full_name || '') : '';
-  const ownerInitials = initials(ownerName);
-  const ownerRole = owner?.role || '';
-  const roleAbbr = ownerRole.split(' ').map(w => w[0]).join('');
-
-  const cardFill   = isSelected ? cc : '#1e293b';
-  const cardStroke = isSelected ? cc : '#334155';
-  const textMain   = '#f1f5f9';
-  const textDim    = isSelected ? 'rgba(255,255,255,0.7)' : '#94a3b8';
+function OrgNodeFields({ form, setForm, companies, users, parentOptions, parentLocked = false }) {
+  const availableUsers = users.filter((user) => !form.companyId || String(user.companyId) === form.companyId);
 
   return (
-    <g transform={`translate(${node._x},${node._y})`}
-      onClick={onClick} style={{ cursor: 'pointer' }}>
-
-      {/* Glow when selected */}
-      {isSelected && (
-        <rect x={-4} y={-4} width={NW + 8} height={NH + 8}
-          rx={16} fill="none" stroke={cc} strokeWidth={2} opacity={0.3} />
-      )}
-
-      {/* Card body */}
-      <rect x={0} y={0} width={NW} height={NH} rx={12}
-        fill={cardFill} stroke={cardStroke} strokeWidth={1.5}
-        style={{ filter: isSelected ? `drop-shadow(0 0 12px ${cc}66)` : 'drop-shadow(0 2px 6px rgba(0,0,0,0.4))' }}
-      />
-
-      {/* Top colour bar */}
-      <rect x={0} y={0} width={NW} height={6} rx={12} fill={cc} />
-      <rect x={0} y={3} width={NW} height={3} fill={cc} />
-
-      {/* Category label */}
-      <text x={NW / 2} y={20} textAnchor="middle"
-        fontSize={9} fontWeight={700} fill={isSelected ? 'rgba(255,255,255,0.75)' : cc}
-        fontFamily="'Segoe UI', system-ui, sans-serif"
-        style={{ textTransform: 'uppercase', letterSpacing: '0.6px' }}>
-        {(node.category_name || 'Uncategorized').toUpperCase()}
-      </text>
-
-      {/* Process name — wrapped, 2 lines max */}
-      <SvgText
-        x={NW / 2} y={43}
-        text={node.name}
-        maxW={NW - 20}
-        fontSize={13} fontWeight={700}
-        fill={textMain}
-        lineHeight={15}
-        maxLines={2}
-      />
-
-      {/* Divider */}
-      <line x1={14} y1={66} x2={NW - 14} y2={66}
-        stroke={isSelected ? 'rgba(255,255,255,0.15)' : '#334155'} strokeWidth={1} />
-
-      {/* Owner circle */}
-      <circle cx={20} cy={82} r={9}
-        fill={isSelected ? 'rgba(255,255,255,0.2)' : cc + '33'}
-        stroke={isSelected ? 'rgba(255,255,255,0.4)' : cc} strokeWidth={1.2}
-      />
-      <text x={20} y={86} textAnchor="middle"
-        fontSize={7.5} fontWeight={800}
-        fill={isSelected ? '#fff' : cc}
-        fontFamily="'Segoe UI', system-ui, sans-serif">
-        {ownerInitials}
-      </text>
-
-      {/* Owner name + abbr */}
-      <text x={36} y={79} fontSize={9} fontWeight={600} fill={textMain}
-        fontFamily="'Segoe UI', system-ui, sans-serif">
-        {ownerName.split(' ')[0] || '—'}
-      </text>
-      <text x={36} y={91} fontSize={8} fill={textDim}
-        fontFamily="'Segoe UI', system-ui, sans-serif">
-        {roleAbbr || '—'}
-      </text>
-
-      {/* Status badge */}
-      <rect x={NW - 68} y={72} width={62} height={16} rx={8}
-        fill={isSelected ? 'rgba(255,255,255,0.15)' : st.fill}
-        stroke={isSelected ? 'rgba(255,255,255,0.25)' : st.stroke} strokeWidth={1}
-      />
-      <text x={NW - 37} y={83} textAnchor="middle"
-        fontSize={8.5} fontWeight={700}
-        fill={isSelected ? '#fff' : st.text}
-        fontFamily="'Segoe UI', system-ui, sans-serif">
-        {st.label}
-      </text>
-
-      {/* Children badge */}
-      {node._children.length > 0 && (
-        <>
-          <circle cx={NW - 10} cy={10} r={9} fill={cc} stroke="#0f172a" strokeWidth={1.5} />
-          <text x={NW - 10} y={14} textAnchor="middle"
-            fontSize={8} fontWeight={800} fill="#fff"
-            fontFamily="'Segoe UI', system-ui, sans-serif">
-            {node._children.length}
-          </text>
-        </>
-      )}
-    </g>
-  );
-}
-
-// ─── Full SVG canvas ──────────────────────────────────────────────────────────
-function OrgCanvas({ processes, userMap, selectedId, onSelect }) {
-  const { nodes, edges, totalW, totalH } = buildTree(processes);
-  const PAD = 30;
-  const svgW = totalW + PAD * 2;
-  const svgH = totalH + PAD * 2;
-
-  return (
-    <div style={{ overflowX: 'auto', overflowY: 'auto', maxWidth: '100%' }}>
-      <svg
-        width={svgW}
-        height={svgH}
-        viewBox={`0 0 ${svgW} ${svgH}`}
-        style={{ display: 'block', minWidth: svgW }}
-      >
-        <g transform={`translate(${PAD},${PAD})`}>
-          {/* Edges first (behind nodes) */}
-          {edges.map(([from, to], i) => {
-            const x1 = from._x + NW / 2;
-            const y1 = from._y + NH;
-            const x2 = to._x   + NW / 2;
-            const y2 = to._y;
-            const my = (y1 + y2) / 2;
-            return (
-              <path key={i}
-                d={`M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`}
-                fill="none" stroke="#334155" strokeWidth={2}
-                strokeDasharray={from.status === 'archived' ? '6 3' : undefined}
-              />
-            );
-          })}
-
-          {/* Nodes */}
-          {nodes.map(node => (
-            <OrgNode key={node.id}
-              node={node}
-              isSelected={selectedId === node.id}
-              onClick={() => onSelect(node)}
-              userMap={userMap}
-            />
+    <div className="org-form-grid">
+      <Form.Group>
+        <Form.Label>Name *</Form.Label>
+        <Form.Control value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+      </Form.Group>
+      <Form.Group>
+        <Form.Label>Title / Subtitle</Form.Label>
+        <Form.Control value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+      </Form.Group>
+      <Form.Group>
+        <Form.Label>Node Type</Form.Label>
+        <Form.Select
+          value={form.nodeType}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, nodeType: event.target.value, color: current.color || nodeMeta(event.target.value).color }))
+          }
+        >
+          {Object.entries(TYPE_META).map(([value, meta]) => (
+            <option key={value} value={value}>{meta.label}</option>
           ))}
-        </g>
-      </svg>
-    </div>
-  );
-}
-
-// ─── Process detail drawer ────────────────────────────────────────────────────
-function ProcessDrawer({ process, userMap, allProcesses, onClose, onNavigate }) {
-  if (!process) return null;
-  const cc     = catColor(process.category_name);
-  const st     = getStatus(process.status);
-  const owner  = userMap[+process.created_by];
-  const parent = process.parent_id != null
-    ? allProcesses.find(p => +p.id === +process.parent_id)
-    : null;
-  const children = allProcesses.filter(p => +p.parent_id === +process.id);
-
-  return (
-    <>
-      <div onClick={onClose} style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-        zIndex: 1040, backdropFilter: 'blur(3px)',
-      }} />
-      <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 440,
-        background: '#0f172a', borderLeft: '1px solid #1e293b',
-        zIndex: 1050, display: 'flex', flexDirection: 'column',
-        boxShadow: '-8px 0 40px rgba(0,0,0,0.5)',
-        animation: 'drawerIn .22s cubic-bezier(.22,.68,0,1.1)',
-      }}>
-        {/* Header */}
-        <div style={{ background: cc, padding: '20px 24px 16px', color: '#fff', flexShrink: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8,
-                textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 4 }}>
-                {process.category_name || 'Uncategorized'}
-              </div>
-              <h4 style={{ margin: 0, fontWeight: 800, fontSize: 18, lineHeight: 1.3, wordBreak: 'break-word' }}>
-                {process.name}
-              </h4>
-              <div style={{ display: 'flex', gap: 7, marginTop: 9, flexWrap: 'wrap' }}>
-                <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                  background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)' }}>
-                  {st.label}
-                </span>
-                <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11,
-                  background: 'rgba(255,255,255,0.15)', fontFamily: 'monospace' }}>
-                  v{process.version || 1}
-                </span>
-              </div>
-            </div>
-            <button onClick={onClose} style={{
-              width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-              border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.15)',
-              color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', fontSize: 14, outline: 'none', marginLeft: 12,
-            }}>✕</button>
-          </div>
+        </Form.Select>
+      </Form.Group>
+      <Form.Group>
+        <Form.Label>Parent</Form.Label>
+        <Form.Select value={form.parentId} onChange={(event) => setForm((current) => ({ ...current, parentId: event.target.value }))}>
+          <option value="">Top level</option>
+          {parentOptions.map((option) => (
+            <option key={option.id} value={option.id}>{option.name}</option>
+          ))}
+        </Form.Select>
+      </Form.Group>
+      <Form.Group>
+        <Form.Label>Company</Form.Label>
+        <Form.Select
+          value={form.companyId}
+          disabled={parentLocked}
+          onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}
+        >
+          <option value="">No company</option>
+          {companies.map((company) => (
+            <option key={company.id} value={company.id}>{company.name}</option>
+          ))}
+        </Form.Select>
+        {parentLocked && <Form.Text>Inherited from the selected parent.</Form.Text>}
+      </Form.Group>
+      <Form.Group>
+        <Form.Label>Assigned Person</Form.Label>
+        <Form.Select
+          value={form.userId}
+          disabled={form.isVacant}
+          onChange={(event) => {
+            const selectedUser = users.find((user) => String(user.id) === event.target.value);
+            setForm((current) => ({
+              ...current,
+              userId: event.target.value,
+              isVacant: false,
+              name: current.name || selectedUser?.fullName || current.name,
+              title: current.title || selectedUser?.role || current.title,
+              companyId: current.companyId || (selectedUser?.companyId ? String(selectedUser.companyId) : ''),
+            }));
+          }}
+        >
+          <option value="">Unassigned</option>
+          {availableUsers.map((user) => (
+            <option key={user.id} value={user.id}>{user.fullName} · {user.role}</option>
+          ))}
+        </Form.Select>
+      </Form.Group>
+      <Form.Group>
+        <Form.Label>Card Color</Form.Label>
+        <div className="org-color-field">
+          <Form.Control type="color" value={form.color} onChange={(event) => setForm((current) => ({ ...current, color: event.target.value }))} />
+          <Form.Control value={form.color} onChange={(event) => setForm((current) => ({ ...current, color: event.target.value }))} />
         </div>
-
-        {/* Scrollable body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-
-          {process.description && (
-            <Section title="Description">
-              <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7, margin: 0 }}>
-                {process.description}
-              </p>
-            </Section>
-          )}
-
-          {owner && (
-            <Section title="Process Owner">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12,
-                padding: '12px 14px', background: '#1e293b', borderRadius: 10,
-                border: '1px solid #334155' }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: cc,
-                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
-                  {initials(owner.fullName || owner.full_name || '')}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: 14 }}>
-                    {owner.fullName || owner.full_name}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>{owner.email}</div>
-                  <div style={{ fontSize: 11, color: cc, fontWeight: 600, marginTop: 2 }}>{owner.role}</div>
-                </div>
-              </div>
-            </Section>
-          )}
-
-          <Section title="Details">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[
-                { k: 'Status',  v: st.label,                     c: st.text,  bg: st.fill,    border: st.stroke  },
-                { k: 'Version', v: `v${process.version || 1}`,   c: '#94a3b8', bg: '#1e293b', border: '#334155'  },
-                { k: 'Created', v: process.created_at ? new Date(process.created_at).toLocaleDateString() : '—', c: '#94a3b8', bg: '#1e293b', border: '#334155' },
-                { k: 'Updated', v: process.updated_at ? new Date(process.updated_at).toLocaleDateString() : '—', c: '#94a3b8', bg: '#1e293b', border: '#334155' },
-              ].map(m => (
-                <div key={m.k} style={{ padding: '10px 12px', borderRadius: 9,
-                  background: m.bg, border: `1px solid ${m.border}` }}>
-                  <div style={{ fontSize: 10, color: '#475569', fontWeight: 600,
-                    textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 3 }}>{m.k}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: m.c }}>{m.v}</div>
-                </div>
-              ))}
-            </div>
-          </Section>
-
-          {parent && (
-            <Section title="Parent Process">
-              <NavCard process={parent} cc={catColor(parent.category_name)} onClick={() => onNavigate(parent)} />
-            </Section>
-          )}
-
-          {children.length > 0 && (
-            <Section title={`Sub-Processes (${children.length})`}>
-              {children.map(c => (
-                <NavCard key={c.id} process={c} cc={catColor(c.category_name)} onClick={() => onNavigate(c)} />
-              ))}
-            </Section>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function Section({ title, children }) {
-  return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#475569',
-        textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 10 }}>
-        {title}
-      </div>
-      {children}
+      </Form.Group>
+      <Form.Group className="org-form-grid__full">
+        <Form.Check
+          type="switch"
+          id="org-node-vacant"
+          label="Mark as vacant role"
+          checked={form.isVacant}
+          onChange={(event) => setForm((current) => ({ ...current, isVacant: event.target.checked, userId: event.target.checked ? '' : current.userId }))}
+        />
+      </Form.Group>
+      <Form.Group className="org-form-grid__full">
+        <Form.Label>Description</Form.Label>
+        <Form.Control
+          as="textarea"
+          rows={4}
+          value={form.description}
+          onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+        />
+      </Form.Group>
     </div>
   );
 }
 
-function NavCard({ process, cc, onClick }) {
-  const [hov, setHov] = useState(false);
-  const st = getStatus(process.status);
-  return (
-    <div onClick={onClick}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
-        background: hov ? '#1e293b' : '#0f172a',
-        border: `1px solid ${hov ? cc : '#1e293b'}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        transition: 'all .15s', marginBottom: 6,
-      }}>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>{process.name}</div>
-        <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{process.category_name || '—'}</div>
-      </div>
-      <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10.5, fontWeight: 600,
-        background: st.fill, color: st.text, border: `1px solid ${st.stroke}`, flexShrink: 0 }}>
-        {st.label}
-      </span>
-    </div>
-  );
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
 export function OrgChart() {
-  const { getAllUsers } = useAuth();
+  const { user } = useAuth();
+  const canEdit = user?.role !== ROLES.VIEWER;
 
-  const [users,     setUsers]     = useState([]);
-  const [processes, setProcesses] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [lastFetch, setLastFetch] = useState(null);
-  const [selected,  setSelected]  = useState(null);
-  const [search,    setSearch]    = useState('');
-  const [catFilter, setCatFilter] = useState('all');
-  const [zoom,      setZoom]      = useState(0.85);
+  const [nodes, setNodes] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState({ text: '', variant: 'success' });
+  const [selectedId, setSelectedId] = useState(null);
+  const [inspectorForm, setInspectorForm] = useState(EMPTY_FORM);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_FORM);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('all');
+  const [zoom, setZoom] = useState(1);
+  const [draggedId, setDraggedId] = useState(null);
+  const [dropTargetId, setDropTargetId] = useState(null);
+  const [rootDropActive, setRootDropActive] = useState(false);
 
-  const fetchData = useCallback(async (silent = false) => {
+  const deferredSearch = useDeferredValue(searchTerm.trim().toLowerCase());
+
+  const loadOrgChart = async (silent = false) => {
     if (!silent) setLoading(true);
-    setError(null);
+    setError('');
     try {
-      const [userList, procRes] = await Promise.all([
-        getAllUsers(),
-        fetch(`${API}/processes`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }),
+      const [nodesResponse, metaResponse] = await Promise.all([
+        fetch(`${API}/orgchart/nodes`),
+        fetch(`${API}/orgchart/meta`),
       ]);
-      const procList = Array.isArray(procRes) ? procRes : (procRes.processes || []);
-      setUsers(Array.isArray(userList) ? userList : []);
-      setProcesses(procList);
-      setLastFetch(new Date());
-    } catch (e) {
-      console.error(e);
-      setError('Could not reach the server on port 3001. Is the backend running?');
+      const nextNodes = await parseApiPayload(nodesResponse, 'Failed to load organigram nodes.');
+      const meta = await parseApiPayload(metaResponse, 'Failed to load organigram metadata.');
+      setNodes(nextNodes);
+      setCompanies(meta.companies || []);
+      setUsers(meta.users || []);
+      setSelectedId((current) => (current && nextNodes.some((node) => node.id === current) ? current : nextNodes[0]?.id || null));
+    } catch (requestError) {
+      console.error(requestError);
+      setError(requestError.message || 'The organigram could not be loaded.');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [getAllUsers]);
+  };
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  // Auto-refresh every 30 s
   useEffect(() => {
-    const id = setInterval(() => fetchData(true), 30_000);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    loadOrgChart();
+  }, []);
 
-  const userMap = {};
-  users.forEach(u => { userMap[+u.id] = u; });
+  useEffect(() => {
+    const selected = nodes.find((node) => node.id === selectedId);
+    setInspectorForm(selected ? toForm(selected) : EMPTY_FORM);
+  }, [nodes, selectedId]);
 
-  const cats = ['all', ...new Set(processes.map(p => p.category_name).filter(Boolean).sort())];
+  const selectedNode = nodes.find((node) => node.id === selectedId) || null;
+  const visibleIds = buildVisibleIds(nodes, deferredSearch, companyFilter);
+  const visibleNodes = nodes.filter((node) => visibleIds.has(node.id));
+  const layout = buildLayout(visibleNodes);
 
-  const filtered = processes.filter(p => {
-    const ok1 = !search || p.name.toLowerCase().includes(search.toLowerCase());
-    const ok2 = catFilter === 'all' || p.category_name === catFilter;
-    return ok1 && ok2;
-  });
+  const parentOptions = selectedNode
+    ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
+    : nodes;
+
+  const metrics = {
+    total: nodes.length,
+    filled: nodes.filter((node) => node.userId).length,
+    open: nodes.filter((node) => node.nodeType === 'position' && (node.isVacant || !node.userId)).length,
+    companies: new Set(nodes.map((node) => node.companyId).filter(Boolean)).size,
+  };
+
+  const showMessage = (text, variant = 'success') => setFeedback({ text, variant });
+
+  const openCreateModal = (parentNode = null) => {
+    const suggestedType = parentNode
+      ? parentNode.nodeType === 'company'
+        ? 'division'
+        : parentNode.nodeType === 'division'
+          ? 'department'
+          : parentNode.nodeType === 'department'
+            ? 'team'
+            : 'position'
+      : 'company';
+
+    setCreateForm(
+      toForm(null, {
+        parentId: parentNode?.id ? String(parentNode.id) : '',
+        companyId: parentNode?.companyId ? String(parentNode.companyId) : '',
+        nodeType: suggestedType,
+        color: nodeMeta(suggestedType).color,
+      })
+    );
+    setShowCreateModal(true);
+  };
+
+  const persistNode = async (url, method, payload) => {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return parseApiPayload(response, 'Request failed.');
+  };
+
+  const saveSelectedNode = async (event) => {
+    event.preventDefault();
+    if (!selectedNode) return;
+    setSaving(true);
+    try {
+      const data = await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'PUT', {
+        ...inspectorForm,
+        companyId: inspectorForm.companyId || null,
+        parentId: inspectorForm.parentId || null,
+        userId: inspectorForm.userId || null,
+      });
+      showMessage('Organigram node updated successfully.');
+      await loadOrgChart(true);
+      setSelectedId(data.id);
+    } catch (requestError) {
+      console.error(requestError);
+      showMessage(requestError.message || 'Failed to update node.', 'danger');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createNode = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const data = await persistNode(`${API}/orgchart/nodes`, 'POST', {
+        ...createForm,
+        companyId: createForm.companyId || null,
+        parentId: createForm.parentId || null,
+        userId: createForm.userId || null,
+      });
+      showMessage('New organigram node created.');
+      setShowCreateModal(false);
+      await loadOrgChart(true);
+      setSelectedId(data.id);
+    } catch (requestError) {
+      console.error(requestError);
+      showMessage(requestError.message || 'Failed to create node.', 'danger');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSelectedNode = async () => {
+    if (!selectedNode) return;
+    if (!window.confirm(`Delete "${selectedNode.name}"? Children will move to the deleted node's parent.`)) return;
+    setSaving(true);
+    try {
+      await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'DELETE', {});
+      showMessage('Organigram node deleted.');
+      setSelectedId(selectedNode.parentId || null);
+      await loadOrgChart(true);
+    } catch (requestError) {
+      console.error(requestError);
+      showMessage(requestError.message || 'Failed to delete node.', 'danger');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const moveNode = async (nodeId, parentId) => {
+    if (nodeId === null || wouldCycle(nodes, nodeId, parentId)) return;
+    setSaving(true);
+    try {
+      await persistNode(`${API}/orgchart/nodes/${nodeId}/move`, 'PATCH', { parentId });
+      showMessage('Organigram updated.');
+      await loadOrgChart(true);
+      setSelectedId(nodeId);
+    } catch (requestError) {
+      console.error(requestError);
+      showMessage(requestError.message || 'Failed to move node.', 'danger');
+    } finally {
+      setSaving(false);
+      setDraggedId(null);
+      setDropTargetId(null);
+      setRootDropActive(false);
+    }
+  };
 
   return (
-    <div style={{
-      fontFamily: "'Segoe UI', system-ui, sans-serif",
-      background: '#0f172a', minHeight: '100vh', color: '#e2e8f0',
-    }}>
-      <style>{`
-        @keyframes drawerIn {
-          from { transform: translateX(50px); opacity: 0; }
-          to   { transform: translateX(0);    opacity: 1; }
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        input::placeholder { color: rgba(255,255,255,0.3) !important; }
-        ::-webkit-scrollbar { width: 5px; height: 5px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-      `}</style>
-
-      {/* Header */}
-      <div style={{
-        background: '#0f172a', borderBottom: '1px solid #1e293b',
-        padding: '14px 24px', display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-        position: 'sticky', top: 0, zIndex: 50,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            background: 'linear-gradient(135deg,#dc2626,#b91c1c)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 17, boxShadow: '0 2px 12px rgba(220,38,38,0.4)',
-          }}>
-            <i className="bi bi-diagram-3-fill" style={{ color: '#fff' }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: '#f1f5f9' }}>Process Organigram</div>
-            <div style={{ fontSize: 11, color: '#475569', marginTop: 1 }}>
-              {processes.length} processes · {users.length} members
-              {lastFetch && ` · updated ${lastFetch.toLocaleTimeString()}`}
-            </div>
-          </div>
+    <Container fluid className="org-page">
+      <section className="org-hero">
+        <div className="org-hero__copy">
+          <span className="org-hero__eyebrow">Organisation Builder</span>
+          <h1>Interactive Org Chart</h1>
+          <p>Build real organigrams with departments, teams, positions, and assigned people. Drag cards to re-parent them or edit the selected node in the inspector.</p>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ position: 'relative' }}>
-            <i className="bi bi-search" style={{
-              position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)',
-              color: '#475569', fontSize: 12, pointerEvents: 'none',
-            }} />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search processes…"
-              style={{
-                paddingLeft: 28, paddingRight: 10, height: 34, width: 190,
-                background: '#1e293b', border: '1px solid #334155',
-                borderRadius: 8, color: '#e2e8f0', fontSize: 12, outline: 'none',
-              }}
-            />
-          </div>
-
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 2,
-            background: '#1e293b', border: '1px solid #334155',
-            borderRadius: 8, padding: '0 8px', height: 34,
-          }}>
-            <button onClick={() => setZoom(z => Math.max(0.3, +(z - 0.1).toFixed(1)))}
-              style={{ background: 'none', border: 'none', color: '#64748b',
-                cursor: 'pointer', fontSize: 17, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}>−</button>
-            <span style={{ fontSize: 11, color: '#475569', minWidth: 34, textAlign: 'center',
-              fontFamily: 'monospace', fontWeight: 600 }}>{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(2, +(z + 0.1).toFixed(1)))}
-              style={{ background: 'none', border: 'none', color: '#64748b',
-                cursor: 'pointer', fontSize: 17, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}>+</button>
-          </div>
-
-          <button onClick={() => fetchData()} style={{
-            height: 34, padding: '0 12px', borderRadius: 8,
-            border: '1px solid #334155', background: '#1e293b',
-            color: '#64748b', cursor: 'pointer', fontSize: 12,
-            display: 'flex', alignItems: 'center', gap: 6, outline: 'none',
-          }}>
-            <i className="bi bi-arrow-clockwise" />Refresh
-          </button>
+        <div className="org-hero__actions">
+          <Button variant="outline-secondary" className="org-hero__refresh" onClick={() => loadOrgChart()}>
+            <i className="bi bi-arrow-clockwise me-2"></i>Refresh
+          </Button>
+          {canEdit && (
+            <Button className="org-hero__primary" onClick={() => openCreateModal()}>
+              <i className="bi bi-plus-circle me-2"></i>Add Root Node
+            </Button>
+          )}
         </div>
-      </div>
+      </section>
 
-      {/* Category chips */}
-      <div style={{
-        padding: '10px 24px', background: '#0b1120',
-        borderBottom: '1px solid #1e293b',
-        display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
-      }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#475569',
-          textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: 4 }}>Category:</span>
-        {cats.map(c => {
-          const on = catFilter === c;
-          const cc2 = c === 'all' ? '#dc2626' : catColor(c);
-          return (
-            <button key={c} onClick={() => setCatFilter(c)} style={{
-              padding: '3px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-              border: `1.5px solid ${on ? cc2 : '#1e293b'}`,
-              background: on ? cc2 : '#1e293b',
-              color: on ? '#fff' : '#475569',
-              cursor: 'pointer', outline: 'none', transition: 'all .12s',
-            }}>{c === 'all' ? 'All' : c}</button>
-          );
-        })}
-      </div>
+      {feedback.text && <Alert variant={feedback.variant} dismissible onClose={() => setFeedback({ text: '', variant: 'success' })} className="org-feedback">{feedback.text}</Alert>}
+      {error && <Alert variant="danger">{error}</Alert>}
+      {!canEdit && <Alert variant="info" className="org-readonly-banner">You are viewing the organigram in read-only mode.</Alert>}
 
-      {/* Canvas */}
-      <div style={{
-        padding: '32px 24px 80px',
-        minHeight: 'calc(100vh - 130px)',
-        background: `radial-gradient(circle at 20px 20px, rgba(255,255,255,0.015) 1px, transparent 1px)`,
-        backgroundSize: '28px 28px',
-      }}>
+      <Row className="g-3 org-metrics">
+        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organisation.</p></Card.Body></Card></Col>
+        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Filled positions</span><strong>{metrics.filled}</strong><p>Roles already assigned to a person.</p></Card.Body></Card></Col>
+        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Open positions</span><strong>{metrics.open}</strong><p>Vacant or unassigned positions.</p></Card.Body></Card></Col>
+        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Companies</span><strong>{metrics.companies}</strong><p>Legal entities represented in the chart.</p></Card.Body></Card></Col>
+      </Row>
 
-        {loading && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', height: 400, gap: 14, color: '#475569' }}>
-            <div style={{ width: 36, height: 36, border: '3px solid #1e293b',
-              borderTopColor: '#dc2626', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
-            Loading organigram…
-          </div>
-        )}
+      <div className="org-workspace">
+        <Card className="org-board">
+          <Card.Body>
+            <div className="org-board__toolbar">
+              <div className="org-board__filters">
+                <InputGroup>
+                  <InputGroup.Text><i className="bi bi-search"></i></InputGroup.Text>
+                  <Form.Control value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search nodes, roles, people, or companies" />
+                </InputGroup>
+                <Form.Select value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}>
+                  <option value="all">All companies</option>
+                  <option value="unassigned">No company</option>
+                  {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </Form.Select>
+              </div>
 
-        {error && (
-          <div style={{ maxWidth: 420, margin: '60px auto', padding: '24px',
-            background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)',
-            borderRadius: 14, textAlign: 'center' }}>
-            <i className="bi bi-exclamation-triangle-fill"
-              style={{ fontSize: 28, color: '#fca5a5', display: 'block', marginBottom: 10 }} />
-            <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 6 }}>Failed to load</div>
-            <div style={{ fontSize: 13, color: '#475569' }}>{error}</div>
-            <button onClick={() => fetchData()} style={{
-              marginTop: 16, padding: '8px 20px', borderRadius: 8,
-              background: '#dc2626', border: 'none', color: '#fff',
-              cursor: 'pointer', fontWeight: 600, fontSize: 13,
-            }}>Try Again</button>
-          </div>
-        )}
-
-        {!loading && !error && filtered.length === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', height: 400, gap: 12, color: '#334155' }}>
-            <i className="bi bi-diagram-3" style={{ fontSize: 56 }} />
-            <div style={{ fontWeight: 600, fontSize: 16, color: '#475569' }}>
-              {search || catFilter !== 'all'
-                ? 'No processes match your filters'
-                : 'No processes yet — create some in Process Management'}
-            </div>
-          </div>
-        )}
-
-        {!loading && !error && filtered.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-
-            {/* Company root node */}
-            <div style={{
-              background: 'linear-gradient(135deg,#dc2626,#b91c1c)',
-              color: '#fff', padding: '11px 30px', borderRadius: 12,
-              fontWeight: 800, fontSize: 15,
-              boxShadow: '0 4px 24px rgba(220,38,38,0.45)',
-              display: 'inline-flex', alignItems: 'center', gap: 9,
-              marginBottom: 0,
-            }}>
-              <i className="bi bi-building" style={{ fontSize: 17 }} />
-              Company Organisation
+              <div className="org-board__tools">
+                <div className="org-zoom">
+                  <button onClick={() => setZoom((current) => Math.max(0.6, +(current - 0.1).toFixed(1)))}>-</button>
+                  <span>{Math.round(zoom * 100)}%</span>
+                  <button onClick={() => setZoom((current) => Math.min(1.6, +(current + 0.1).toFixed(1)))}>+</button>
+                </div>
+                <Badge bg="light" text="dark" className="org-badge">{visibleNodes.length} visible</Badge>
+              </div>
             </div>
 
-            {/* Stem */}
-            <div style={{ width: 2, height: 28, background: '#334155' }} />
+            {canEdit && (
+              <div
+                className={`org-root-dropzone${rootDropActive ? ' is-active' : ''}`}
+                onDragOver={(event) => {
+                  if (draggedId === null) return;
+                  event.preventDefault();
+                  setRootDropActive(true);
+                }}
+                onDragLeave={() => setRootDropActive(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggedId !== null) moveNode(draggedId, null);
+                }}
+              >
+                <i className="bi bi-arrows-move"></i>Drop a node here to make it top-level
+              </div>
+            )}
 
-            {/* Zoomed tree */}
-            <div style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top center',
-              transition: 'transform 0.2s ease',
-              width: '100%',
-            }}>
-              <OrgCanvas
-                processes={filtered}
-                userMap={userMap}
-                selectedId={selected?.id}
-                onSelect={node => setSelected(s => s?.id === node.id ? null : node)}
-              />
+            {loading ? (
+              <div className="org-state"><Spinner animation="border" variant="danger" /><p>Loading the organigram editor...</p></div>
+            ) : visibleNodes.length === 0 ? (
+              <div className="org-state">
+                <div className="org-state__icon"><i className="bi bi-diagram-3"></i></div>
+                <h3>No nodes to display</h3>
+                <p>{searchTerm || companyFilter !== 'all' ? 'Adjust the filters or search to bring matching nodes back into view.' : 'Create the first root node to start building the organisation.'}</p>
+                {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Create first node</Button>}
+              </div>
+            ) : (
+              <div className="org-canvas">
+                <div className="org-canvas__zoom" style={{ width: layout.width * zoom, height: layout.height * zoom }}>
+                  <div className="org-canvas__inner" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+                    <svg className="org-canvas__links" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`}>
+                      {layout.edges.map(([from, to]) => {
+                        const fromX = from.left + CARD_WIDTH / 2 + CANVAS_PADDING;
+                        const fromY = from.top + CARD_HEIGHT + CANVAS_PADDING;
+                        const toX = to.left + CARD_WIDTH / 2 + CANVAS_PADDING;
+                        const toY = to.top + CANVAS_PADDING;
+                        const midY = (fromY + toY) / 2;
+                        return <path key={`${from.id}-${to.id}`} d={`M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`} fill="none" stroke="rgba(100, 116, 139, 0.45)" strokeWidth="2" />;
+                      })}
+                    </svg>
+
+                    {layout.nodes.map((node) => {
+                      const meta = nodeMeta(node.nodeType);
+                      const dropAllowed = draggedId !== null && draggedId !== node.id && !wouldCycle(nodes, draggedId, node.id);
+                      return (
+                        <div
+                          key={node.id}
+                          className={['org-card-node', selectedId === node.id ? 'is-selected' : '', dropTargetId === node.id ? 'is-drop-target' : '', deferredSearch && matchesSearch(node, deferredSearch) ? 'is-match' : ''].filter(Boolean).join(' ')}
+                          style={{ left: node.left + CANVAS_PADDING, top: node.top + CANVAS_PADDING, '--node-accent': node.color || meta.color }}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedId(node.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setSelectedId(node.id);
+                            }
+                          }}
+                          draggable={canEdit}
+                          onDragStart={() => setDraggedId(node.id)}
+                          onDragEnd={() => {
+                            setDraggedId(null);
+                            setDropTargetId(null);
+                            setRootDropActive(false);
+                          }}
+                          onDragOver={(event) => {
+                            if (!canEdit || !dropAllowed) return;
+                            event.preventDefault();
+                            setDropTargetId(node.id);
+                          }}
+                          onDragLeave={() => {
+                            if (dropTargetId === node.id) setDropTargetId(null);
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            if (dropAllowed && draggedId !== null) moveNode(draggedId, node.id);
+                          }}
+                        >
+                          <div className="org-card-node__topline"></div>
+                          <div className="org-card-node__header">
+                            <span className="org-card-node__type"><i className={`bi ${meta.icon}`}></i>{meta.label}</span>
+                            <span className="org-card-node__children">{childCount(nodes, node.id)} direct</span>
+                          </div>
+                          <div className="org-card-node__body">
+                            <h3>{node.name}</h3>
+                            <p>{node.title || 'No title defined yet'}</p>
+                          </div>
+                          <div className="org-card-node__person">
+                            <div className="org-card-node__avatar">{node.isVacant ? 'V' : initials(node.userName || node.companyName || node.name)}</div>
+                            <div>
+                              <strong>{node.isVacant ? 'Vacant role' : node.userName || 'Unassigned'}</strong>
+                              <small>{node.isVacant ? 'Ready to fill' : node.userRole || node.companyName || 'No person assigned'}</small>
+                            </div>
+                          </div>
+                          <div className="org-card-node__footer"><span>{node.companyName || 'No company'}</span><span>{descendantCount(nodes, node.id)} nested</span></div>
+                          {canEdit && (
+                            <div className="org-card-node__actions">
+                              <span className="org-card-node__drag"><i className="bi bi-grip-vertical"></i>Drag</span>
+                              <button type="button" className="org-card-node__add" onClick={(event) => { event.stopPropagation(); openCreateModal(node); }}><i className="bi bi-plus-lg"></i></button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card.Body>
+        </Card>
+
+        <Card className="org-inspector">
+          <Card.Body>
+            <div className="org-inspector__header">
+              <div>
+                <span className="org-inspector__eyebrow">Inspector</span>
+                <h2>{selectedNode ? selectedNode.name : 'Select a node'}</h2>
+              </div>
+              {selectedNode && <Badge bg="light" text="dark">{nodeMeta(selectedNode.nodeType).label}</Badge>}
             </div>
-          </div>
-        )}
+
+            {selectedNode ? (
+              <>
+                <div className="org-inspector__meta">
+                  <div><span>Created</span><strong>{formatDate(selectedNode.createdAt)}</strong></div>
+                  <div><span>Updated</span><strong>{formatDate(selectedNode.updatedAt)}</strong></div>
+                  <div><span>Direct reports</span><strong>{childCount(nodes, selectedNode.id)}</strong></div>
+                  <div><span>All descendants</span><strong>{descendantCount(nodes, selectedNode.id)}</strong></div>
+                </div>
+
+                {canEdit ? (
+                  <Form onSubmit={saveSelectedNode}>
+                    <OrgNodeFields form={inspectorForm} setForm={setInspectorForm} companies={companies} users={users} parentOptions={parentOptions} parentLocked={Boolean(inspectorForm.parentId)} />
+                    <div className="org-inspector__actions">
+                      <Button variant="outline-secondary" onClick={() => openCreateModal(selectedNode)}><i className="bi bi-plus-circle me-2"></i>Add Child</Button>
+                      <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
+                    </div>
+                    <Button variant="outline-danger" className="org-inspector__delete" onClick={deleteSelectedNode} disabled={saving}>
+                      <i className="bi bi-trash me-2"></i>Delete Node
+                    </Button>
+                  </Form>
+                ) : (
+                  <div className="org-inspector__readonly">
+                    <p>{selectedNode.description || 'No description for this node yet.'}</p>
+                    <ul>
+                      <li>Company: {selectedNode.companyName || 'No company'}</li>
+                      <li>Assigned: {selectedNode.userName || 'Unassigned'}</li>
+                      <li>Title: {selectedNode.title || 'Not specified'}</li>
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="org-inspector__empty">
+                <div className="org-state__icon"><i className="bi bi-cursor"></i></div>
+                <h3>No node selected</h3>
+                <p>Click any card in the chart to inspect or edit it.</p>
+                {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Add Root Node</Button>}
+              </div>
+            )}
+          </Card.Body>
+        </Card>
       </div>
 
-      {/* Drawer */}
-      {selected && (
-        <ProcessDrawer
-          process={selected}
-          userMap={userMap}
-          allProcesses={processes}
-          onClose={() => setSelected(null)}
-          onNavigate={node => setSelected(node)}
-        />
-      )}
-    </div>
+      <Modal show={showCreateModal} onHide={() => setShowCreateModal(false)} size="lg" centered>
+        <Modal.Header closeButton className="org-modal__header">
+          <Modal.Title>Create Organigram Node</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="org-modal__body">
+          <Form onSubmit={createNode}>
+            <OrgNodeFields form={createForm} setForm={setCreateForm} companies={companies} users={users} parentOptions={nodes} parentLocked={Boolean(createForm.parentId)} />
+            <div className="org-modal__actions">
+              <Button variant="outline-secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+              <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Creating...' : 'Create Node'}</Button>
+            </div>
+          </Form>
+        </Modal.Body>
+      </Modal>
+    </Container>
   );
 }
 

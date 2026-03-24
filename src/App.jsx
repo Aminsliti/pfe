@@ -9,6 +9,7 @@ import RoleManagement from './pages/RoleManagement';
 import CompanyManagement from './pages/CompanyManagement';
 import ProcessManagement from './pages/ProcessManagement';
 import OrgChart from './pages/OrgChart';          // ← NEW
+import ProcessLibrary from './pages/ProcessLibrary';
 import Unauthorized from './pages/Unauthorized';
 import Layout from './components/Layout';
 import { ROLES } from './contexts/AuthContext';
@@ -34,6 +35,11 @@ function App() {
             <Route path="processes" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.BUSINESS_ANALYST, ROLES.PROCESS_OWNER]}>
                 <ProcessManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="process-library" element={
+              <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                <ProcessLibrary />
               </ProtectedRoute>
             } />
 <Route path="simulations" element={
