@@ -10,7 +10,12 @@ import { attachRequestUser } from './utils/access.js';
 export function createApp({ requestUserMiddleware = attachRequestUser } = {}) {
   const app = express();
 
-  app.use(cors());
+  // Configure CORS for network access
+  app.use(cors({
+    origin: ['http://localhost:5174', 'http://127.0.0.1:5174', /^http:\/\/192\.168\.\d+\.\d+:5174$/],
+    credentials: true
+  }));
+  
   app.use(express.json());
 
   if (requestUserMiddleware) {

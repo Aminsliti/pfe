@@ -77,6 +77,7 @@ pfe-main/
 |-- test/                      Jest/Supertest support and route tests
 |-- dist/                      Production frontend build output
 |-- README.md
+|-- USER_GUIDE.md              End-user operating guide
 `-- PROJECT_DOCUMENTATION.md
 ```
 
@@ -231,10 +232,13 @@ Responsibilities:
 
 - create simulation scenarios
 - edit scenario settings
+- import CSV files with exact instance arrival times
 - manage simulation resources
 - manage task timings and distributions
 - manage gateway flow probabilities
 - run simulations and display results
+- visualize cycle times, resource utilisation, and bottlenecks
+- surface scenario run status and errors
 
 #### [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
 
@@ -394,6 +398,7 @@ Important behavior:
 Responsibilities:
 
 - simulation scenario CRUD
+- arrival time import and management
 - scenario resource CRUD
 - task data CRUD
 - flow probability CRUD
@@ -404,6 +409,8 @@ Important behavior:
 - simulation scenarios are tied to a process
 - task data may be auto-generated from BPMN XML or legacy JSON diagrams
 - results are stored on the scenario row as JSON
+- the route lazily ensures simulation storage columns and the arrival-time table exist
+- simulation runs update scenario status through `running`, `completed`, and `failed`
 
 #### [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js)
 
@@ -524,6 +531,11 @@ Defined in [server/migrations/simulation_tables.sql](/C:/Users/user/CascadeProje
 #### simulation_scenarios
 
 - scenario metadata and result JSON
+- includes CSV import and run lifecycle fields such as:
+  - `import_csv_arrivals`
+  - `last_run_started_at`
+  - `last_run_finished_at`
+  - `last_error`
 
 #### simulation_resources
 
@@ -536,6 +548,11 @@ Defined in [server/migrations/simulation_tables.sql](/C:/Users/user/CascadeProje
 #### simulation_flow_probabilities
 
 - probability configuration for gateway paths
+
+#### simulation_arrival_times
+
+- imported exact arrival timestamps or offsets for a scenario
+- used when CSV arrival import is enabled
 
 ### 7.4 Org chart table
 
@@ -705,6 +722,12 @@ Useful query params for `GET /api/processes`:
 - `PUT /api/simulations/:id`
 - `DELETE /api/simulations/:id`
 
+#### Arrival imports
+
+- `GET /api/simulations/:id/arrival-times`
+- `POST /api/simulations/:id/arrival-times/import`
+- `DELETE /api/simulations/:id/arrival-times`
+
 #### Scenario resources
 
 - `GET /api/simulations/:id/resources`
@@ -753,13 +776,18 @@ Responsibilities:
 
 - total instances
 - active instances
+- arrival source
 - average duration
 - minimum duration
 - maximum duration
 - P95 duration
 - P99 duration
 - total cost
+- average cost per instance
+- simulation horizon
 - per-task metrics
+- resource utilisation metrics
+- bottleneck detection
 - histogram
 
 ## 11. Testing and Quality
@@ -985,9 +1013,11 @@ Core files worth knowing first:
 - [server/routes/simulations.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/simulations.js)
 - [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js)
 - [server/utils/simulationEngine.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationEngine.js)
+- [server/utils/simulationCsv.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationCsv.js)
 - [server/init-db.js](/C:/Users/user/CascadeProjects/pfe-main/server/init-db.js)
 - [server/migrations/simulation_tables.sql](/C:/Users/user/CascadeProjects/pfe-main/server/migrations/simulation_tables.sql)
+- [USER_GUIDE.md](/C:/Users/user/CascadeProjects/pfe-main/USER_GUIDE.md)
 
 ---
 
-Last updated: 2026-03-24
+Last updated: 2026-03-31

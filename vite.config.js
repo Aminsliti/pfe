@@ -10,6 +10,11 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    host: '0.0.0.0', // Allow access from any IP on network
+    port: 5174,
+    strictPort: true,
+  },
   build: {
     rollupOptions: {
       output: {

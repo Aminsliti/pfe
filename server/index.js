@@ -2,6 +2,7 @@ import 'dotenv/config';
 import createApp from './app.js';
 
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || '0.0.0.0'; // Allow access from any IP on network
 const app = createApp();
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -13,8 +14,8 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
 });
 
 server.on('error', (error) => {

@@ -149,3 +149,72 @@
   transform: rotate(-30deg);
   transform-origin: top center;
 }
+
+.sim-arrivals-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #495057;
+}
+
+.sim-inline-progress {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #ffe69c;
+  background: #fff8e1;
+}
+
+.sim-resource-util {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sim-resource-util .progress {
+  flex: 1;
+  height: 8px;
+}
+
+.sim-resource-util span {
+  min-width: 48px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.sim-bottlenecks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.sim-bottleneck-card {
+  border-top: 4px solid transparent !important;
+}
+
+.sim-bottleneck-card.severity-high {
+  border-top-color: #dc3545 !important;
+}
+
+.sim-bottleneck-card.severity-medium {
+  border-top-color: #fd7e14 !important;
+}
+
+.sim-bottleneck-card.severity-low {
+  border-top-color: #6c757d !important;
+}
+
+.sim-bottleneck-metric {
+  font-size: 22px;
+  font-weight: 800;
+  color: #212529;
+  margin-bottom: 4px;
+}

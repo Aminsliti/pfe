@@ -7,8 +7,18 @@ import './SimulationScenarios.css';
 
 const API = 'http://localhost:3001/api';
 
-const statusVariant = s => ({ draft:'secondary', running:'warning', completed:'success', error:'danger' }[s] || 'secondary');
-const statusLabel   = s => ({ draft:'Brouillon', running:'En cours…', completed:'Complété', error:'Erreur' }[s] || s);
+async function readApiPayload(response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return { error: text };
+}
+
+const statusVariant = s => ({ draft:'secondary', running:'warning', completed:'success', failed:'danger', error:'danger' }[s] || 'secondary');
+const statusLabel   = s => ({ draft:'Brouillon', running:'En cours', completed:'Termine', failed:'Echec', error:'Echec' }[s] || s);
 const fmt = (n, dec = 1) => n == null ? '—' : Number(n).toFixed(dec);
 
 // ─── Histogram ───────────────────────────────────────────────────────────────
@@ -157,6 +167,8 @@ function TabCaracteristiques({ scenario, processes, onSaved }) {
             <Form.Control value={form.name || ''} onChange={e => set('name', e.target.value)} /></Form.Group></Col>
           <Col md={4}><Form.Group className="mb-3"><Form.Label>Statut</Form.Label>
             <Form.Select value={form.status || 'draft'} onChange={e => set('status', e.target.value)}>
+              <option value="running">En cours</option>
+              <option value="failed">Echec</option>
               <option value="draft">Brouillon</option><option value="completed">Complété</option>
             </Form.Select></Form.Group></Col>
           <Col md={12}><Form.Group className="mb-3"><Form.Label>Description</Form.Label>
@@ -197,6 +209,137 @@ function TabCaracteristiques({ scenario, processes, onSaved }) {
         <Form.Check type="switch" id="all2" label="Simuler tous les niveaux de processus"
           checked={!!form.simulate_all_levels} onChange={e => set('simulate_all_levels', e.target.checked)} className="mt-1" />
       </div>
+      <SimulationArrivalTimesCard
+        scenarioId={scenario.id}
+        enabled={!!form.import_csv_arrivals}
+        onImported={({ count, arrivals }) => {
+          setForm(f => ({ ...f, import_csv_arrivals: true, process_instances: count }));
+          onSaved({ ...scenario, import_csv_arrivals: true, process_instances: count, arrival_times: arrivals });
+          setMsg('Import CSV termine');
+          setTimeout(() => setMsg(''), 2500);
+        }}
+        onCleared={() => {
+          setForm(f => ({ ...f, import_csv_arrivals: false }));
+          onSaved({ ...scenario, import_csv_arrivals: false, arrival_times: [] });
+          setMsg('Import CSV supprime');
+          setTimeout(() => setMsg(''), 2500);
+        }}
+      />
+    </div>
+  );
+}
+
+function ArrivalTimesCard({ scenarioId, enabled, onImported, onCleared }) {
+  return (
+    <SimulationArrivalTimesCard
+      scenarioId={scenarioId}
+      enabled={enabled}
+      onImported={onImported}
+      onCleared={onCleared}
+    />
+  );
+
+  const [arrivals, setArrivals] = useState([]);
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API}/simulations/${scenarioId}/arrival-times`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Impossible de charger les arrivees importe es.');
+      setArrivals(Array.isArray(payload.arrivals) ? payload.arrivals : []);
+    } catch (error) {
+      setErr(error.message);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [scenarioId]);
+
+  const importCsv = async () => {
+    if (!file) return setErr('Choisissez un fichier CSV.');
+    setUploading(true);
+    setErr('');
+    setMsg('');
+    try {
+      const csvText = await file.text();
+      const response = await fetch(`${API}/simulations/${scenarioId}/arrival-times/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csvText, fileName: file.name }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Import CSV impossible.');
+      setArrivals(payload.arrivals || []);
+      setFile(null);
+      setMsg(`${payload.count} arrivees importe es.`);
+      onImported?.(payload);
+    } catch (error) {
+      setErr(error.message);
+    }
+    setUploading(false);
+  };
+
+  const clearImport = async () => {
+    setErr('');
+    setMsg('');
+    try {
+      const response = await fetch(`${API}/simulations/${scenarioId}/arrival-times`, { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Suppression impossible.');
+      setArrivals([]);
+      setMsg('Import CSV vide.');
+      onCleared?.();
+    } catch (error) {
+      setErr(error.message);
+    }
+  };
+
+  return (
+    <div className="sim-section">
+      <div className="sim-section-title">Arrivees exactes (CSV)</div>
+      <div className="sim-info-box mb-3">
+        <i className="bi bi-upload me-2" />
+        Importez un CSV contenant une colonne d arrivee. Valeurs supportees: minutes, heure HH:MM, ou date ISO.
+      </div>
+      {!enabled && <Alert variant="secondary" className="mb-3">Activez l option d import CSV et enregistrez le scenario avant de charger un fichier.</Alert>}
+      <div className="sim-results-header">
+        <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
+          <div className="d-flex flex-wrap align-items-center gap-2">
+            <Badge bg={statusVariant(effectiveStatus)}>{statusLabel(effectiveStatus)}</Badge>
+            {results?.simulated_at && <span>Simulation du {new Date(results.simulated_at).toLocaleString('fr-FR')}</span>}
+          </div>
+          <div className="d-flex flex-wrap gap-3">
+            {scenario.last_run_started_at && <span>DÃ©marrage: {new Date(scenario.last_run_started_at).toLocaleString('fr-FR')}</span>}
+            {scenario.last_run_finished_at && <span>Fin: {new Date(scenario.last_run_finished_at).toLocaleString('fr-FR')}</span>}
+          </div>
+        </div>
+      </div>
+      {effectiveStatus === 'running' && (
+        <div className="sim-inline-progress mb-3">
+          <span className="spinner-border spinner-border-sm text-warning" />
+          <div>
+            <strong>Simulation en cours</strong>
+            <div className="text-muted small">Le statut passe automatiquement Ã  complÃ©tÃ© ou Ã  Ã©chec lorsque le run se termine.</div>
+          </div>
+        </div>
+      )}
+      {lastError && <Alert variant="danger">{lastError}</Alert>}
+      {msg && <Alert variant="success">{msg}</Alert>}
+      <Row className="g-3 align-items-end">
+        <Col md={8}><Form.Group><Form.Label>Fichier CSV</Form.Label><Form.Control type="file" accept=".csv,text/csv" disabled={!enabled || uploading} onChange={e => setFile(e.target.files?.[0] || null)} /></Form.Group></Col>
+        <Col md={4}><div className="d-flex gap-2"><Button disabled={!enabled || !file || uploading} onClick={importCsv}>{uploading ? 'Import...' : 'Importer'}</Button><Button variant="outline-secondary" disabled={!arrivals.length} onClick={clearImport}>Vider</Button></div></Col>
+      </Row>
+      <div className="sim-arrivals-summary mt-3">
+        <div><strong>{arrivals.length}</strong> arrivee(s) chargee(s)</div>
+        <div>{loading ? 'Chargement...' : arrivals.length ? `Premiere arrivee a ${fmt(arrivals[0].arrival_offset_min, 2)} min` : 'Aucune arrivee importee'}</div>
+      </div>
+      {arrivals.length > 0 && <Table hover size="sm" className="sim-table mt-3 mb-0"><thead><tr><th>#</th><th>Valeur source</th><th>Offset (min)</th></tr></thead><tbody>{arrivals.slice(0, 8).map(arrival => <tr key={arrival.id || arrival.arrival_order}><td>{arrival.arrival_order}</td><td>{arrival.raw_value}</td><td>{fmt(arrival.arrival_offset_min, 2)}</td></tr>)}</tbody></Table>}
     </div>
   );
 }
@@ -507,15 +650,28 @@ function TabResultats({ scenario, onRun }) {
   const [running, setRunning] = useState(false);
   const [err,     setErr]     = useState('');
   const results = scenario.results;
+  const effectiveStatus = running ? 'running' : (scenario.status || results?.status || 'draft');
+  const lastError = err || scenario.last_error;
 
   const run = async () => {
     setRunning(true); setErr('');
+    onRun({ type:'status', status:'running', last_error:null });
     try {
       const res  = await fetch(`${API}/simulations/${scenario.id}/run`, { method:'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      onRun(data.results);
-    } catch (e) { setErr(e.message); }
+      onRun({
+        type:'completed',
+        status:data.status || 'completed',
+        scenario:data.scenario,
+        results:data.results,
+        last_error:null,
+      });
+    } catch (e) {
+      const message = e.message || 'Simulation failed.';
+      setErr(message);
+      onRun({ type:'failed', status:'failed', last_error:message });
+    }
     setRunning(false);
   };
 
@@ -593,6 +749,378 @@ function TabResultats({ scenario, onRun }) {
 }
 
 // ── Page principale ───────────────────────────────────────────────────────────
+function SimulationArrivalTimesCard({ scenarioId, enabled, onImported, onCleared }) {
+  const [arrivals, setArrivals] = useState([]);
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const unavailableMessage = "L'import CSV n'est pas encore disponible sur le backend actif. Redemarrez le serveur backend pour charger cette fonctionnalite.";
+
+  const load = async () => {
+    setLoading(true);
+    setErr('');
+    try {
+      const response = await fetch(`${API}/simulations/${scenarioId}/arrival-times`);
+      const payload = await readApiPayload(response);
+      if (response.status === 404) {
+        setArrivals([]);
+        setErr(unavailableMessage);
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || 'Impossible de charger les arrivees importees.');
+      }
+      setArrivals(Array.isArray(payload.arrivals) ? payload.arrivals : []);
+    } catch (error) {
+      setErr(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [scenarioId]);
+
+  const importCsv = async () => {
+    if (!file) {
+      setErr('Choisissez un fichier CSV.');
+      return;
+    }
+
+    setUploading(true);
+    setErr('');
+    setMsg('');
+
+    try {
+      const csvText = await file.text();
+      const response = await fetch(`${API}/simulations/${scenarioId}/arrival-times/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csvText, fileName: file.name }),
+      });
+      const payload = await readApiPayload(response);
+      if (response.status === 404) {
+        throw new Error(unavailableMessage);
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || 'Import CSV impossible.');
+      }
+      setArrivals(Array.isArray(payload.arrivals) ? payload.arrivals : []);
+      setFile(null);
+      setMsg(`${payload.count} arrivee(s) importee(s).`);
+      onImported?.(payload);
+    } catch (error) {
+      setErr(error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const clearImport = async () => {
+    setErr('');
+    setMsg('');
+    try {
+      const response = await fetch(`${API}/simulations/${scenarioId}/arrival-times`, { method:'DELETE' });
+      const payload = await readApiPayload(response);
+      if (response.status === 404) {
+        throw new Error(unavailableMessage);
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || 'Suppression impossible.');
+      }
+      setArrivals([]);
+      setMsg('Import CSV vide.');
+      onCleared?.();
+    } catch (error) {
+      setErr(error.message);
+    }
+  };
+
+  return (
+    <div className="sim-section">
+      <div className="sim-section-title">Arrivees exactes (CSV)</div>
+      <div className="sim-info-box mb-3">
+        <i className="bi bi-upload me-2" />
+        Importez un CSV contenant une colonne d arrivee. Valeurs supportees: minutes, heure HH:MM, ou date ISO.
+      </div>
+      {!enabled && (
+        <Alert variant="secondary" className="mb-3">
+          Activez l option d import CSV et enregistrez le scenario avant de charger un fichier.
+        </Alert>
+      )}
+      {err && <Alert variant="danger">{err}</Alert>}
+      {msg && <Alert variant="success">{msg}</Alert>}
+      <Row className="g-3 align-items-end">
+        <Col md={8}>
+          <Form.Group>
+            <Form.Label>Fichier CSV</Form.Label>
+            <Form.Control
+              type="file"
+              accept=".csv,text/csv"
+              disabled={!enabled || uploading}
+              onChange={e => setFile(e.target.files?.[0] || null)}
+            />
+          </Form.Group>
+        </Col>
+        <Col md={4}>
+          <div className="d-flex gap-2">
+            <Button disabled={!enabled || !file || uploading} onClick={importCsv}>
+              {uploading ? 'Import...' : 'Importer'}
+            </Button>
+            <Button variant="outline-secondary" disabled={!arrivals.length} onClick={clearImport}>
+              Vider
+            </Button>
+          </div>
+        </Col>
+      </Row>
+      <div className="sim-arrivals-summary mt-3">
+        <div><strong>{arrivals.length}</strong> arrivee(s) chargee(s)</div>
+        <div>
+          {loading
+            ? 'Chargement...'
+            : arrivals.length
+              ? `Premiere arrivee a ${fmt(arrivals[0].arrival_offset_min, 2)} min`
+              : 'Aucune arrivee importee'}
+        </div>
+      </div>
+      {arrivals.length > 0 && (
+        <Table hover size="sm" className="sim-table mt-3 mb-0">
+          <thead>
+            <tr><th>#</th><th>Valeur source</th><th>Offset (min)</th></tr>
+          </thead>
+          <tbody>
+            {arrivals.slice(0, 8).map(arrival => (
+              <tr key={arrival.id || arrival.arrival_order}>
+                <td>{arrival.arrival_order}</td>
+                <td>{arrival.raw_value}</td>
+                <td>{fmt(arrival.arrival_offset_min, 2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
+function SimulationResultsPanel({ scenario, onRun }) {
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState('');
+  const results = scenario.results;
+  const effectiveStatus = running ? 'running' : (scenario.status || results?.status || 'draft');
+  const lastError = err || scenario.last_error;
+
+  const run = async () => {
+    setRunning(true);
+    setErr('');
+    onRun?.({ type:'status', status:'running', last_error:null });
+
+    try {
+      const response = await fetch(`${API}/simulations/${scenario.id}/run`, { method:'POST' });
+      const payload = await readApiPayload(response);
+      if (!response.ok) {
+        throw new Error(payload.error || 'Simulation failed.');
+      }
+      onRun?.({
+        type:'completed',
+        status:payload.status || 'completed',
+        scenario:payload.scenario,
+        results:payload.results,
+        last_error:null,
+      });
+    } catch (error) {
+      const message = error.message || 'Simulation failed.';
+      setErr(message);
+      onRun?.({ type:'failed', status:'failed', last_error:message });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="d-flex justify-content-end mb-3">
+        <Button variant="success" onClick={run} disabled={running}>
+          {running
+            ? <><span className="spinner-border spinner-border-sm me-2" />Simulation en cours...</>
+            : <><i className="bi bi-play-fill me-2" />Simuler</>}
+        </Button>
+      </div>
+
+      <div className="sim-results-header">
+        <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
+          <div className="d-flex flex-wrap align-items-center gap-2">
+            <Badge bg={statusVariant(effectiveStatus)}>{statusLabel(effectiveStatus)}</Badge>
+            {results?.simulated_at && <span>Simulation du {new Date(results.simulated_at).toLocaleString('fr-FR')}</span>}
+          </div>
+          <div className="d-flex flex-wrap gap-3">
+            {scenario.last_run_started_at && <span>Demarrage: {new Date(scenario.last_run_started_at).toLocaleString('fr-FR')}</span>}
+            {scenario.last_run_finished_at && <span>Fin: {new Date(scenario.last_run_finished_at).toLocaleString('fr-FR')}</span>}
+          </div>
+        </div>
+      </div>
+
+      {effectiveStatus === 'running' && (
+        <div className="sim-inline-progress mb-3">
+          <span className="spinner-border spinner-border-sm text-warning" />
+          <div>
+            <strong>Simulation en cours</strong>
+            <div className="text-muted small">Le statut bascule automatiquement vers Completed ou Failed une fois le run termine.</div>
+          </div>
+        </div>
+      )}
+
+      {lastError && <Alert variant="danger">{lastError}</Alert>}
+
+      {!results ? (
+        <div className="sim-empty">
+          <i className="bi bi-bar-chart" />
+          <p>Aucun resultat.<br />Cliquez sur <strong>Simuler</strong> pour lancer.</p>
+        </div>
+      ) : (
+        <>
+          <Row className="g-3 mb-4">
+            {[
+              { label:'Duree moyenne', value:`${fmt(results.avg_duration_min)} min`, color:'primary' },
+              { label:'P95', value:`${fmt(results.p95_duration_min)} min`, color:'warning' },
+              { label:'P99', value:`${fmt(results.p99_duration_min)} min`, color:'secondary' },
+              { label:'Cout total', value:`${fmt(results.total_cost, 2)} EUR`, color:'info' },
+              { label:'Cout / instance', value:`${fmt(results.avg_cost_per_instance, 2)} EUR`, color:'dark' },
+              { label:'Horizon', value:`${fmt(results.simulation_horizon_min)} min`, color:'success' },
+              { label:'Instances actives', value:results.active_instances ?? 0, color:'primary' },
+              { label:'Source arrivees', value:results.arrival_source === 'csv' ? 'CSV' : 'Generees', color:'danger' },
+            ].map(kpi => (
+              <Col xs={6} md={4} lg={3} xl={2} key={kpi.label}>
+                <Card className={`border-0 sim-kpi-card border-${kpi.color}`}>
+                  <Card.Body className="py-2 px-3 text-center">
+                    <div className={`sim-kpi-value text-${kpi.color}`}>{kpi.value}</div>
+                    <div className="sim-kpi-label">{kpi.label}</div>
+                  </Card.Body>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+
+          {results.histogram?.length > 0 && (
+            <Card className="border-0 shadow-sm mb-4">
+              <Card.Header className="bg-white"><strong>Cycle times</strong></Card.Header>
+              <Card.Body><Histogram data={results.histogram} /></Card.Body>
+            </Card>
+          )}
+
+          {results.resource_results?.length > 0 && (
+            <Card className="border-0 shadow-sm mb-4">
+              <Card.Header className="bg-white d-flex justify-content-between align-items-center">
+                <strong>Taux d utilisation des ressources</strong>
+                <span className="text-muted small">{results.resource_results.length} ressource(s)</span>
+              </Card.Header>
+              <Card.Body className="p-0">
+                <Table hover size="sm" className="sim-table mb-0">
+                  <thead>
+                    <tr>
+                      <th>Ressource</th>
+                      <th>Capacite</th>
+                      <th>Disponibilite</th>
+                      <th>Taches traitees</th>
+                      <th>Temps occupe</th>
+                      <th>Attente moy.</th>
+                      <th style={{ width: 220 }}>Utilisation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.resource_results.map(resource => (
+                      <tr key={resource.resource_id}>
+                        <td><strong>{resource.resource_name}</strong></td>
+                        <td>{resource.quantity}</td>
+                        <td>{fmt(resource.availability, 0)}%</td>
+                        <td>{resource.tasks_handled}</td>
+                        <td>{fmt(resource.total_busy_min)} min</td>
+                        <td>{fmt(resource.avg_wait_min)} min</td>
+                        <td>
+                          <div className="sim-resource-util">
+                            <ProgressBar
+                              now={resource.utilization_rate}
+                              variant={resource.utilization_rate >= 90 ? 'danger' : resource.utilization_rate >= 75 ? 'warning' : 'success'}
+                            />
+                            <span>{fmt(resource.utilization_rate)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Card.Body>
+            </Card>
+          )}
+
+          {results.bottlenecks?.length > 0 && (
+            <div className="sim-bottlenecks mb-4">
+              {results.bottlenecks.map((bottleneck, index) => (
+                <Card key={`${bottleneck.type}-${bottleneck.name}-${index}`} className={`border-0 shadow-sm sim-bottleneck-card severity-${bottleneck.severity}`}>
+                  <Card.Body>
+                    <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+                      <div>
+                        <div className="sim-kpi-label">{bottleneck.type === 'resource' ? 'Ressource' : 'Tache'}</div>
+                        <h6 className="mb-0">{bottleneck.name}</h6>
+                      </div>
+                      <Badge bg={bottleneck.severity === 'high' ? 'danger' : bottleneck.severity === 'medium' ? 'warning' : 'secondary'}>
+                        {bottleneck.severity}
+                      </Badge>
+                    </div>
+                    <div className="sim-bottleneck-metric">{fmt(bottleneck.metric)} {bottleneck.unit}</div>
+                    <div className="text-muted small">{bottleneck.details}</div>
+                  </Card.Body>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {results.task_results?.length > 0 && (
+            <Card className="border-0 shadow-sm">
+              <Card.Header className="bg-white"><strong>Resultats par tache</strong></Card.Header>
+              <Card.Body className="p-0">
+                <Table hover size="sm" className="sim-table mb-0">
+                  <thead>
+                    <tr>
+                      <th>Tache</th>
+                      <th>Moy.</th>
+                      <th>Min</th>
+                      <th>Max</th>
+                      <th>P95</th>
+                      <th>Attente moy.</th>
+                      <th>Executions</th>
+                      <th>Ressource</th>
+                      <th>Cout (EUR)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.task_results.map(task => (
+                      <tr key={task.task_id}>
+                        <td><strong>{task.task_name || task.task_id}</strong></td>
+                        <td>{fmt(task.avg_duration)} min</td>
+                        <td>{fmt(task.min_duration)}</td>
+                        <td>{fmt(task.max_duration)}</td>
+                        <td>{fmt(task.p95_duration)}</td>
+                        <td>{fmt(task.avg_wait_min)} min</td>
+                        <td>{task.executions ?? '-'}</td>
+                        <td>{task.resource_name || <span className="text-muted">-</span>}</td>
+                        <td>{fmt(task.total_cost, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Card.Body>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function SimulationScenarios() {
   const [scenarios,       setScenarios]       = useState([]);
   const [processes,       setProcesses]       = useState([]);
@@ -755,6 +1283,9 @@ export default function SimulationScenarios() {
                           <span><i className="bi bi-diagram-3 me-1"/>{s.process_name||'—'}</span>
                           <span><i className="bi bi-hash me-1"/>{s.process_instances} instances</span>
                         </div>
+                        {s.status === 'failed' && s.last_error && (
+                          <div className="text-danger small mt-2">{s.last_error}</div>
+                        )}
                         {s.results && (
                           <div className="mt-2 pt-2 border-top d-flex gap-3" style={{fontSize:12}}>
                             <span className="text-primary fw-bold">
@@ -841,10 +1372,40 @@ export default function SimulationScenarios() {
               bpmnConnections={bpmnParsed.connections} />
           )}
           {activeTab==='resultats' && (
-            <TabResultats scenario={activeScenario}
-              onRun={results=>{
-                setActiveScenario(prev=>({...prev, status:'completed', results}));
-                loadScenarios();
+            <SimulationResultsPanel scenario={activeScenario}
+              onRun={payload => {
+                setActiveScenario(prev => {
+                  if (!prev) return prev;
+                  if (payload.type === 'status') {
+                    return { ...prev, status: payload.status, last_error: payload.last_error ?? null };
+                  }
+                  if (payload.type === 'failed') {
+                    return { ...prev, status: 'failed', last_error: payload.last_error || 'Simulation failed.' };
+                  }
+                  if (payload.type === 'completed') {
+                    return {
+                      ...prev,
+                      ...(payload.scenario || {}),
+                      status: payload.status || payload.scenario?.status || 'completed',
+                      results: payload.results,
+                      last_error: null,
+                    };
+                  }
+                  return prev;
+                });
+                if (payload.type === 'completed') {
+                  loadScenarios();
+                  showToast('Simulation terminee !');
+                  return;
+                }
+                if (payload.type === 'failed') {
+                  loadScenarios();
+                  showToast('La simulation a echoue.', 'danger');
+                  return;
+                }
+                if (payload.type === 'status') {
+                  return;
+                }
                 showToast('Simulation terminée !');
               }} />
           )}

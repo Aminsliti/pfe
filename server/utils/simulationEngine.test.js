@@ -47,7 +47,7 @@ describe('simulationEngine', () => {
     ]);
   });
 
-  it('runs simulation with known fixed inputs and outputs', () => {
+  it('runs simulation with fixed inputs and returns utilization and bottlenecks', () => {
     const results = runSimulation({
       scenario: {
         process_instances: 4,
@@ -59,31 +59,92 @@ describe('simulationEngine', () => {
         { task_id: 'B', task_name: 'Approve', duration_min: 20, duration_type: 'fixed', duration_std: 0, cost: 30, resource_id: 2 },
       ],
       resources: [
-        { id: 1, name: 'Analyst' },
-        { id: 2, name: 'Manager' },
+        { id: 1, name: 'Analyst', quantity: 1, cost_per_hour: 0, availability: 100 },
+        { id: 2, name: 'Manager', quantity: 1, cost_per_hour: 0, availability: 100 },
       ],
       random: () => 0.5,
     });
 
+    expect(results.status).toBe('completed');
+    expect(results.arrival_source).toBe('generated');
     expect(results.instances).toBe(4);
     expect(results.active_instances).toBe(2);
-    expect(results.avg_duration_min).toBe(30);
-    expect(results.min_duration_min).toBe(30);
-    expect(results.max_duration_min).toBe(30);
-    expect(results.total_cost).toBe(80);
+    expect(results.avg_duration_min).toBe(55.5);
+    expect(results.min_duration_min).toBe(47);
+    expect(results.max_duration_min).toBe(64);
+    expect(results.p95_duration_min).toBe(64);
+    expect(results.total_cost).toBe(40);
+    expect(results.avg_cost_per_instance).toBe(20);
+    expect(results.simulation_horizon_min).toBe(90);
+
+    expect(results.resource_results).toEqual([
+      expect.objectContaining({
+        resource_name: 'Analyst',
+        utilization_rate: 44.4,
+      }),
+      expect.objectContaining({
+        resource_name: 'Manager',
+        utilization_rate: 88.9,
+      }),
+    ]);
+
+    expect(results.bottlenecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'resource',
+          name: 'Manager',
+        }),
+        expect.objectContaining({
+          type: 'task',
+          name: 'Approve',
+        }),
+      ])
+    );
+
     expect(results.task_results).toEqual([
       expect.objectContaining({
         task_id: 'A',
         avg_duration: 10,
+        avg_wait_min: 10.5,
         resource_name: 'Analyst',
         total_cost: 40,
       }),
       expect.objectContaining({
         task_id: 'B',
         avg_duration: 20,
+        avg_wait_min: 15,
         resource_name: 'Manager',
         total_cost: 40,
       }),
     ]);
+  });
+
+  it('uses imported arrival times when provided', () => {
+    const results = runSimulation({
+      scenario: {
+        process_instances: 99,
+        warmup_percent: 0,
+        cooldown_percent: 0,
+        infinite_resources: true,
+      },
+      tasks: [
+        { task_id: 'Task_1', task_name: 'Review', duration_min: 5, duration_type: 'fixed', duration_std: 0, cost: 0 },
+      ],
+      arrivals: [
+        { arrival_offset_min: 0 },
+        { arrival_offset_min: 12.5 },
+        { arrival_offset_min: 18 },
+      ],
+      random: () => 0.5,
+    });
+
+    expect(results.arrival_source).toBe('csv');
+    expect(results.instances).toBe(3);
+    expect(results.arrival_preview).toEqual([
+      { index: 1, offset_min: 0 },
+      { index: 2, offset_min: 12.5 },
+      { index: 3, offset_min: 18 },
+    ]);
+    expect(results.avg_duration_min).toBe(5);
   });
 });

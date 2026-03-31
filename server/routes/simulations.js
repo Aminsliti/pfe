@@ -6,18 +6,33 @@ import {
   ensurePermission,
   isGlobalAdmin,
 } from '../utils/access.js';
+import { parseArrivalCsv } from '../utils/simulationCsv.js';
 import {
   extractTasksFromDiagram,
   runSimulation,
 } from '../utils/simulationEngine.js';
+import { ensureSimulationSchema } from '../utils/simulationSchema.js';
 
 const router = express.Router();
+const VALID_STATUSES = new Set(['draft', 'running', 'completed', 'failed']);
 
 const notFound = (res, what = 'Resource') => res.status(404).json({ error: `${what} not found` });
 const serverErr = (res, err) => {
   console.error(err);
   res.status(500).json({ error: 'Server error' });
 };
+
+function normalizeStatus(status, fallback = 'draft') {
+  if (!status) {
+    return fallback;
+  }
+
+  if (status === 'error') {
+    return 'failed';
+  }
+
+  return VALID_STATUSES.has(status) ? status : fallback;
+}
 
 async function getProcessForAccess(processId) {
   const result = await pool.query(
@@ -76,6 +91,35 @@ async function ensureScenarioAccess(req, res, scenarioId) {
   return scenario;
 }
 
+async function getScenarioArrivals(scenarioId) {
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        scenario_id,
+        arrival_order,
+        raw_value,
+        arrival_at,
+        arrival_offset_min
+      FROM simulation_arrival_times
+      WHERE scenario_id = $1
+      ORDER BY arrival_order
+    `,
+    [scenarioId]
+  );
+
+  return result.rows;
+}
+
+router.use(async (req, res, next) => {
+  try {
+    await ensureSimulationSchema();
+    next();
+  } catch (error) {
+    console.error('simulation schema error:', error);
+    res.status(500).json({ error: 'Failed to prepare simulation storage.' });
+  }
+});
 
 router.get('/simulations', async (req, res) => {
   try {
@@ -132,10 +176,11 @@ router.get('/simulations/:id', async (req, res) => {
       return;
     }
 
-    const [resources, tasks, flows] = await Promise.all([
+    const [resources, tasks, flows, arrivals] = await Promise.all([
       pool.query('SELECT * FROM simulation_resources WHERE scenario_id = $1 ORDER BY id', [req.params.id]),
       pool.query('SELECT * FROM simulation_task_data WHERE scenario_id = $1 ORDER BY id', [req.params.id]),
       pool.query('SELECT * FROM simulation_flow_probabilities WHERE scenario_id = $1 ORDER BY id', [req.params.id]),
+      getScenarioArrivals(req.params.id),
     ]);
 
     res.json({
@@ -143,6 +188,7 @@ router.get('/simulations/:id', async (req, res) => {
       resources: resources.rows,
       task_data: tasks.rows,
       flow_probs: flows.rows,
+      arrival_times: arrivals,
     });
   } catch (error) {
     serverErr(res, error);
@@ -205,7 +251,7 @@ router.post('/simulations', async (req, res) => {
         name,
         description || null,
         process.id,
-        status,
+        normalizeStatus(status),
         start_date || null,
         process_instances,
         warmup_percent,
@@ -276,7 +322,7 @@ router.put('/simulations/:id', async (req, res) => {
         name,
         description || null,
         nextProcess.id,
-        status,
+        normalizeStatus(status, currentScenario.status),
         start_date || null,
         process_instances,
         warmup_percent,
@@ -311,6 +357,136 @@ router.delete('/simulations/:id', async (req, res) => {
 
     await pool.query('DELETE FROM simulation_scenarios WHERE id = $1', [req.params.id]);
     res.json({ message: 'Simulation deleted' });
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.get('/simulations/:id/arrival-times', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    const arrivals = await getScenarioArrivals(scenario.id);
+    res.json({
+      count: arrivals.length,
+      arrivals,
+    });
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.post('/simulations/:id/arrival-times/import', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    const csvText = String(req.body?.csvText || '');
+    if (!csvText.trim()) {
+      return res.status(400).json({ error: 'csvText is required.' });
+    }
+
+    const arrivals = parseArrivalCsv(csvText);
+
+    await client.query('BEGIN');
+    await client.query('DELETE FROM simulation_arrival_times WHERE scenario_id = $1', [scenario.id]);
+
+    for (const arrival of arrivals) {
+      await client.query(
+        `
+          INSERT INTO simulation_arrival_times (
+            scenario_id,
+            arrival_order,
+            raw_value,
+            arrival_at,
+            arrival_offset_min
+          )
+          VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          scenario.id,
+          arrival.arrivalOrder,
+          arrival.rawValue,
+          arrival.arrivalAt,
+          arrival.arrivalOffsetMin,
+        ]
+      );
+    }
+
+    await client.query(
+      `
+        UPDATE simulation_scenarios
+        SET
+          import_csv_arrivals = TRUE,
+          process_instances = $1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `,
+      [arrivals.length, scenario.id]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      message: 'Arrival times imported successfully.',
+      count: arrivals.length,
+      arrivals,
+    });
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failures.
+    }
+
+    if (error.message?.includes('CSV') || error.message?.includes('arrival')) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    serverErr(res, error);
+  } finally {
+    client.release();
+  }
+});
+
+router.delete('/simulations/:id/arrival-times', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    await pool.query('DELETE FROM simulation_arrival_times WHERE scenario_id = $1', [scenario.id]);
+    await pool.query(
+      `
+        UPDATE simulation_scenarios
+        SET import_csv_arrivals = FALSE,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `,
+      [scenario.id]
+    );
+
+    res.json({ message: 'Imported arrival times cleared.' });
   } catch (error) {
     serverErr(res, error);
   }
@@ -650,7 +826,16 @@ router.post('/simulations/:id/run', async (req, res) => {
     }
 
     await pool.query(
-      "UPDATE simulation_scenarios SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+      `
+        UPDATE simulation_scenarios
+        SET
+          status = 'running',
+          last_run_started_at = CURRENT_TIMESTAMP,
+          last_run_finished_at = NULL,
+          last_error = NULL,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `,
       [scenario.id]
     );
 
@@ -703,34 +888,74 @@ router.post('/simulations/:id/run', async (req, res) => {
       );
     }
 
-    const [tasks, resources] = await Promise.all([
+    const [tasks, resources, arrivals] = await Promise.all([
       pool.query('SELECT * FROM simulation_task_data WHERE scenario_id = $1', [scenario.id]),
       pool.query('SELECT * FROM simulation_resources WHERE scenario_id = $1', [scenario.id]),
+      scenario.import_csv_arrivals ? getScenarioArrivals(scenario.id) : Promise.resolve([]),
     ]);
 
+    if (scenario.import_csv_arrivals && arrivals.length === 0) {
+      throw new Error('CSV arrivals are enabled but no arrival times have been imported.');
+    }
+
     const results = runSimulation({
-      scenario,
+      scenario: {
+        ...scenario,
+        process_instances: scenario.import_csv_arrivals ? arrivals.length : scenario.process_instances,
+      },
       tasks: tasks.rows,
       resources: resources.rows,
+      arrivals,
     });
 
     await pool.query(
-      "UPDATE simulation_scenarios SET status = 'completed', results = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [JSON.stringify(results), scenario.id]
+      `
+        UPDATE simulation_scenarios
+        SET
+          status = 'completed',
+          results = $1,
+          process_instances = $2,
+          last_run_finished_at = CURRENT_TIMESTAMP,
+          last_error = NULL,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+      `,
+      [JSON.stringify(results), results.instances, scenario.id]
     );
 
-    res.json({ message: 'Simulation completed', results });
+    const updatedScenario = await getScenarioById(scenario.id);
+
+    res.json({
+      message: 'Simulation completed',
+      status: 'completed',
+      scenario: updatedScenario,
+      results,
+    });
   } catch (error) {
     try {
       await pool.query(
-        "UPDATE simulation_scenarios SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-        [req.params.id]
+        `
+          UPDATE simulation_scenarios
+          SET
+            status = 'failed',
+            last_run_finished_at = CURRENT_TIMESTAMP,
+            last_error = $1,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+        `,
+        [error.message || 'Simulation failed.', req.params.id]
       );
     } catch {
       // Ignore follow-up status update failures so we can return the original error.
     }
 
-    serverErr(res, error);
+    const statusCode =
+      error.message?.includes('CSV arrivals') || error.message?.includes('arrival')
+        ? 400
+        : 500;
+
+    console.error(error);
+    res.status(statusCode).json({ error: error.message || 'Simulation failed.' });
   }
 });
 
