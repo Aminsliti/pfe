@@ -6,6 +6,7 @@ import {
   isCompanyAdmin,
   isGlobalAdmin,
 } from '../utils/access.js';
+import { logAuditEvent } from '../utils/auditLog.js';
 
 const router = express.Router();
 
@@ -665,6 +666,20 @@ router.post('/orgchart/nodes', async (req, res) => {
     const createdNode = await getNodeById(client, insertResult.rows[0].id);
     await client.query('COMMIT');
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: createdNode.id,
+      companyId: createdNode.companyId,
+      action: 'create',
+      summary: `Created organigram node "${createdNode.name}"`,
+      details: {
+        parentId: createdNode.parentId,
+        nodeType: createdNode.nodeType,
+        userId: createdNode.userId,
+      },
+    });
+
     res.status(201).json(createdNode);
   } catch (error) {
     await client.query('ROLLBACK');
@@ -800,6 +815,21 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
 
     const updatedNode = await getNodeById(client, nodeId);
     await client.query('COMMIT');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: updatedNode.id,
+      companyId: updatedNode.companyId,
+      action: 'update',
+      summary: `Updated organigram node "${updatedNode.name}"`,
+      details: {
+        parentId: updatedNode.parentId,
+        nodeType: updatedNode.nodeType,
+        userId: updatedNode.userId,
+      },
+    });
+
     res.json(updatedNode);
   } catch (error) {
     await client.query('ROLLBACK');
@@ -877,6 +907,19 @@ router.patch('/orgchart/nodes/:id/move', async (req, res) => {
 
     const movedNode = await getNodeById(client, nodeId);
     await client.query('COMMIT');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: movedNode.id,
+      companyId: movedNode.companyId,
+      action: 'move',
+      summary: `Moved organigram node "${movedNode.name}"`,
+      details: {
+        parentId: movedNode.parentId,
+      },
+    });
+
     res.json(movedNode);
   } catch (error) {
     await client.query('ROLLBACK');
@@ -925,6 +968,18 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
 
     await client.query('DELETE FROM org_chart_nodes WHERE id = $1', [nodeId]);
     await client.query('COMMIT');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: nodeId,
+      companyId: node.companyId,
+      action: 'delete',
+      summary: `Deleted organigram node "${node.name}"`,
+      details: {
+        parentId: node.parentId,
+      },
+    });
 
     res.json({ message: 'Organigram node deleted successfully.' });
   } catch (error) {

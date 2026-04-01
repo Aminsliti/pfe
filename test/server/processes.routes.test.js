@@ -163,6 +163,116 @@ describe('process routes', () => {
     expect(createdCategory.status).toBe(201);
   });
 
+  it('returns workflow history, applies workflow actions, and compares versions', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser({ companyId: 2 })) });
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        status: 'review',
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: null,
+        approved_by: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([
+        { id: 71, action: 'submit_review', comment: 'Ready for approval', created_by_name: 'System Administrator' },
+      ]));
+
+    const workflow = await request(app).get('/api/processes/4/workflow');
+    expect(workflow.status).toBe(200);
+    expect(workflow.body.status).toBe('review');
+    expect(workflow.body.comments).toHaveLength(1);
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review" /></bpmn:definitions>',
+        status: 'review',
+        version: 1,
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: null,
+        approved_by: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review" /></bpmn:definitions>',
+        status: 'approved',
+        version: 2,
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: '2026-04-01T09:00:00.000Z',
+        approved_by: 1,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        status: 'approved',
+        approved_by: 1,
+        approved_by_name: 'System Administrator',
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: '2026-04-01T09:00:00.000Z',
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([
+        { id: 72, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' },
+      ]));
+
+    const action = await request(app).post('/api/processes/4/workflow').send({
+      action: 'approve',
+      comment: 'Approved',
+    });
+    expect(action.status).toBe(200);
+    expect(action.body.workflow.status).toBe('approved');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+      }]))
+      .mockResolvedValueOnce(makeResult([{
+        process_id: 4,
+        version_number: 1,
+        name: 'Order Process',
+        description: 'Initial',
+        category_id: 1,
+        company_id: 2,
+        status: 'draft',
+        bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review" /></bpmn:definitions>',
+      }]))
+      .mockResolvedValueOnce(makeResult([{
+        process_id: 4,
+        version_number: 2,
+        name: 'Order Process',
+        description: 'Updated',
+        category_id: 1,
+        company_id: 2,
+        status: 'approved',
+        bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review request" /><bpmn:serviceTask id="Task_2" name="Validate" /></bpmn:definitions>',
+      }]));
+
+    const diff = await request(app).get('/api/processes/4/diff?fromVersion=1&toVersion=2');
+    expect(diff.status).toBe(200);
+    expect(diff.body.metadata_changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'description' }),
+        expect.objectContaining({ field: 'status' }),
+      ])
+    );
+    expect(diff.body.task_changes.added).toHaveLength(1);
+  });
+
   it('manages companies with correct scoping rules', async () => {
     const companyAdmin = createUser({
       role: 'Company Administrator',
@@ -191,7 +301,9 @@ describe('process routes', () => {
     const createdCompany = await request(adminApp).post('/api/companies').send({ name: 'New Company', description: 'New' });
     expect(createdCompany.status).toBe(201);
 
-    pool.query.mockResolvedValueOnce(makeResult([{ id: 12 }], { rowCount: 1 }));
+    pool.query
+      .mockResolvedValueOnce(makeResult([{ id: 12, name: 'New Company' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 12 }], { rowCount: 1 }));
     const deletedCompany = await request(adminApp).delete('/api/companies/12');
     expect(deletedCompany.status).toBe(200);
   });

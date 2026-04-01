@@ -10,6 +10,7 @@ import {
   sanitizeUserPayloadForRole,
   PERMISSIONS,
 } from '../utils/access.js';
+import { logAuditEvent } from '../utils/auditLog.js';
 
 const router = express.Router();
 
@@ -169,6 +170,19 @@ router.post('/users', async (req, res) => {
       companyId: user.company_id,
       companyName: companyResult.rows[0]?.name || null,
     });
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'user',
+      entityId: user.id,
+      companyId: user.company_id,
+      action: 'create',
+      summary: `Created user "${user.username}"`,
+      details: {
+        role: user.role,
+        email: user.email,
+      },
+    });
   } catch (error) {
     console.error('Create user error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -255,6 +269,19 @@ router.put('/users/:id', async (req, res) => {
       companyId: user.company_id,
       companyName: companyResult.rows[0]?.name || null,
     });
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'user',
+      entityId: user.id,
+      companyId: user.company_id,
+      action: 'update',
+      summary: `Updated user "${user.username}"`,
+      details: {
+        role: user.role,
+        email: user.email,
+      },
+    });
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -287,7 +314,17 @@ router.delete('/users/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'user',
+      entityId: id,
+      companyId: existingUser.rows[0].company_id,
+      action: 'delete',
+      summary: `Deleted user #${id}`,
+      details: {},
+    });
+
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
     console.error('Delete user error:', error);
@@ -395,7 +432,19 @@ router.put('/roles/:roleId/permissions', async (req, res) => {
         [roleId, permissionId]
       );
     }
-    
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'role',
+      entityId: roleId,
+      companyId: null,
+      action: 'permissions_update',
+      summary: `Updated permissions for role #${roleId}`,
+      details: {
+        permissionIds,
+      },
+    });
+
     res.json({ message: 'Role permissions updated successfully' });
   } catch (error) {
     console.error('Update role permissions error:', error);
@@ -417,6 +466,17 @@ router.post('/roles', async (req, res) => {
     );
     
     const role = result.rows[0];
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'role',
+      entityId: role.id,
+      companyId: null,
+      action: 'create',
+      summary: `Created role "${role.name}"`,
+      details: {
+        description: role.description,
+      },
+    });
     res.status(201).json(role);
   } catch (error) {
     console.error('Create role error:', error);
@@ -445,7 +505,19 @@ router.put('/roles/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Role not found' });
     }
-    
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'role',
+      entityId: id,
+      companyId: null,
+      action: 'update',
+      summary: `Updated role "${result.rows[0].name}"`,
+      details: {
+        description: result.rows[0].description,
+      },
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Update role error:', error);
@@ -477,7 +549,17 @@ router.delete('/roles/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Role not found' });
     }
-    
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'role',
+      entityId: id,
+      companyId: null,
+      action: 'delete',
+      summary: `Deleted role #${id}`,
+      details: {},
+    });
+
     res.json({ message: 'Role deleted successfully' });
   } catch (error) {
     console.error('Delete role error:', error);

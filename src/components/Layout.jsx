@@ -34,6 +34,7 @@ export function Layout() {
     { path: '/orgchart', label: 'Org Chart', icon: 'bi-diagram-3-fill', permission: PERMISSIONS.VIEW_DASHBOARD },
     { path: '/companies', label: 'Company Management', icon: 'bi-building', permission: PERMISSIONS.USER_MANAGEMENT },
     { path: '/users', label: 'User Management', icon: 'bi-people', permission: PERMISSIONS.USER_MANAGEMENT },
+    { path: '/audit-logs', label: 'Audit Log', icon: 'bi-journal-text', permission: PERMISSIONS.USER_MANAGEMENT },
     { path: '/roles', label: 'Role Management', icon: 'bi-shield-check', permission: PERMISSIONS.ROLE_MANAGEMENT },
   ];
 

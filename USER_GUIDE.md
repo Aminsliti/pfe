@@ -39,6 +39,9 @@ Use `Process Management` to:
 - create a new BPMN process
 - edit an existing process in the BPMN modeler
 - import a BPMN file
+- move a process through `Draft`, `In Review`, `Approved`, and `Archived`
+- add approval comments with timestamps and approver name
+- compare two saved versions to see metadata, BPMN, and task changes
 - organize processes by category and hierarchy
 - export or archive a process
 
@@ -46,6 +49,7 @@ Tips:
 
 - older legacy processes are normalized so they can still open in the modeler
 - hierarchy mode shows parent and child processes inside categories
+- open the process details panel to manage approval workflow and compare versions
 
 ## 5. Process Library
 
@@ -131,6 +135,7 @@ If a simulation fails, the page shows the error message directly.
 The results tab shows:
 
 - cycle time KPIs
+- BPMN heatmap directly on the diagram
 - histogram of cycle times
 - average cost and total cost
 - simulation horizon
@@ -138,6 +143,9 @@ The results tab shows:
 - average waiting time per resource
 - bottlenecks
 - task-by-task performance
+- side-by-side scenario comparison for duration, cost, utilisation, and bottlenecks
+
+You can also click `Exporter CSV` from the results tab to download the current simulation output for reuse in Excel or reporting.
 
 Use these outputs to identify:
 
@@ -145,6 +153,21 @@ Use these outputs to identify:
 - tasks with high queue delays
 - expensive steps
 - unstable or long-running scenarios
+
+### 6.8 Compare two scenarios
+
+Inside the `Resultats` tab:
+
+1. Choose another completed scenario in the comparison card.
+2. Click `Compare`.
+3. Review KPI deltas, resource utilisation deltas, bottlenecks, and task-level differences.
+
+Use this when you want to test:
+
+- extra staffing
+- different task durations
+- different arrival patterns
+- different gateway probabilities
 
 ## 7. Org Chart
 
@@ -169,13 +192,25 @@ Depending on your permissions, you can:
 - create users
 - assign each user to a company
 - assign roles
+- review the audit log of admin, process, org chart, and simulation changes
 
 Important:
 
 - each user should belong to a company unless they are a global admin
 - company admins should be used as sub-admins for each tenant/company
 
-## 9. Troubleshooting
+## 9. Audit Log
+
+Open `Audit Log` from the administration section to review:
+
+- who changed a user, company, process, role, organigram node, or simulation
+- what action was performed
+- when it happened
+- extra details captured for that event
+
+Company administrators only see audit entries for their own company scope.
+
+## 10. Troubleshooting
 
 ### Simulation says CSV arrivals are enabled but none are imported
 
@@ -194,10 +229,12 @@ Important:
 - refresh the page
 - if backend changes were just deployed locally, restart the backend server once
 
-## 10. Best Practices
+## 11. Best Practices
 
 - assign users to the correct company before they start working
+- use the approval workflow instead of editing approved processes silently
 - keep task durations realistic before comparing scenarios
 - import CSV arrivals only when you need real arrival schedules
 - compare resource utilisation and bottlenecks together, not in isolation
+- use scenario comparison after every major simulation assumption change
 - rerun scenarios after changing tasks, resources, or probabilities

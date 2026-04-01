@@ -9,6 +9,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 const RoleManagement = lazy(() => import('./pages/RoleManagement'));
 const CompanyManagement = lazy(() => import('./pages/CompanyManagement'));
+const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const ProcessManagement = lazy(() => import('./pages/ProcessManagement'));
 const OrgChart = lazy(() => import('./pages/OrgChart'));
 const ProcessLibrary = lazy(() => import('./pages/ProcessLibrary'));
@@ -118,6 +119,14 @@ function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
                     <UserManagement />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="audit-logs"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
+                    <AuditLogs />
                   </ProtectedRoute>
                 }
               />

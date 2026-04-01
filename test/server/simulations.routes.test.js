@@ -196,6 +196,101 @@ describe('simulation routes', () => {
     expect(cleared.status).toBe(200);
   });
 
+  it('exports simulation results as CSV', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(manager) });
+
+    pool.query.mockResolvedValueOnce(makeResult([{
+      id: 4,
+      name: 'Scenario A',
+      process_id: 7,
+      process_company_id: 2,
+      process_name: 'Order Fulfillment',
+      status: 'completed',
+      results: {
+        simulated_at: '2026-03-31T09:00:00.000Z',
+        instances: 3,
+        active_instances: 3,
+        arrival_source: 'csv',
+        avg_duration_min: 27,
+        total_cost: 75,
+        task_results: [
+          { task_id: 'Task_1', task_name: 'Review', avg_duration: 15, total_cost: 75 },
+        ],
+        resource_results: [
+          { resource_id: 1, resource_name: 'Analyst', utilization_rate: 100 },
+        ],
+        bottlenecks: [
+          { type: 'resource', name: 'Analyst', metric: 100, unit: '% utilisation', severity: 'high', details: 'Resource saturated' },
+        ],
+        arrival_preview: [
+          { index: 1, offset_min: 0 },
+        ],
+      },
+    }]));
+
+    const response = await request(app).get('/api/simulations/4/export');
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/csv');
+    expect(response.headers['content-disposition']).toContain('scenario-a-results.csv');
+    expect(response.text).toContain('sep=;');
+    expect(response.text).toContain('Scenario Summary');
+    expect(response.text).toContain('field;value');
+    expect(response.text).toContain('Task Results');
+    expect(response.text).toContain('Resource Results');
+    expect(response.text).toContain('Review');
+    expect(response.text).toContain('Analyst');
+  });
+
+  it('compares two completed scenarios side by side', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(manager) });
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Scenario A',
+        process_id: 7,
+        process_name: 'Order Fulfillment',
+        process_company_id: 2,
+        results: {
+          avg_duration_min: 27,
+          p95_duration_min: 31,
+          total_cost: 75,
+          avg_cost_per_instance: 25,
+          resource_results: [{ resource_name: 'Analyst', utilization_rate: 92, avg_wait_min: 8, tasks_handled: 10 }],
+          bottlenecks: [{ type: 'resource', name: 'Analyst', metric: 92, unit: '% utilisation', severity: 'high', details: 'Busy' }],
+          task_results: [{ task_id: 'Task_1', task_name: 'Review', avg_duration: 15, avg_wait_min: 8, total_cost: 75 }],
+        },
+      }]))
+      .mockResolvedValueOnce(makeResult([{
+        id: 5,
+        name: 'Scenario B',
+        process_id: 7,
+        process_name: 'Order Fulfillment',
+        process_company_id: 2,
+        results: {
+          avg_duration_min: 20,
+          p95_duration_min: 26,
+          total_cost: 63,
+          avg_cost_per_instance: 21,
+          resource_results: [{ resource_name: 'Analyst', utilization_rate: 75, avg_wait_min: 3, tasks_handled: 10 }],
+          bottlenecks: [{ type: 'task', name: 'Review', metric: 3, unit: 'min wait', severity: 'low', details: 'Minor queue' }],
+          task_results: [{ task_id: 'Task_1', task_name: 'Review', avg_duration: 11, avg_wait_min: 3, total_cost: 63 }],
+        },
+      }]));
+
+    const response = await request(app).get('/api/simulations/4/compare/5');
+    expect(response.status).toBe(200);
+    expect(response.body.same_process).toBe(true);
+    expect(response.body.summary).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'avg_duration_min', delta: 7 }),
+      ])
+    );
+    expect(response.body.resource_comparison[0]).toEqual(
+      expect.objectContaining({ resource_name: 'Analyst', utilization_delta: 17 })
+    );
+  });
+
   it('runs a deterministic simulation and returns richer metrics', async () => {
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(manager) });
 

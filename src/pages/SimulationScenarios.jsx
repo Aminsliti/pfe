@@ -4,6 +4,7 @@ import {
   Alert, Badge, Table, ProgressBar,
 } from 'react-bootstrap';
 import './SimulationScenarios.css';
+import BpmnHeatmapViewer from '../components/BpmnEditor/BpmnHeatmapViewer';
 
 const API = 'http://localhost:3001/api';
 
@@ -906,12 +907,181 @@ function SimulationArrivalTimesCard({ scenarioId, enabled, onImported, onCleared
   );
 }
 
-function SimulationResultsPanel({ scenario, onRun }) {
+function ScenarioComparisonPanel({ scenario, scenarios, compareScenarioId, onCompareScenarioIdChange, compareData, onLoadCompare, compareLoading }) {
+  const compareCandidates = scenarios.filter((entry) => entry.id !== scenario.id && entry.results);
+
+  return (
+    <Card className="border-0 shadow-sm mb-4">
+      <Card.Header className="bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <strong>Scenario comparison</strong>
+          <div className="text-muted small">Compare duration, cost, utilisation, and bottlenecks against another completed scenario.</div>
+        </div>
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <Form.Select
+            size="sm"
+            style={{ minWidth: 240 }}
+            value={compareScenarioId}
+            onChange={(event) => onCompareScenarioIdChange(event.target.value)}
+          >
+            <option value="">Choose a scenario</option>
+            {compareCandidates.map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.name}</option>
+            ))}
+          </Form.Select>
+          <Button size="sm" variant="outline-dark" onClick={onLoadCompare} disabled={!compareScenarioId || compareLoading}>
+            {compareLoading ? 'Comparing...' : 'Compare'}
+          </Button>
+        </div>
+      </Card.Header>
+      <Card.Body>
+        {!compareData ? (
+          <div className="text-muted small">Select another simulated scenario to view deltas.</div>
+        ) : (
+          <>
+            {!compareData.same_process && (
+              <Alert variant="warning" className="mb-3">
+                The selected scenarios are linked to different processes. The KPI comparison still works, but task deltas may be less comparable.
+              </Alert>
+            )}
+
+            <Row className="g-3 mb-4">
+              {compareData.summary.map((metric) => (
+                <Col md={6} xl={4} key={metric.key}>
+                  <Card className="border-0 bg-light h-100">
+                    <Card.Body>
+                      <div className="sim-kpi-label mb-2">{metric.label}</div>
+                      <div className="d-flex justify-content-between gap-3">
+                        <div>
+                          <div className="fw-semibold">{compareData.primary.name}</div>
+                          <div>{fmt(metric.primary, metric.unit === 'EUR' ? 2 : 1)} {metric.unit}</div>
+                        </div>
+                        <div>
+                          <div className="fw-semibold">{compareData.secondary.name}</div>
+                          <div>{fmt(metric.secondary, metric.unit === 'EUR' ? 2 : 1)} {metric.unit}</div>
+                        </div>
+                      </div>
+                      <div className={`mt-2 fw-semibold ${metric.delta > 0 ? 'text-danger' : metric.delta < 0 ? 'text-success' : 'text-muted'}`}>
+                        Delta: {metric.delta > 0 ? '+' : ''}{fmt(metric.delta, metric.unit === 'EUR' ? 2 : 1)} {metric.unit}
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+
+            {compareData.resource_comparison?.length > 0 && (
+              <div className="mb-4">
+                <div className="fw-semibold mb-2">Resource utilisation deltas</div>
+                <Table hover size="sm" className="sim-table mb-0">
+                  <thead>
+                    <tr>
+                      <th>Resource</th>
+                      <th>{compareData.primary.name}</th>
+                      <th>{compareData.secondary.name}</th>
+                      <th>Delta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compareData.resource_comparison.slice(0, 8).map((resource) => (
+                      <tr key={resource.resource_name}>
+                        <td><strong>{resource.resource_name}</strong></td>
+                        <td>{fmt(resource.primary_utilization)}%</td>
+                        <td>{fmt(resource.secondary_utilization)}%</td>
+                        <td className={resource.utilization_delta > 0 ? 'text-danger fw-semibold' : resource.utilization_delta < 0 ? 'text-success fw-semibold' : 'text-muted'}>
+                          {resource.utilization_delta > 0 ? '+' : ''}{fmt(resource.utilization_delta)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            )}
+
+            <Row className="g-3 mb-4">
+              <Col lg={6}>
+                <div className="fw-semibold mb-2">Bottlenecks: {compareData.primary.name}</div>
+                <div className="sim-bottlenecks">
+                  {(compareData.bottlenecks.primary || []).slice(0, 3).map((item, index) => (
+                    <Card key={`primary-${index}`} className={`border-0 shadow-sm sim-bottleneck-card severity-${item.severity}`}>
+                      <Card.Body>
+                        <div className="fw-semibold">{item.name}</div>
+                        <div className="text-muted small">{item.details}</div>
+                        <div className="sim-bottleneck-metric">{fmt(item.metric)} {item.unit}</div>
+                      </Card.Body>
+                    </Card>
+                  ))}
+                </div>
+              </Col>
+              <Col lg={6}>
+                <div className="fw-semibold mb-2">Bottlenecks: {compareData.secondary.name}</div>
+                <div className="sim-bottlenecks">
+                  {(compareData.bottlenecks.secondary || []).slice(0, 3).map((item, index) => (
+                    <Card key={`secondary-${index}`} className={`border-0 shadow-sm sim-bottleneck-card severity-${item.severity}`}>
+                      <Card.Body>
+                        <div className="fw-semibold">{item.name}</div>
+                        <div className="text-muted small">{item.details}</div>
+                        <div className="sim-bottleneck-metric">{fmt(item.metric)} {item.unit}</div>
+                      </Card.Body>
+                    </Card>
+                  ))}
+                </div>
+              </Col>
+            </Row>
+
+            {compareData.task_comparison?.length > 0 && (
+              <div>
+                <div className="fw-semibold mb-2">Task deltas</div>
+                <Table hover size="sm" className="sim-table mb-0">
+                  <thead>
+                    <tr>
+                      <th>Task</th>
+                      <th>{compareData.primary.name}</th>
+                      <th>{compareData.secondary.name}</th>
+                      <th>Duration delta</th>
+                      <th>Wait delta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compareData.task_comparison.map((task) => (
+                      <tr key={task.task_id}>
+                        <td><strong>{task.task_name}</strong></td>
+                        <td>{fmt(task.primary_duration)} min</td>
+                        <td>{fmt(task.secondary_duration)} min</td>
+                        <td className={task.duration_delta > 0 ? 'text-danger fw-semibold' : task.duration_delta < 0 ? 'text-success fw-semibold' : 'text-muted'}>
+                          {task.duration_delta > 0 ? '+' : ''}{fmt(task.duration_delta)} min
+                        </td>
+                        <td className={task.wait_delta > 0 ? 'text-danger fw-semibold' : task.wait_delta < 0 ? 'text-success fw-semibold' : 'text-muted'}>
+                          {task.wait_delta > 0 ? '+' : ''}{fmt(task.wait_delta)} min
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            )}
+          </>
+        )}
+      </Card.Body>
+    </Card>
+  );
+}
+
+function SimulationResultsPanel({ scenario, scenarios, onRun }) {
   const [running, setRunning] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [compareScenarioId, setCompareScenarioId] = useState('');
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareData, setCompareData] = useState(null);
   const [err, setErr] = useState('');
   const results = scenario.results;
   const effectiveStatus = running ? 'running' : (scenario.status || results?.status || 'draft');
   const lastError = err || scenario.last_error;
+
+  useEffect(() => {
+    setCompareScenarioId('');
+    setCompareData(null);
+  }, [scenario.id]);
 
   const run = async () => {
     setRunning(true);
@@ -940,9 +1110,64 @@ function SimulationResultsPanel({ scenario, onRun }) {
     }
   };
 
+  const exportResults = async () => {
+    setExporting(true);
+    setErr('');
+
+    try {
+      const response = await fetch(`${API}/simulations/${scenario.id}/export`);
+      if (!response.ok) {
+        const payload = await readApiPayload(response);
+        throw new Error(payload.error || 'Export impossible.');
+      }
+
+      const csvText = await response.text();
+      const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const disposition = response.headers.get('content-disposition') || '';
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+
+      link.href = url;
+      link.download = filenameMatch?.[1] || `simulation-${scenario.id}-results.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setErr(error.message || 'Export impossible.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const loadComparison = async () => {
+    if (!compareScenarioId) {
+      return;
+    }
+
+    setCompareLoading(true);
+    setErr('');
+    try {
+      const response = await fetch(`${API}/simulations/${scenario.id}/compare/${compareScenarioId}`);
+      const payload = await readApiPayload(response);
+      if (!response.ok) {
+        throw new Error(payload.error || 'Comparison failed.');
+      }
+      setCompareData(payload);
+    } catch (error) {
+      setErr(error.message || 'Comparison failed.');
+    } finally {
+      setCompareLoading(false);
+    }
+  };
+
   return (
     <div>
-      <div className="d-flex justify-content-end mb-3">
+      <div className="d-flex justify-content-end gap-2 mb-3">
+        <Button variant="outline-secondary" onClick={exportResults} disabled={!results || exporting}>
+          {exporting ? 'Export...' : 'Exporter CSV'}
+        </Button>
         <Button variant="success" onClick={run} disabled={running}>
           {running
             ? <><span className="spinner-border spinner-border-sm me-2" />Simulation en cours...</>
@@ -1003,6 +1228,24 @@ function SimulationResultsPanel({ scenario, onRun }) {
               </Col>
             ))}
           </Row>
+
+          {scenario.bpmn_xml && results?.task_results?.length > 0 && (
+            <Card className="border-0 shadow-sm mb-4">
+              <Card.Body>
+                <BpmnHeatmapViewer bpmnXml={scenario.bpmn_xml} results={results} />
+              </Card.Body>
+            </Card>
+          )}
+
+          <ScenarioComparisonPanel
+            scenario={scenario}
+            scenarios={scenarios}
+            compareScenarioId={compareScenarioId}
+            onCompareScenarioIdChange={setCompareScenarioId}
+            compareData={compareData}
+            onLoadCompare={loadComparison}
+            compareLoading={compareLoading}
+          />
 
           {results.histogram?.length > 0 && (
             <Card className="border-0 shadow-sm mb-4">
@@ -1372,7 +1615,7 @@ export default function SimulationScenarios() {
               bpmnConnections={bpmnParsed.connections} />
           )}
           {activeTab==='resultats' && (
-            <SimulationResultsPanel scenario={activeScenario}
+            <SimulationResultsPanel scenario={activeScenario} scenarios={scenarios}
               onRun={payload => {
                 setActiveScenario(prev => {
                   if (!prev) return prev;

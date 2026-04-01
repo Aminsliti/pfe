@@ -218,3 +218,112 @@
   color: #212529;
   margin-bottom: 4px;
 }
+
+.sim-heatmap-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sim-heatmap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sim-heatmap-legend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sim-heatmap-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sim-heatmap-chip.level-low {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.sim-heatmap-chip.level-medium {
+  background: #fed7aa;
+  color: #9a3412;
+}
+
+.sim-heatmap-chip.level-high {
+  background: #fecaca;
+  color: #991b1b;
+}
+
+.sim-heatmap-canvas {
+  height: 440px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.95)),
+    linear-gradient(90deg, rgba(226, 232, 240, 0.35) 1px, transparent 1px),
+    linear-gradient(rgba(226, 232, 240, 0.35) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+
+.sim-heatmap-ranking {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.sim-heatmap-rank {
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.sim-heatmap-rank.level-low {
+  background: #fff7ed;
+}
+
+.sim-heatmap-rank.level-medium {
+  background: #fef2f2;
+}
+
+.sim-heatmap-rank.level-high {
+  background: #fee2e2;
+}
+
+.sim-heatmap-rank span {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.sim-heat-low .djs-visual > :nth-child(1) {
+  fill: #fde68a !important;
+  stroke: #d97706 !important;
+  stroke-width: 2.5px !important;
+}
+
+.sim-heat-medium .djs-visual > :nth-child(1) {
+  fill: #fdba74 !important;
+  stroke: #c2410c !important;
+  stroke-width: 2.5px !important;
+}
+
+.sim-heat-high .djs-visual > :nth-child(1) {
+  fill: #fca5a5 !important;
+  stroke: #b91c1c !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 8px rgba(220, 38, 38, 0.35));
+}

@@ -11,9 +11,16 @@ import {
   isCompanyAdmin,
   isGlobalAdmin,
 } from '../utils/access.js';
+import { logAuditEvent } from '../utils/auditLog.js';
+import {
+  buildProcessVersionSnapshot,
+  buildVersionDiff,
+  normalizeProcessStatus,
+} from '../utils/processDiff.js';
 
 const router = express.Router();
 const uploadDir = path.resolve(process.cwd(), 'server', 'uploads');
+let processSchemaPromise = null;
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -34,6 +41,84 @@ function normalizeInteger(value, fallbackValue = null) {
   if (value === null || value === '') return null;
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : fallbackValue;
+}
+
+async function ensureProcessEnhancements() {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  if (!processSchemaPromise) {
+    processSchemaPromise = (async () => {
+      await pool.query(`
+        ALTER TABLE processes
+        ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP
+      `);
+
+      await pool.query(`
+        ALTER TABLE processes
+        ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP
+      `);
+
+      await pool.query(`
+        ALTER TABLE processes
+        ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+      `);
+
+      await pool.query(`
+        ALTER TABLE processes
+        ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_versions
+        ADD COLUMN IF NOT EXISTS name VARCHAR(255)
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_versions
+        ADD COLUMN IF NOT EXISTS description TEXT
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_versions
+        ADD COLUMN IF NOT EXISTS category_id INTEGER
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_versions
+        ADD COLUMN IF NOT EXISTS company_id INTEGER
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_versions
+        ADD COLUMN IF NOT EXISTS status VARCHAR(50)
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS process_workflow_comments (
+          id SERIAL PRIMARY KEY,
+          process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
+          action VARCHAR(50) NOT NULL,
+          status_from VARCHAR(50),
+          status_to VARCHAR(50),
+          comment TEXT,
+          created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_process_workflow_comments_process
+        ON process_workflow_comments(process_id, created_at DESC)
+      `);
+    })().catch((error) => {
+      processSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  return processSchemaPromise;
 }
 
 function escapeXml(value = '') {
@@ -100,10 +185,12 @@ async function getProcessById(id) {
         p.*,
         pc.name AS category_name,
         u.full_name AS created_by_name,
+        approver.full_name AS approved_by_name,
         c.name AS company_name
       FROM processes p
       LEFT JOIN process_categories pc ON pc.id = p.category_id
       LEFT JOIN users u ON u.id = p.created_by
+      LEFT JOIN users approver ON approver.id = p.approved_by
       LEFT JOIN companies c ON c.id = p.company_id
       WHERE p.id = $1
     `,
@@ -135,6 +222,117 @@ function cleanupUploadedFile(file) {
     fs.unlinkSync(file.path);
   }
 }
+
+function serializeProcessRecord(process) {
+  if (!process) {
+    return process;
+  }
+
+  return {
+    ...process,
+    status: normalizeProcessStatus(process.status, 'draft'),
+  };
+}
+
+function buildVersionInsertValues(process, createdBy, changeDescription) {
+  const snapshot = serializeProcessRecord(process);
+
+  return [
+    snapshot.id,
+    snapshot.version,
+    snapshot.bpmn_xml || '',
+    createdBy,
+    changeDescription || 'Updated process',
+    snapshot.name || '',
+    snapshot.description || null,
+    normalizeInteger(snapshot.category_id, null),
+    normalizeInteger(snapshot.company_id, null),
+    snapshot.status || 'draft',
+  ];
+}
+
+async function insertProcessVersion(process, createdBy, changeDescription) {
+  await pool.query(
+    `
+      INSERT INTO process_versions (
+        process_id,
+        version_number,
+        bpmn_xml,
+        created_by,
+        change_description,
+        name,
+        description,
+        category_id,
+        company_id,
+        status
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    `,
+    buildVersionInsertValues(process, createdBy, changeDescription)
+  );
+}
+
+async function getWorkflowComments(processId) {
+  const result = await pool.query(
+    `
+      SELECT
+        pwc.*,
+        u.full_name AS created_by_name
+      FROM process_workflow_comments pwc
+      LEFT JOIN users u ON u.id = pwc.created_by
+      WHERE pwc.process_id = $1
+      ORDER BY pwc.created_at DESC
+    `,
+    [processId]
+  );
+
+  return result.rows;
+}
+
+async function getProcessVersion(processId, versionNumber) {
+  const result = await pool.query(
+    `
+      SELECT
+        pv.*,
+        u.full_name AS created_by_name
+      FROM process_versions pv
+      LEFT JOIN users u ON u.id = pv.created_by
+      WHERE pv.process_id = $1 AND pv.version_number = $2
+    `,
+    [processId, versionNumber]
+  );
+
+  return result.rows[0] ? buildProcessVersionSnapshot(result.rows[0]) : null;
+}
+
+function resolveWorkflowTransition(action, currentStatus) {
+  const normalized = normalizeProcessStatus(currentStatus, 'draft');
+
+  switch (action) {
+    case 'submit_review':
+      return { nextStatus: 'review', changeDescription: 'Submitted for review' };
+    case 'approve':
+      return { nextStatus: 'approved', changeDescription: 'Approved process' };
+    case 'return_draft':
+      return { nextStatus: 'draft', changeDescription: 'Returned to draft' };
+    case 'archive':
+      return { nextStatus: 'archived', changeDescription: 'Archived process' };
+    case 'restore':
+      return { nextStatus: 'draft', changeDescription: 'Restored archived process' };
+    default:
+      return { nextStatus: normalized, changeDescription: 'Workflow updated' };
+  }
+}
+
+router.use(async (req, res, next) => {
+  try {
+    await ensureProcessEnhancements();
+    next();
+  } catch (error) {
+    console.error('process schema error:', error);
+    res.status(500).json({ error: 'Failed to prepare process storage.' });
+  }
+});
 
 router.get('/processes', async (req, res) => {
   try {
@@ -170,9 +368,16 @@ router.get('/processes', async (req, res) => {
     }
 
     if (status) {
-      query += ` AND p.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex += 1;
+      const normalizedStatus = normalizeProcessStatus(status, status);
+      if (normalizedStatus === 'approved') {
+        query += ` AND p.status IN ($${paramIndex}, $${paramIndex + 1})`;
+        params.push('approved', 'active');
+        paramIndex += 2;
+      } else {
+        query += ` AND p.status = $${paramIndex}`;
+        params.push(normalizedStatus);
+        paramIndex += 1;
+      }
     }
 
     const categoryId = normalizeInteger(category, null);
@@ -191,7 +396,8 @@ router.get('/processes', async (req, res) => {
     query += ' ORDER BY p.parent_id NULLS FIRST, p.name';
 
     const result = await pool.query(query, params);
-    const processes = hierarchical === 'true' ? buildProcessTree(result.rows) : result.rows;
+    const normalizedRows = result.rows.map(serializeProcessRecord);
+    const processes = hierarchical === 'true' ? buildProcessTree(normalizedRows) : normalizedRows;
     res.json(processes);
   } catch (error) {
     console.error('Error fetching processes:', error);
@@ -226,8 +432,8 @@ router.get('/processes/:id', async (req, res) => {
     );
 
     res.json({
-      ...process,
-      versions: versionsResult.rows,
+      ...serializeProcessRecord(process),
+      versions: versionsResult.rows.map(buildProcessVersionSnapshot),
     });
   } catch (error) {
     console.error('Get process error:', error);
@@ -254,26 +460,38 @@ router.post('/processes', async (req, res) => {
     }
 
     const bpmnXml = bpmn_xml || buildDefaultBpmnXml(name);
+    const initialStatus = normalizeProcessStatus(status, 'draft');
     const result = await pool.query(
       `
         INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at
       `,
-      [name, description || null, bpmnXml, normalizeInteger(category_id, null), processCompanyId, createdBy, status]
+      [name, description || null, bpmnXml, normalizeInteger(category_id, null), processCompanyId, createdBy, initialStatus]
     );
 
-    const process = result.rows[0];
+    const process = {
+      ...result.rows[0],
+      bpmn_xml: bpmnXml,
+    };
 
-    await pool.query(
-      `
-        INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [process.id, 1, bpmnXml, createdBy, 'Initial version']
-    );
+    await insertProcessVersion(process, createdBy, 'Initial version');
 
-    res.status(201).json(process);
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process',
+      entityId: process.id,
+      companyId: process.company_id,
+      action: 'create',
+      summary: `Created process "${process.name}"`,
+      details: {
+        status: process.status,
+        version: process.version,
+        category_id: process.category_id,
+      },
+    });
+
+    res.status(201).json(serializeProcessRecord(process));
   } catch (error) {
     console.error('Create process error:', error);
     res.status(500).json({ error: `Server error: ${error.message}` });
@@ -313,7 +531,8 @@ router.put('/processes/:id', async (req, res) => {
       return;
     }
 
-    const nextStatus = status || currentProcess.status;
+    const previousSnapshot = serializeProcessRecord(currentProcess);
+    const nextStatus = normalizeProcessStatus(status, normalizeProcessStatus(currentProcess.status, 'draft'));
     const nextBpmnXml =
       typeof bpmn_xml === 'string' && bpmn_xml.trim() !== ''
         ? bpmn_xml
@@ -338,15 +557,42 @@ router.put('/processes/:id', async (req, res) => {
       [nextName, nextDescription, nextBpmnXml, nextCategoryId, nextCompanyId, nextStatus, newVersion, req.params.id]
     );
 
-    await pool.query(
-      `
-        INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [req.params.id, newVersion, nextBpmnXml, req.user.id, change_description || 'Updated process']
-    );
+    const updatedProcess = {
+      ...updateResult.rows[0],
+      bpmn_xml: nextBpmnXml,
+    };
 
-    res.json(updateResult.rows[0]);
+    await insertProcessVersion(updatedProcess, req.user.id, change_description || 'Updated process');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process',
+      entityId: updatedProcess.id,
+      companyId: updatedProcess.company_id,
+      action: 'update',
+      summary: `Updated process "${updatedProcess.name}"`,
+      details: {
+        before: {
+          name: previousSnapshot.name,
+          description: previousSnapshot.description,
+          status: previousSnapshot.status,
+          category_id: previousSnapshot.category_id,
+          company_id: previousSnapshot.company_id,
+          version: previousSnapshot.version_number,
+        },
+        after: {
+          name: updatedProcess.name,
+          description: updatedProcess.description,
+          status: updatedProcess.status,
+          category_id: updatedProcess.category_id,
+          company_id: updatedProcess.company_id,
+          version: updatedProcess.version,
+        },
+        change_description: change_description || 'Updated process',
+      },
+    });
+
+    res.json(serializeProcessRecord(updatedProcess));
   } catch (error) {
     console.error('Update process error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -369,6 +615,18 @@ router.delete('/processes/:id', async (req, res) => {
     }
 
     await pool.query('DELETE FROM processes WHERE id = $1', [req.params.id]);
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process',
+      entityId: process.id,
+      companyId: process.company_id,
+      action: 'delete',
+      summary: `Deleted process "${process.name}"`,
+      details: {
+        status: normalizeProcessStatus(process.status, 'draft'),
+        version: process.version,
+      },
+    });
     res.json({ message: 'Process deleted successfully' });
   } catch (error) {
     console.error('Delete process error:', error);
@@ -405,6 +663,8 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       return res.status(400).json({ error: 'Invalid BPMN file format' });
     }
 
+    const initialStatus = normalizeProcessStatus(status, 'draft');
+
     const result = await pool.query(
       `
         INSERT INTO processes (name, description, bpmn_xml, category_id, company_id, created_by, status)
@@ -418,20 +678,32 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
         normalizeInteger(category_id, null),
         processCompanyId,
         req.user.id,
-        status || 'draft',
+        initialStatus,
       ]
     );
 
-    await pool.query(
-      `
-        INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description)
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [result.rows[0].id, 1, bpmnXml, req.user.id, 'Imported from BPMN file']
-    );
+    const importedProcess = {
+      ...result.rows[0],
+      bpmn_xml: bpmnXml,
+    };
+
+    await insertProcessVersion(importedProcess, req.user.id, 'Imported from BPMN file');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process',
+      entityId: importedProcess.id,
+      companyId: importedProcess.company_id,
+      action: 'import',
+      summary: `Imported BPMN process "${importedProcess.name}"`,
+      details: {
+        status: importedProcess.status,
+        version: importedProcess.version,
+      },
+    });
 
     cleanupUploadedFile(req.file);
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(serializeProcessRecord(importedProcess));
   } catch (error) {
     console.error('Import BPMN error:', error);
     cleanupUploadedFile(req.file);
@@ -486,6 +758,197 @@ router.get('/processes/:id/export', async (req, res) => {
     res.send(process.bpmn_xml);
   } catch (error) {
     console.error('Export BPMN error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/processes/:id/workflow', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    const process = await getProcessById(req.params.id);
+    if (!process) {
+      return res.status(404).json({ error: 'Process not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
+    }
+
+    const comments = await getWorkflowComments(process.id);
+    res.json({
+      process_id: process.id,
+      status: normalizeProcessStatus(process.status, 'draft'),
+      submitted_at: process.submitted_at,
+      approved_at: process.approved_at,
+      approved_by: process.approved_by,
+      approved_by_name: process.approved_by_name || null,
+      archived_at: process.archived_at,
+      comments,
+    });
+  } catch (error) {
+    console.error('Get process workflow error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/processes/:id/workflow', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const process = await getProcessById(req.params.id);
+    if (!process) {
+      return res.status(404).json({ error: 'Process not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
+    }
+
+    const action = String(req.body?.action || '');
+    const comment = String(req.body?.comment || '').trim() || null;
+    const currentStatus = normalizeProcessStatus(process.status, 'draft');
+    const { nextStatus, changeDescription } = resolveWorkflowTransition(action, currentStatus);
+
+    if (!['submit_review', 'approve', 'return_draft', 'archive', 'restore'].includes(action)) {
+      return res.status(400).json({ error: 'Unsupported workflow action.' });
+    }
+
+    const newVersion = (process.version || 0) + 1;
+    const submittedAt = action === 'submit_review'
+      ? new Date().toISOString()
+      : (process.submitted_at || null);
+    const approvedAt = action === 'approve'
+      ? new Date().toISOString()
+      : (nextStatus === 'approved' ? process.approved_at : null);
+    const approvedBy = action === 'approve'
+      ? req.user.id
+      : (nextStatus === 'approved' ? process.approved_by : null);
+    const archivedAt = action === 'archive'
+      ? new Date().toISOString()
+      : (nextStatus === 'archived' ? process.archived_at : null);
+
+    const updateResult = await pool.query(
+      `
+        UPDATE processes
+        SET
+          status = $1,
+          version = $2,
+          submitted_at = $3,
+          approved_at = $4,
+          approved_by = $5,
+          archived_at = $6,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $7
+        RETURNING *
+      `,
+      [
+        nextStatus,
+        newVersion,
+        submittedAt,
+        approvedAt,
+        approvedBy,
+        archivedAt,
+        process.id,
+      ]
+    );
+
+    const updatedProcess = {
+      ...updateResult.rows[0],
+      bpmn_xml: process.bpmn_xml,
+    };
+
+    await insertProcessVersion(updatedProcess, req.user.id, changeDescription);
+
+    await pool.query(
+      `
+        INSERT INTO process_workflow_comments (
+          process_id,
+          action,
+          status_from,
+          status_to,
+          comment,
+          created_by
+        )
+        VALUES ($1,$2,$3,$4,$5,$6)
+      `,
+      [process.id, action, currentStatus, nextStatus, comment, req.user.id]
+    );
+
+    const hydratedProcess = await getProcessById(process.id);
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process',
+      entityId: process.id,
+      companyId: process.company_id,
+      action: `workflow_${action}`,
+      summary: `${req.user.fullName || req.user.username} moved process "${process.name}" to ${nextStatus}`,
+      details: {
+        status_from: currentStatus,
+        status_to: nextStatus,
+        comment,
+        version: newVersion,
+      },
+    });
+
+    res.json({
+      process: serializeProcessRecord(hydratedProcess),
+      workflow: {
+        process_id: process.id,
+        status: nextStatus,
+        submitted_at: hydratedProcess?.submitted_at || null,
+        approved_at: hydratedProcess?.approved_at || null,
+        approved_by: hydratedProcess?.approved_by || null,
+        approved_by_name: hydratedProcess?.approved_by_name || null,
+        archived_at: hydratedProcess?.archived_at || null,
+        comments: await getWorkflowComments(process.id),
+      },
+    });
+  } catch (error) {
+    console.error('Process workflow error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/processes/:id/diff', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    const process = await getProcessById(req.params.id);
+    if (!process) {
+      return res.status(404).json({ error: 'Process not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
+    }
+
+    const fromVersion = normalizeInteger(req.query.fromVersion, null);
+    const toVersion = normalizeInteger(req.query.toVersion, null);
+
+    if (!fromVersion || !toVersion) {
+      return res.status(400).json({ error: 'fromVersion and toVersion are required.' });
+    }
+
+    const [fromSnapshot, toSnapshot] = await Promise.all([
+      getProcessVersion(process.id, fromVersion),
+      getProcessVersion(process.id, toVersion),
+    ]);
+
+    if (!fromSnapshot || !toSnapshot) {
+      return res.status(404).json({ error: 'One of the selected versions was not found.' });
+    }
+
+    res.json(buildVersionDiff(fromSnapshot, toSnapshot));
+  } catch (error) {
+    console.error('Process diff error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -570,6 +1033,18 @@ router.post('/companies', async (req, res) => {
       [name, description || null, logo_url || null]
     );
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'company',
+      entityId: result.rows[0].id,
+      companyId: result.rows[0].id,
+      action: 'create',
+      summary: `Created company "${result.rows[0].name}"`,
+      details: {
+        description: result.rows[0].description,
+      },
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Create company error:', error);
@@ -615,6 +1090,18 @@ router.put('/companies/:id', async (req, res) => {
       return res.status(404).json({ error: 'Company not found' });
     }
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'company',
+      entityId: result.rows[0].id,
+      companyId: result.rows[0].id,
+      action: 'update',
+      summary: `Updated company "${result.rows[0].name}"`,
+      details: {
+        description: result.rows[0].description,
+      },
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Update company error:', error);
@@ -628,10 +1115,21 @@ router.delete('/companies/:id', async (req, res) => {
       return res.status(403).json({ error: 'Only global administrators can delete companies.' });
     }
 
+    const existingCompany = await pool.query('SELECT id, name FROM companies WHERE id = $1', [req.params.id]);
     const result = await pool.query('DELETE FROM companies WHERE id = $1 RETURNING id', [req.params.id]);
     if (!result.rowCount) {
       return res.status(404).json({ error: 'Company not found' });
     }
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'company',
+      entityId: req.params.id,
+      companyId: req.params.id,
+      action: 'delete',
+      summary: `Deleted company "${existingCompany.rows[0]?.name || req.params.id}"`,
+      details: {},
+    });
 
     res.json({ message: 'Company deleted successfully' });
   } catch (error) {

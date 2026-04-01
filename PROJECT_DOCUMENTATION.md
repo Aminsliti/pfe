@@ -5,9 +5,10 @@
 V-BPM is a full-stack Business Process Management platform built around four major domains:
 
 1. Authentication, RBAC, and multi-company access control
-2. BPMN process management and versioning
-3. Process simulation and scenario analysis
+2. BPMN process management, approval workflow, and version diffing
+3. Process simulation, scenario comparison, and BPMN heatmaps
 4. Organization structure management through an interactive org chart
+5. Cross-module audit logging
 
 The project uses a React frontend, an Express backend, and PostgreSQL for persistence.
 
@@ -67,11 +68,14 @@ pfe-main/
 |   |   `-- simulation_tables.sql
 |   |-- routes/
 |   |   |-- auth.js
+|   |   |-- audit.js
 |   |   |-- processes.js
 |   |   |-- simulations.js
 |   |   `-- orgchart.js
 |   `-- utils/
 |       |-- access.js
+|       |-- auditLog.js
+|       |-- processDiff.js
 |       `-- simulationEngine.js
 |
 |-- test/                      Jest/Supertest support and route tests
@@ -239,6 +243,7 @@ Responsibilities:
 - run simulations and display results
 - visualize cycle times, resource utilisation, and bottlenecks
 - surface scenario run status and errors
+- export scenario results as CSV
 
 #### [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
 
@@ -677,6 +682,9 @@ All non-public endpoints are mounted under `/api` and expect `x-user-id`.
 
 - `GET /api/processes`
 - `GET /api/processes/:id`
+- `GET /api/processes/:id/workflow`
+- `POST /api/processes/:id/workflow`
+- `GET /api/processes/:id/diff`
 - `POST /api/processes`
 - `PUT /api/processes/:id`
 - `DELETE /api/processes/:id`
@@ -712,12 +720,17 @@ Useful query params for `GET /api/processes`:
 - `PATCH /api/orgchart/nodes/:id/move`
 - `DELETE /api/orgchart/nodes/:id`
 
-### 9.5 Simulations
+### 9.5 Audit logs
+
+- `GET /api/audit-logs`
+
+### 9.6 Simulations
 
 #### Scenario CRUD
 
 - `GET /api/simulations`
 - `GET /api/simulations/:id`
+- `GET /api/simulations/:id/compare/:otherId`
 - `POST /api/simulations`
 - `PUT /api/simulations/:id`
 - `DELETE /api/simulations/:id`
@@ -727,6 +740,10 @@ Useful query params for `GET /api/processes`:
 - `GET /api/simulations/:id/arrival-times`
 - `POST /api/simulations/:id/arrival-times/import`
 - `DELETE /api/simulations/:id/arrival-times`
+
+#### Result export
+
+- `GET /api/simulations/:id/export`
 
 #### Scenario resources
 
@@ -783,6 +800,9 @@ Responsibilities:
 - P95 duration
 - P99 duration
 - total cost
+- resource utilisation tables
+- bottleneck ranking
+- BPMN heatmap-ready task metrics
 - average cost per instance
 - simulation horizon
 - per-task metrics

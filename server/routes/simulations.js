@@ -12,6 +12,7 @@ import {
   runSimulation,
 } from '../utils/simulationEngine.js';
 import { ensureSimulationSchema } from '../utils/simulationSchema.js';
+import { logAuditEvent } from '../utils/auditLog.js';
 
 const router = express.Router();
 const VALID_STATUSES = new Set(['draft', 'running', 'completed', 'failed']);
@@ -109,6 +110,242 @@ async function getScenarioArrivals(scenarioId) {
   );
 
   return result.rows;
+}
+
+function escapeCsvValue(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const stringValue = String(value);
+  if (/[;"\n\r]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+
+  return stringValue;
+}
+
+function buildCsvSection(title, headers, rows) {
+  if (!rows.length) {
+    return '';
+  }
+
+  return [
+    title,
+    headers.join(';'),
+    ...rows.map((row) => row.map(escapeCsvValue).join(';')),
+  ].join('\r\n');
+}
+
+function buildSimulationExportCsv(scenario) {
+  const results = scenario.results || {};
+  const summaryRows = [
+    ['scenario_id', scenario.id],
+    ['scenario_name', scenario.name],
+    ['process_name', scenario.process_name || ''],
+    ['status', scenario.status || results.status || 'draft'],
+    ['simulated_at', results.simulated_at || ''],
+    ['instances', results.instances ?? ''],
+    ['active_instances', results.active_instances ?? ''],
+    ['arrival_source', results.arrival_source || ''],
+    ['avg_duration_min', results.avg_duration_min ?? ''],
+    ['min_duration_min', results.min_duration_min ?? ''],
+    ['max_duration_min', results.max_duration_min ?? ''],
+    ['p95_duration_min', results.p95_duration_min ?? ''],
+    ['p99_duration_min', results.p99_duration_min ?? ''],
+    ['total_cost', results.total_cost ?? ''],
+    ['avg_cost_per_instance', results.avg_cost_per_instance ?? ''],
+    ['simulation_horizon_min', results.simulation_horizon_min ?? ''],
+  ];
+
+  const taskRows = Array.isArray(results.task_results)
+    ? results.task_results.map((task) => [
+        task.task_id,
+        task.task_name,
+        task.avg_duration,
+        task.min_duration,
+        task.max_duration,
+        task.p95_duration,
+        task.avg_wait_min,
+        task.executions,
+        task.resource_name,
+        task.total_cost,
+      ])
+    : [];
+
+  const resourceRows = Array.isArray(results.resource_results)
+    ? results.resource_results.map((resource) => [
+        resource.resource_id,
+        resource.resource_name,
+        resource.quantity,
+        resource.availability,
+        resource.tasks_handled,
+        resource.total_busy_min,
+        resource.avg_wait_min,
+        resource.utilization_rate,
+      ])
+    : [];
+
+  const bottleneckRows = Array.isArray(results.bottlenecks)
+    ? results.bottlenecks.map((bottleneck) => [
+        bottleneck.type,
+        bottleneck.name,
+        bottleneck.metric,
+        bottleneck.unit,
+        bottleneck.severity,
+        bottleneck.details,
+      ])
+    : [];
+
+  const arrivalRows = Array.isArray(results.arrival_preview)
+    ? results.arrival_preview.map((arrival) => [
+        arrival.index,
+        arrival.offset_min,
+      ])
+    : [];
+
+  return [
+    'sep=;',
+    buildCsvSection('Scenario Summary', ['field', 'value'], summaryRows),
+    buildCsvSection(
+      'Task Results',
+      ['task_id', 'task_name', 'avg_duration', 'min_duration', 'max_duration', 'p95_duration', 'avg_wait_min', 'executions', 'resource_name', 'total_cost'],
+      taskRows
+    ),
+    buildCsvSection(
+      'Resource Results',
+      ['resource_id', 'resource_name', 'quantity', 'availability', 'tasks_handled', 'total_busy_min', 'avg_wait_min', 'utilization_rate'],
+      resourceRows
+    ),
+    buildCsvSection(
+      'Bottlenecks',
+      ['type', 'name', 'metric', 'unit', 'severity', 'details'],
+      bottleneckRows
+    ),
+    buildCsvSection(
+      'Arrival Preview',
+      ['index', 'offset_min'],
+      arrivalRows
+    ),
+  ]
+    .filter(Boolean)
+    .join('\r\n\r\n');
+}
+
+function compareMetric(label, key, primaryResults = {}, secondaryResults = {}, unit = '') {
+  const resolveValue = (results) => {
+    if (key === 'max_resource_utilization') {
+      return Math.max(0, ...(results?.resource_results || []).map((resource) => Number(resource.utilization_rate ?? 0)));
+    }
+
+    return Number(results?.[key] ?? 0);
+  };
+
+  const primary = resolveValue(primaryResults);
+  const secondary = resolveValue(secondaryResults);
+
+  return {
+    key,
+    label,
+    unit,
+    primary,
+    secondary,
+    delta: Math.round((primary - secondary) * 100) / 100,
+  };
+}
+
+function buildScenarioComparison(primaryScenario, secondaryScenario) {
+  const primaryResults = primaryScenario.results || {};
+  const secondaryResults = secondaryScenario.results || {};
+
+  const resourceMap = new Map();
+  const addResourceRow = (resource, side) => {
+    const key = resource.resource_name || String(resource.resource_id || side);
+    const current = resourceMap.get(key) || {
+      resource_name: key,
+      primary_utilization: null,
+      secondary_utilization: null,
+      primary_wait: null,
+      secondary_wait: null,
+      primary_tasks: null,
+      secondary_tasks: null,
+    };
+
+    current[`${side}_utilization`] = Number(resource.utilization_rate ?? 0);
+    current[`${side}_wait`] = Number(resource.avg_wait_min ?? 0);
+    current[`${side}_tasks`] = Number(resource.tasks_handled ?? 0);
+    resourceMap.set(key, current);
+  };
+
+  (primaryResults.resource_results || []).forEach((resource) => addResourceRow(resource, 'primary'));
+  (secondaryResults.resource_results || []).forEach((resource) => addResourceRow(resource, 'secondary'));
+
+  const taskMap = new Map();
+  const addTaskRow = (task, side) => {
+    const key = task.task_id || task.task_name;
+    const current = taskMap.get(key) || {
+      task_id: key,
+      task_name: task.task_name || key,
+      primary_duration: null,
+      secondary_duration: null,
+      primary_wait: null,
+      secondary_wait: null,
+      primary_cost: null,
+      secondary_cost: null,
+    };
+
+    current[`${side}_duration`] = Number(task.avg_duration ?? 0);
+    current[`${side}_wait`] = Number(task.avg_wait_min ?? 0);
+    current[`${side}_cost`] = Number(task.total_cost ?? 0);
+    taskMap.set(key, current);
+  };
+
+  (primaryResults.task_results || []).forEach((task) => addTaskRow(task, 'primary'));
+  (secondaryResults.task_results || []).forEach((task) => addTaskRow(task, 'secondary'));
+
+  const taskDeltas = Array.from(taskMap.values())
+    .map((task) => ({
+      ...task,
+      duration_delta: Math.round(((task.primary_duration ?? 0) - (task.secondary_duration ?? 0)) * 100) / 100,
+      wait_delta: Math.round(((task.primary_wait ?? 0) - (task.secondary_wait ?? 0)) * 100) / 100,
+      cost_delta: Math.round(((task.primary_cost ?? 0) - (task.secondary_cost ?? 0)) * 100) / 100,
+    }))
+    .sort((left, right) => Math.abs(right.duration_delta) - Math.abs(left.duration_delta))
+    .slice(0, 12);
+
+  return {
+    same_process: primaryScenario.process_id === secondaryScenario.process_id,
+    primary: {
+      id: primaryScenario.id,
+      name: primaryScenario.name,
+      process_name: primaryScenario.process_name,
+      status: primaryScenario.status,
+    },
+    secondary: {
+      id: secondaryScenario.id,
+      name: secondaryScenario.name,
+      process_name: secondaryScenario.process_name,
+      status: secondaryScenario.status,
+    },
+    summary: [
+      compareMetric('Cycle time moyen', 'avg_duration_min', primaryResults, secondaryResults, 'min'),
+      compareMetric('P95', 'p95_duration_min', primaryResults, secondaryResults, 'min'),
+      compareMetric('Cout total', 'total_cost', primaryResults, secondaryResults, 'EUR'),
+      compareMetric('Cout / instance', 'avg_cost_per_instance', primaryResults, secondaryResults, 'EUR'),
+      compareMetric('Utilisation max', 'max_resource_utilization', primaryResults, secondaryResults, '%'),
+    ],
+    resource_comparison: Array.from(resourceMap.values())
+      .map((resource) => ({
+        ...resource,
+        utilization_delta: Math.round(((resource.primary_utilization ?? 0) - (resource.secondary_utilization ?? 0)) * 100) / 100,
+      }))
+      .sort((left, right) => Math.abs(right.utilization_delta) - Math.abs(left.utilization_delta)),
+    bottlenecks: {
+      primary: primaryResults.bottlenecks || [],
+      secondary: secondaryResults.bottlenecks || [],
+    },
+    task_comparison: taskDeltas,
+  };
 }
 
 router.use(async (req, res, next) => {
@@ -263,6 +500,19 @@ router.post('/simulations', async (req, res) => {
       ]
     );
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: result.rows[0].id,
+      companyId: process.company_id,
+      action: 'create',
+      summary: `Created simulation scenario "${result.rows[0].name}"`,
+      details: {
+        process_id: process.id,
+        status: result.rows[0].status,
+      },
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
@@ -338,6 +588,19 @@ router.put('/simulations/:id', async (req, res) => {
       return notFound(res, 'Simulation');
     }
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: result.rows[0].id,
+      companyId: nextProcess.company_id,
+      action: 'update',
+      summary: `Updated simulation scenario "${result.rows[0].name}"`,
+      details: {
+        process_id: nextProcess.id,
+        status: result.rows[0].status,
+      },
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
@@ -356,7 +619,42 @@ router.delete('/simulations/:id', async (req, res) => {
     }
 
     await pool.query('DELETE FROM simulation_scenarios WHERE id = $1', [req.params.id]);
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'delete',
+      summary: `Deleted simulation scenario "${scenario.name}"`,
+      details: {},
+    });
     res.json({ message: 'Simulation deleted' });
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.get('/simulations/:id/compare/:otherId', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const primaryScenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!primaryScenario) {
+      return;
+    }
+
+    const secondaryScenario = await ensureScenarioAccess(req, res, req.params.otherId);
+    if (!secondaryScenario) {
+      return;
+    }
+
+    if (!primaryScenario.results || !secondaryScenario.results) {
+      return res.status(400).json({ error: 'Both scenarios need completed results before comparison.' });
+    }
+
+    res.json(buildScenarioComparison(primaryScenario, secondaryScenario));
   } catch (error) {
     serverErr(res, error);
   }
@@ -378,6 +676,35 @@ router.get('/simulations/:id/arrival-times', async (req, res) => {
       count: arrivals.length,
       arrivals,
     });
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.get('/simulations/:id/export', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    if (!scenario.results) {
+      return res.status(400).json({ error: 'No simulation results are available to export.' });
+    }
+
+    const filenameBase =
+      String(scenario.name || `simulation-${scenario.id}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || `simulation-${scenario.id}`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-results.csv"`);
+    res.send(`\uFEFF${buildSimulationExportCsv(scenario)}`);
   } catch (error) {
     serverErr(res, error);
   }
@@ -442,6 +769,18 @@ router.post('/simulations/:id/arrival-times/import', async (req, res) => {
 
     await client.query('COMMIT');
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'arrival_import',
+      summary: `Imported ${arrivals.length} arrival times for "${scenario.name}"`,
+      details: {
+        count: arrivals.length,
+      },
+    });
+
     res.status(201).json({
       message: 'Arrival times imported successfully.',
       count: arrivals.length,
@@ -485,6 +824,26 @@ router.delete('/simulations/:id/arrival-times', async (req, res) => {
       `,
       [scenario.id]
     );
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'run_start',
+      summary: `Started simulation "${scenario.name}"`,
+      details: {},
+    });
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'arrival_clear',
+      summary: `Cleared imported arrival times for "${scenario.name}"`,
+      details: {},
+    });
 
     res.json({ message: 'Imported arrival times cleared.' });
   } catch (error) {
@@ -553,6 +912,18 @@ router.post('/simulations/:id/resources', async (req, res) => {
       [scenario.id, name, resource_type, quantity, cost_per_hour, availability]
     );
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'resource_create',
+      summary: `Added simulation resource "${result.rows[0].name}"`,
+      details: {
+        resource_id: result.rows[0].id,
+      },
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
@@ -590,6 +961,18 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
       return notFound(res, 'Resource');
     }
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'resource_update',
+      summary: `Updated simulation resource "${result.rows[0].name}"`,
+      details: {
+        resource_id: result.rows[0].id,
+      },
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
@@ -615,6 +998,18 @@ router.delete('/simulations/:id/resources/:rid', async (req, res) => {
     if (!result.rowCount) {
       return notFound(res, 'Resource');
     }
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'resource_delete',
+      summary: `Deleted simulation resource #${req.params.rid}`,
+      details: {
+        resource_id: req.params.rid,
+      },
+    });
 
     res.json({ message: 'Resource deleted' });
   } catch (error) {
@@ -730,6 +1125,18 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
       );
     }
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: existing.rows.length ? 'task_update' : 'task_create',
+      summary: `${existing.rows.length ? 'Updated' : 'Added'} simulation task "${result.rows[0].task_name}"`,
+      details: {
+        task_id: result.rows[0].task_id,
+      },
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
@@ -808,6 +1215,18 @@ router.put('/simulations/:id/flows/:flowId', async (req, res) => {
       );
     }
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: existing.rows.length ? 'flow_update' : 'flow_create',
+      summary: `${existing.rows.length ? 'Updated' : 'Added'} flow probability "${result.rows[0].flow_id}"`,
+      details: {
+        flow_id: result.rows[0].flow_id,
+      },
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
@@ -815,12 +1234,14 @@ router.put('/simulations/:id/flows/:flowId', async (req, res) => {
 });
 
 router.post('/simulations/:id/run', async (req, res) => {
+  let scenario = null;
+
   try {
     if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
       return;
     }
 
-    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    scenario = await ensureScenarioAccess(req, res, req.params.id);
     if (!scenario) {
       return;
     }
@@ -925,6 +1346,19 @@ router.post('/simulations/:id/run', async (req, res) => {
 
     const updatedScenario = await getScenarioById(scenario.id);
 
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: scenario.id,
+      companyId: scenario.process_company_id,
+      action: 'run_complete',
+      summary: `Completed simulation "${scenario.name}"`,
+      details: {
+        avg_duration_min: results.avg_duration_min,
+        total_cost: results.total_cost,
+      },
+    });
+
     res.json({
       message: 'Simulation completed',
       status: 'completed',
@@ -955,6 +1389,19 @@ router.post('/simulations/:id/run', async (req, res) => {
         : 500;
 
     console.error(error);
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'simulation',
+      entityId: req.params.id,
+      companyId: scenario?.process_company_id ?? req.user.companyId ?? null,
+      action: 'run_failed',
+      summary: `Simulation #${req.params.id} failed`,
+      details: {
+        error: error.message || 'Simulation failed.',
+      },
+    });
+
     res.status(statusCode).json({ error: error.message || 'Simulation failed.' });
   }
 });

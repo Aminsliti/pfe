@@ -42,6 +42,14 @@ export function ProcessManagement() {
   const [importError, setImportError] = useState('');
   const [importSuccess, setImportSuccess] = useState('');
   const [formData, setFormData] = useState({ name: '', description: '', bpmn_xml: '', category_id: '', company_id: globalAdmin ? '' : String(company?.id || ''), status: 'draft' });
+  const [processDetail, setProcessDetail] = useState(null);
+  const [workflowInfo, setWorkflowInfo] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [workflowComment, setWorkflowComment] = useState('');
+  const [workflowBusy, setWorkflowBusy] = useState('');
+  const [versionSelection, setVersionSelection] = useState({ fromVersion: '', toVersion: '' });
+  const [versionDiff, setVersionDiff] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
   const fileInputRef = useRef(null);
 
   const showMsg = (text, type = 'success') => {
@@ -108,9 +116,57 @@ export function ProcessManagement() {
     });
   }, [categories]);
 
+  const statusVariant = (status) => ({
+    draft: 'secondary',
+    review: 'info',
+    approved: 'success',
+    active: 'success',
+    archived: 'warning',
+  }[status] || 'secondary');
+
+  const statusLabel = (status) => ({
+    draft: 'Draft',
+    review: 'In Review',
+    approved: 'Approved',
+    active: 'Approved',
+    archived: 'Archived',
+  }[status] || status);
+  const normalizeUiStatus = (status) => (status === 'active' ? 'approved' : status || 'draft');
+
+  const hydrateProcessDetail = async (processId) => {
+    setDetailLoading(true);
+    try {
+      const [detailResponse, workflowResponse] = await Promise.all([
+        fetch(`${API}/processes/${processId}`),
+        fetch(`${API}/processes/${processId}/workflow`),
+      ]);
+
+      if (!detailResponse.ok) {
+        throw new Error('Failed to load process detail');
+      }
+
+      const detail = await detailResponse.json();
+      const workflow = workflowResponse.ok ? await workflowResponse.json() : null;
+      setProcessDetail(detail);
+      setWorkflowInfo(workflow);
+      setVersionSelection((previous) => ({
+        fromVersion: previous.fromVersion || String(detail.versions?.[1]?.version_number || detail.versions?.[0]?.version_number || ''),
+        toVersion: previous.toVersion || String(detail.versions?.[0]?.version_number || ''),
+      }));
+      return detail;
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   const openBpmnEditor = (process) => setBpmnTarget(process);
   const openCreate = (defaultCategoryId = '') => {
     setEditingProcess(null);
+    setProcessDetail(null);
+    setWorkflowInfo(null);
+    setWorkflowComment('');
+    setVersionDiff(null);
+    setVersionSelection({ fromVersion: '', toVersion: '' });
     setFormData({
       name: '',
       description: '',
@@ -121,7 +177,7 @@ export function ProcessManagement() {
     });
     setShowModal(true);
   };
-  const openEditDetails = (process) => {
+  const openEditDetails = async (process) => {
     setEditingProcess(process);
     setFormData({
       name: process.name,
@@ -129,9 +185,27 @@ export function ProcessManagement() {
       bpmn_xml: process.bpmn_xml || '',
       category_id: process.category_id || '',
       company_id: process.company_id || (globalAdmin ? '' : String(company?.id || '')),
-      status: process.status,
+      status: normalizeUiStatus(process.status),
     });
+    setWorkflowComment('');
+    setVersionDiff(null);
+    setWorkflowInfo(null);
+    setProcessDetail(null);
     setShowModal(true);
+    try {
+      const detail = await hydrateProcessDetail(process.id);
+      setFormData({
+        name: detail.name,
+        description: detail.description || '',
+        bpmn_xml: detail.bpmn_xml || '',
+        category_id: detail.category_id || '',
+        company_id: detail.company_id || (globalAdmin ? '' : String(company?.id || '')),
+        status: normalizeUiStatus(detail.status),
+      });
+      setEditingProcess(detail);
+    } catch {
+      showMsg('Failed to load process details', 'danger');
+    }
   };
   const toggleCategory = (categoryId) => setCollapsedCategories((previous) => ({ ...previous, [categoryId]: !previous[categoryId] }));
 
@@ -171,6 +245,16 @@ export function ProcessManagement() {
     setImportSuccess('');
     if (fileInputRef.current) fileInputRef.current.value = '';
     setShowImport(true);
+  };
+
+  const closeProcessModal = () => {
+    setShowModal(false);
+    setEditingProcess(null);
+    setProcessDetail(null);
+    setWorkflowInfo(null);
+    setWorkflowComment('');
+    setVersionDiff(null);
+    setVersionSelection({ fromVersion: '', toVersion: '' });
   };
 
   const handleFileChange = (event) => {
@@ -238,9 +322,15 @@ export function ProcessManagement() {
       const method = editingProcess ? 'PUT' : 'POST';
       const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
       if (response.ok) {
+        const saved = await response.json();
         showMsg(`Process ${editingProcess ? 'updated' : 'created'}`);
-        setShowModal(false);
-        loadProcesses();
+        await loadProcesses();
+        if (editingProcess) {
+          setEditingProcess(saved);
+          await hydrateProcessDetail(saved.id);
+        } else {
+          setShowModal(false);
+        }
       } else {
         const error = await response.json();
         showMsg(error.error || 'Save failed', 'danger');
@@ -250,9 +340,62 @@ export function ProcessManagement() {
     }
   };
 
-  const handleExport = async (id) => {
+  const handleWorkflowAction = async (action) => {
+    if (!editingProcess) return;
+    setWorkflowBusy(action);
     try {
-      const response = await fetch(`${API}/processes/${id}/export`);
+      const response = await fetch(`${API}/processes/${editingProcess.id}/workflow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, comment: workflowComment }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Workflow update failed');
+      }
+
+      setWorkflowInfo(payload.workflow);
+      setProcessDetail(payload.process);
+      setEditingProcess(payload.process);
+      setFormData((previous) => ({ ...previous, status: normalizeUiStatus(payload.process.status) }));
+      setWorkflowComment('');
+      setVersionDiff(null);
+      await hydrateProcessDetail(payload.process.id);
+      await loadProcesses();
+      showMsg('Workflow updated');
+    } catch (error) {
+      showMsg(error.message || 'Workflow update failed', 'danger');
+    } finally {
+      setWorkflowBusy('');
+    }
+  };
+
+  const loadVersionDiff = async () => {
+    if (!editingProcess || !versionSelection.fromVersion || !versionSelection.toVersion) {
+      return;
+    }
+
+    setDiffLoading(true);
+    try {
+      const response = await fetch(
+        `${API}/processes/${editingProcess.id}/diff?fromVersion=${versionSelection.fromVersion}&toVersion=${versionSelection.toVersion}`
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to compare versions');
+      }
+      setVersionDiff(payload);
+    } catch (error) {
+      showMsg(error.message || 'Failed to compare versions', 'danger');
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
+  const handleExport = async (id, version = null) => {
+    try {
+      const suffix = version ? `?version=${version}` : '';
+      const response = await fetch(`${API}/processes/${id}/export${suffix}`);
       if (!response.ok) return showMsg('Export failed', 'danger');
       const blob = await response.blob();
       const filename = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'process.bpmn';
@@ -265,11 +408,12 @@ export function ProcessManagement() {
     }
   };
 
-  const statusVariant = (status) => ({ draft: 'secondary', active: 'success', archived: 'warning' }[status] || 'secondary');
   const categoryById = new Map(categories.map((category) => [String(category.id), category]));
   const getCategoryLabel = (process) => categoryById.get(String(process.category_id))?.name || process.category_name || null;
   const grouped = categories.map((category) => ({ ...category, procs: processes.filter((process) => String(process.category_id) === String(category.id)) }));
   const uncategorised = processes.filter((process) => !process.category_id);
+  const availableVersions = processDetail?.versions || [];
+  const currentWorkflowStatus = normalizeUiStatus(workflowInfo?.status || formData.status);
 
   if (bpmnTarget) {
     return (
@@ -308,7 +452,7 @@ export function ProcessManagement() {
       <i className="bi bi-file-earmark-text text-muted" style={{ fontSize: 15, flexShrink: 0 }} />
       <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{process.name}</span>
       {process.description && <span className="text-muted d-none d-lg-inline" style={{ fontSize: 11, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{process.description}</span>}
-      <Badge bg={statusVariant(process.status)} style={{ fontSize: 10, flexShrink: 0 }}>{process.status}</Badge>
+      <Badge bg={statusVariant(process.status)} style={{ fontSize: 10, flexShrink: 0 }}>{statusLabel(process.status)}</Badge>
       <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap', flexShrink: 0 }}>v{process.version}</span>
       <div className="d-flex gap-1 ms-1" style={{ flexShrink: 0 }}>
         <button type="button" onClick={() => openBpmnEditor(process)} title="Edit BPMN diagram" style={{ width: 30, height: 30, background: '#ef4444', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-pencil-fill" /></button>
@@ -356,7 +500,8 @@ export function ProcessManagement() {
                 <Form.Select size="sm" style={{ maxWidth: 140 }} value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
                   <option value="">Tous statuts</option>
                   <option value="draft">Draft</option>
-                  <option value="active">Active</option>
+                  <option value="review">In Review</option>
+                  <option value="approved">Approved</option>
                   <option value="archived">Archived</option>
                 </Form.Select>
                 <Badge bg="secondary" className="ms-auto">{processes.length} processus</Badge>
@@ -416,7 +561,7 @@ export function ProcessManagement() {
                 <tr key={process.id}>
                   <td><strong>{process.name}</strong>{process.description && <div className="text-muted" style={{ fontSize: 11 }}>{process.description}</div>}</td>
                   <td>{getCategoryLabel(process) || <span className="text-muted">-</span>}</td>
-                  <td><Badge bg={statusVariant(process.status)}>{process.status}</Badge></td>
+                  <td><Badge bg={statusVariant(process.status)}>{statusLabel(process.status)}</Badge></td>
                   <td>v{process.version}</td>
                   <td>{process.updated_at ? new Date(process.updated_at).toLocaleDateString() : '-'}</td>
                   <td><div className="d-flex gap-1">
@@ -432,33 +577,277 @@ export function ProcessManagement() {
         </div></Card></Col></Row>
       )}
 
-      <Modal show={showModal} onHide={() => setShowModal(false)} size="lg">
-        <Modal.Header closeButton><Modal.Title>{editingProcess ? 'Edit Process' : 'New Process'}</Modal.Title></Modal.Header>
+      <Modal show={showModal} onHide={closeProcessModal} size="xl">
+        <Modal.Header closeButton>
+          <Modal.Title>{editingProcess ? 'Process Details' : 'New Process'}</Modal.Title>
+        </Modal.Header>
         <Modal.Body>
           <Form onSubmit={handleSubmit}>
-            <Form.Group className="mb-3"><Form.Label>Name *</Form.Label><Form.Control required value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} /></Form.Group>
-            <Form.Group className="mb-3"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} /></Form.Group>
-            <Row>
-              <Col md={6}><Form.Group className="mb-3"><Form.Label>Category</Form.Label><Form.Select value={formData.category_id} onChange={(event) => setFormData({ ...formData, category_id: event.target.value })}><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Form.Select></Form.Group></Col>
-              <Col md={6}><Form.Group className="mb-3"><Form.Label>Status</Form.Label><Form.Select value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value })}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
-            </Row>
-            <Row>
-              <Col md={12}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Company {globalAdmin ? '*' : ''}</Form.Label>
-                  <Form.Select
-                    value={formData.company_id}
-                    disabled={!globalAdmin}
-                    onChange={(event) => setFormData({ ...formData, company_id: event.target.value })}
-                    required={globalAdmin}
-                  >
-                    <option value="">Select company</option>
-                    {companies.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-                  </Form.Select>
-                </Form.Group>
+            <Row className="g-4">
+              <Col lg={editingProcess ? 6 : 12}>
+                <Card className="border-0 bg-light-subtle">
+                  <Card.Body>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <div>
+                        <h6 className="mb-1">Metadata</h6>
+                        <div className="text-muted small">Name, category, company scope, and workflow status.</div>
+                      </div>
+                      {editingProcess && <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>}
+                    </div>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Name *</Form.Label>
+                      <Form.Control required value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
+                    </Form.Group>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Description</Form.Label>
+                      <Form.Control as="textarea" rows={3} value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} />
+                    </Form.Group>
+                    <Row>
+                      <Col md={6}>
+                        <Form.Group className="mb-3">
+                          <Form.Label>Category</Form.Label>
+                          <Form.Select value={formData.category_id} onChange={(event) => setFormData({ ...formData, category_id: event.target.value })}>
+                            <option value="">Select category</option>
+                            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                          </Form.Select>
+                        </Form.Group>
+                      </Col>
+                      <Col md={6}>
+                        <Form.Group className="mb-3">
+                          <Form.Label>Status</Form.Label>
+                          <Form.Select value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value })}>
+                            <option value="draft">Draft</option>
+                            <option value="review">In Review</option>
+                            <option value="approved">Approved</option>
+                            <option value="archived">Archived</option>
+                          </Form.Select>
+                        </Form.Group>
+                      </Col>
+                    </Row>
+                    <Form.Group className="mb-0">
+                      <Form.Label>Company {globalAdmin ? '*' : ''}</Form.Label>
+                      <Form.Select
+                        value={formData.company_id}
+                        disabled={!globalAdmin}
+                        onChange={(event) => setFormData({ ...formData, company_id: event.target.value })}
+                        required={globalAdmin}
+                      >
+                        <option value="">Select company</option>
+                        {companies.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+                      </Form.Select>
+                    </Form.Group>
+                  </Card.Body>
+                </Card>
               </Col>
+
+              {editingProcess && (
+                <Col lg={6}>
+                  <Card className="border-0 shadow-sm h-100">
+                    <Card.Body>
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                          <h6 className="mb-1">Approval Workflow</h6>
+                          <div className="text-muted small">Submit, approve, archive, and keep review comments with timestamps.</div>
+                        </div>
+                        {detailLoading && <div className="spinner-border spinner-border-sm text-danger" role="status" />}
+                      </div>
+
+                      <div className="d-flex flex-wrap gap-2 mb-3">
+                        <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>
+                        {workflowInfo?.submitted_at && <Badge bg="light" text="dark">Submitted {new Date(workflowInfo.submitted_at).toLocaleDateString()}</Badge>}
+                        {workflowInfo?.approved_by_name && <Badge bg="success-subtle" text="dark">Approved by {workflowInfo.approved_by_name}</Badge>}
+                        {workflowInfo?.archived_at && <Badge bg="warning" text="dark">Archived {new Date(workflowInfo.archived_at).toLocaleDateString()}</Badge>}
+                      </div>
+
+                      <Form.Group className="mb-3">
+                        <Form.Label>Workflow comment</Form.Label>
+                        <Form.Control
+                          as="textarea"
+                          rows={3}
+                          placeholder="Explain why the process is submitted, approved, archived, or returned to draft."
+                          value={workflowComment}
+                          onChange={(event) => setWorkflowComment(event.target.value)}
+                        />
+                      </Form.Group>
+
+                      <div className="d-flex flex-wrap gap-2 mb-3">
+                        {currentWorkflowStatus === 'draft' && (
+                          <Button variant="info" onClick={() => handleWorkflowAction('submit_review')} disabled={!!workflowBusy}>
+                            {workflowBusy === 'submit_review' ? 'Submitting...' : 'Submit for review'}
+                          </Button>
+                        )}
+                        {currentWorkflowStatus === 'review' && (
+                          <>
+                            <Button variant="success" onClick={() => handleWorkflowAction('approve')} disabled={!!workflowBusy}>
+                              {workflowBusy === 'approve' ? 'Approving...' : 'Approve'}
+                            </Button>
+                            <Button variant="outline-secondary" onClick={() => handleWorkflowAction('return_draft')} disabled={!!workflowBusy}>
+                              Return to draft
+                            </Button>
+                          </>
+                        )}
+                        {currentWorkflowStatus === 'approved' && (
+                          <>
+                            <Button variant="warning" onClick={() => handleWorkflowAction('archive')} disabled={!!workflowBusy}>
+                              Archive
+                            </Button>
+                            <Button variant="outline-secondary" onClick={() => handleWorkflowAction('return_draft')} disabled={!!workflowBusy}>
+                              Reopen as draft
+                            </Button>
+                          </>
+                        )}
+                        {currentWorkflowStatus === 'archived' && (
+                          <Button variant="outline-primary" onClick={() => handleWorkflowAction('restore')} disabled={!!workflowBusy}>
+                            Restore
+                          </Button>
+                        )}
+                      </div>
+
+                      <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+                        {(workflowInfo?.comments || []).length === 0 ? (
+                          <div className="text-muted small">No workflow comments yet.</div>
+                        ) : (
+                          workflowInfo.comments.map((commentEntry) => (
+                            <div key={commentEntry.id} className="border rounded-3 p-2 mb-2 bg-light">
+                              <div className="d-flex justify-content-between gap-2">
+                                <strong style={{ fontSize: 13 }}>{commentEntry.created_by_name || 'System'}</strong>
+                                <span className="text-muted small">{new Date(commentEntry.created_at).toLocaleString()}</span>
+                              </div>
+                              <div className="text-muted small text-uppercase mt-1">{commentEntry.action.replace(/_/g, ' ')}</div>
+                              {commentEntry.comment && <div className="mt-1" style={{ fontSize: 13 }}>{commentEntry.comment}</div>}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              )}
             </Row>
-            <div className="d-flex justify-content-end gap-2"><Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button><Button type="submit" variant="danger">{editingProcess ? 'Update' : 'Create'}</Button></div>
+
+            {editingProcess && (
+              <Row className="g-4 mt-1">
+                <Col lg={12}>
+                  <Card className="border-0 shadow-sm">
+                    <Card.Body>
+                      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div>
+                          <h6 className="mb-1">Version Diff</h6>
+                          <div className="text-muted small">Compare metadata, BPMN structure, and task-level changes between any two saved versions.</div>
+                        </div>
+                        <div className="d-flex gap-2 flex-wrap">
+                          <Form.Select
+                            size="sm"
+                            value={versionSelection.fromVersion}
+                            onChange={(event) => setVersionSelection((previous) => ({ ...previous, fromVersion: event.target.value }))}
+                          >
+                            <option value="">From version</option>
+                            {availableVersions.map((version) => (
+                              <option key={`from-${version.version_number}`} value={version.version_number}>v{version.version_number}</option>
+                            ))}
+                          </Form.Select>
+                          <Form.Select
+                            size="sm"
+                            value={versionSelection.toVersion}
+                            onChange={(event) => setVersionSelection((previous) => ({ ...previous, toVersion: event.target.value }))}
+                          >
+                            <option value="">To version</option>
+                            {availableVersions.map((version) => (
+                              <option key={`to-${version.version_number}`} value={version.version_number}>v{version.version_number}</option>
+                            ))}
+                          </Form.Select>
+                          <Button size="sm" variant="outline-dark" onClick={loadVersionDiff} disabled={diffLoading || !versionSelection.fromVersion || !versionSelection.toVersion}>
+                            {diffLoading ? 'Comparing...' : 'Compare'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="row g-3">
+                        <div className="col-xl-4">
+                          <div className="border rounded-3 p-3 h-100 bg-light">
+                            <div className="fw-semibold mb-2">Version history</div>
+                            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                              {availableVersions.map((version) => (
+                                <div key={version.version_number} className="border rounded-3 bg-white p-2 mb-2">
+                                  <div className="d-flex justify-content-between gap-2">
+                                    <strong>v{version.version_number}</strong>
+                                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => handleExport(editingProcess.id, version.version_number)}>
+                                      <i className="bi bi-download" />
+                                    </button>
+                                  </div>
+                                  <div className="text-muted small mt-1">{version.change_description || 'Snapshot'}</div>
+                                  <div className="small mt-2">{version.created_by_name || 'Unknown author'}</div>
+                                  <div className="text-muted small">{version.created_at ? new Date(version.created_at).toLocaleString() : '-'}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="col-xl-8">
+                          {!versionDiff ? (
+                            <div className="border rounded-3 p-4 h-100 d-flex align-items-center justify-content-center text-muted bg-light">
+                              Choose two versions to see the diff.
+                            </div>
+                          ) : (
+                            <div className="border rounded-3 p-3 h-100">
+                              <div className="d-flex flex-wrap gap-2 mb-3">
+                                <Badge bg="dark">v{versionDiff.from.version_number}</Badge>
+                                <span className="text-muted">to</span>
+                                <Badge bg="danger">v{versionDiff.to.version_number}</Badge>
+                                <Badge bg="secondary">{versionDiff.change_count} change(s)</Badge>
+                              </div>
+
+                              <div className="mb-3">
+                                <div className="fw-semibold mb-2">Metadata changes</div>
+                                {versionDiff.metadata_changes.length === 0 ? (
+                                  <div className="text-muted small">No metadata changes.</div>
+                                ) : (
+                                  versionDiff.metadata_changes.map((change) => (
+                                    <div key={change.field} className="small mb-1">
+                                      <strong>{change.label}:</strong> <span className="text-muted">{String(change.from || '—')}</span> → <span>{String(change.to || '—')}</span>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+
+                              <div className="mb-3">
+                                <div className="fw-semibold mb-2">Task changes</div>
+                                <div className="small text-muted mb-1">Added: {versionDiff.task_changes.added.length} · Removed: {versionDiff.task_changes.removed.length} · Renamed: {versionDiff.task_changes.renamed.length}</div>
+                                {[...versionDiff.task_changes.added.slice(0, 4).map((task) => `+ ${task.task_name || task.task_id}`), ...versionDiff.task_changes.removed.slice(0, 4).map((task) => `- ${task.task_name || task.task_id}`), ...versionDiff.task_changes.renamed.slice(0, 4).map((task) => `~ ${task.from} → ${task.to}`)].map((line) => (
+                                  <div key={line} className="small">{line}</div>
+                                ))}
+                              </div>
+
+                              <div>
+                                <div className="fw-semibold mb-2">BPMN structure</div>
+                                <div className="small text-muted mb-1">
+                                  XML changed: {versionDiff.bpmn_changes.xml_changed ? 'yes' : 'no'}
+                                </div>
+                                {versionDiff.bpmn_changes.changes.length === 0 ? (
+                                  <div className="text-muted small">No BPMN structural changes detected.</div>
+                                ) : (
+                                  versionDiff.bpmn_changes.changes.map((change) => (
+                                    <div key={change.metric} className="small">
+                                      <strong>{change.metric}:</strong> {change.from} → {change.to}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              </Row>
+            )}
+
+            <div className="d-flex justify-content-end gap-2 mt-4">
+              <Button variant="secondary" onClick={closeProcessModal}>Close</Button>
+              <Button type="submit" variant="danger">{editingProcess ? 'Save metadata' : 'Create'}</Button>
+            </div>
           </Form>
         </Modal.Body>
       </Modal>
@@ -476,7 +865,7 @@ export function ProcessManagement() {
               </div>
               <Row>
                 <Col md={8}><Form.Group className="mb-3"><Form.Label>Process name *</Form.Label><Form.Control value={importForm.name} onChange={(event) => setImportForm((previous) => ({ ...previous, name: event.target.value }))} placeholder="Displayed name in the process list" /></Form.Group></Col>
-                <Col md={4}><Form.Group className="mb-3"><Form.Label>Initial status</Form.Label><Form.Select value={importForm.status} onChange={(event) => setImportForm((previous) => ({ ...previous, status: event.target.value }))}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
+                <Col md={4}><Form.Group className="mb-3"><Form.Label>Initial status</Form.Label><Form.Select value={importForm.status} onChange={(event) => setImportForm((previous) => ({ ...previous, status: event.target.value }))}><option value="draft">Draft</option><option value="review">In Review</option><option value="approved">Approved</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
               </Row>
               <Form.Group className="mb-3"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={importForm.description} onChange={(event) => setImportForm((previous) => ({ ...previous, description: event.target.value }))} placeholder="Optional" /></Form.Group>
               <Form.Group className="mb-3"><Form.Label>Category</Form.Label><Form.Select value={importForm.category_id} onChange={(event) => setImportForm((previous) => ({ ...previous, category_id: event.target.value }))}><option value="">No category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Form.Select></Form.Group>
