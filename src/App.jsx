@@ -15,7 +15,7 @@ const OrgChart = lazy(() => import('./pages/OrgChart'));
 const ProcessLibrary = lazy(() => import('./pages/ProcessLibrary'));
 const Unauthorized = lazy(() => import('./pages/Unauthorized'));
 const Layout = lazy(() => import('./components/Layout'));
-const SimulationScenarios = lazy(() => import('./pages/SimulationScenarios'));
+const SimulationWorkbench = lazy(() => import('./pages/SimulationWorkbench'));
 
 function AppRouteFallback() {
   return (
@@ -94,7 +94,7 @@ function App() {
                       ROLES.PROCESS_OWNER,
                     ]}
                   >
-                    <SimulationScenarios />
+                    <SimulationWorkbench />
                   </ProtectedRoute>
                 }
               />

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth, PERMISSIONS } from '../contexts/AuthContext';
 import { Button, Dropdown, Badge, Offcanvas, Nav } from 'react-bootstrap';
 import logo from '../assets/logo.png';
+import NotificationCenter from './NotificationCenter';
 
 const VBPMLogo = ({ size = 30, className = '' }) => (
   <img
@@ -94,6 +95,22 @@ export function Layout() {
           position: sticky;
           top: 0;
           height: 100vh;
+          overflow: hidden;
+        }
+        .vbpm-sidebar-body {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding-right: 4px;
+          margin-right: -4px;
+        }
+        .vbpm-sidebar-body::-webkit-scrollbar {
+          width: 8px;
+        }
+        .vbpm-sidebar-body::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.45);
+          border-radius: 999px;
         }
         .vbpm-sidebar-brand {
           display: flex;
@@ -191,6 +208,13 @@ export function Layout() {
         .vbpm-sidebar-footer {
           margin-top: auto;
           padding-top: 18px;
+          flex-shrink: 0;
+          background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 18px);
+        }
+        .vbpm-sidebar-tools {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 12px;
         }
         .vbpm-user-card {
           border-radius: 20px;
@@ -335,20 +359,25 @@ export function Layout() {
             </span>
           </Link>
 
-          <Nav className="vbpm-sidebar-nav flex-column">
-            <SidebarLinks items={primaryNavItems} />
-          </Nav>
+          <div className="vbpm-sidebar-body">
+            <Nav className="vbpm-sidebar-nav flex-column">
+              <SidebarLinks items={primaryNavItems} />
+            </Nav>
 
-          {adminNavItems.length > 0 && (
-            <>
-              <div className="vbpm-sidebar-section">Administration</div>
-              <Nav className="vbpm-sidebar-nav flex-column">
-                <SidebarLinks items={adminNavItems} />
-              </Nav>
-            </>
-          )}
+            {adminNavItems.length > 0 && (
+              <>
+                <div className="vbpm-sidebar-section">Administration</div>
+                <Nav className="vbpm-sidebar-nav flex-column">
+                  <SidebarLinks items={adminNavItems} />
+                </Nav>
+              </>
+            )}
+          </div>
 
           <div className="vbpm-sidebar-footer">
+            <div className="vbpm-sidebar-tools">
+              <NotificationCenter />
+            </div>
             <div className="vbpm-user-card">
               <div className="vbpm-user-head">
                 <span className="vbpm-user-avatar">
@@ -383,29 +412,32 @@ export function Layout() {
               <strong>V-BPM</strong>
             </Link>
 
-            <Dropdown align="end">
-              <Dropdown.Toggle variant="link" className="vbpm-mobile-user text-decoration-none">
-                <span className="vbpm-user-avatar" style={{ width: 34, height: 34, fontSize: '0.9rem' }}>
-                  <i className="bi bi-person-fill"></i>
-                </span>
-              </Dropdown.Toggle>
-              <Dropdown.Menu className="vbpm-dropdown-menu">
-                <Dropdown.Header style={{ background: '#f8fafc', borderRadius: 12 }}>
-                  <strong>{user?.fullName}</strong><br />
-                  <small className="text-muted">{user?.email}</small><br />
-                  <Badge bg={getRoleBadgeVariant(user?.role)} className="mt-2">{user?.role}</Badge>
-                </Dropdown.Header>
-                <Dropdown.Divider />
-                <Dropdown.Item onClick={() => navigate('/dashboard')}>
-                  <i className="bi bi-speedometer2 me-2" style={{ color: '#dc2626' }}></i>
-                  Dashboard
-                </Dropdown.Item>
-                <Dropdown.Item onClick={handleLogout} className="text-danger">
-                  <i className="bi bi-box-arrow-right me-2"></i>
-                  Logout
-                </Dropdown.Item>
-              </Dropdown.Menu>
-            </Dropdown>
+            <div className="d-flex align-items-center gap-2">
+              <NotificationCenter />
+              <Dropdown align="end">
+                <Dropdown.Toggle variant="link" className="vbpm-mobile-user text-decoration-none">
+                  <span className="vbpm-user-avatar" style={{ width: 34, height: 34, fontSize: '0.9rem' }}>
+                    <i className="bi bi-person-fill"></i>
+                  </span>
+                </Dropdown.Toggle>
+                <Dropdown.Menu className="vbpm-dropdown-menu">
+                  <Dropdown.Header style={{ background: '#f8fafc', borderRadius: 12 }}>
+                    <strong>{user?.fullName}</strong><br />
+                    <small className="text-muted">{user?.email}</small><br />
+                    <Badge bg={getRoleBadgeVariant(user?.role)} className="mt-2">{user?.role}</Badge>
+                  </Dropdown.Header>
+                  <Dropdown.Divider />
+                  <Dropdown.Item onClick={() => navigate('/dashboard')}>
+                    <i className="bi bi-speedometer2 me-2" style={{ color: '#dc2626' }}></i>
+                    Dashboard
+                  </Dropdown.Item>
+                  <Dropdown.Item onClick={handleLogout} className="text-danger">
+                    <i className="bi bi-box-arrow-right me-2"></i>
+                    Logout
+                  </Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown>
+            </div>
           </header>
 
           <main className="flex-grow-1">

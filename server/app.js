@@ -4,6 +4,7 @@ import path from 'path';
 import orgchartRoutes from './routes/orgchart.js';
 import authRoutes from './routes/auth.js';
 import auditRoutes from './routes/audit.js';
+import collaborationRoutes from './routes/collaboration.js';
 import processRoutes from './routes/processes.js';
 import simulationRoutes from './routes/simulations.js';
 import { attachRequestUser } from './utils/access.js';
@@ -18,6 +19,7 @@ export function createApp({ requestUserMiddleware = attachRequestUser } = {}) {
   }));
   
   app.use(express.json());
+  app.use('/uploads', express.static(path.resolve(process.cwd(), 'server', 'uploads')));
 
   if (requestUserMiddleware) {
     app.use(requestUserMiddleware);
@@ -25,6 +27,7 @@ export function createApp({ requestUserMiddleware = attachRequestUser } = {}) {
 
   app.use('/api', authRoutes);
   app.use('/api', auditRoutes);
+  app.use('/api', collaborationRoutes);
   app.use('/api', processRoutes);
   app.use('/api', orgchartRoutes);
   app.use('/api', simulationRoutes);

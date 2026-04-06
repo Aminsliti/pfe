@@ -79,7 +79,7 @@ function serializeNode(row) {
   };
 }
 
-async function ensureOrgChartSchema() {
+export async function ensureOrgChartSchema() {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       await pool.query(`

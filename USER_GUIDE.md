@@ -31,6 +31,7 @@ The left sidebar gives access to the main modules:
 - `Simulations`
 - `Org Chart`
 - `Administration` pages when your role allows them
+- the notification center in the app shell for failed simulations, approvals waiting, overdue drafts, and admin actions
 
 ## 4. Process Management
 
@@ -39,8 +40,10 @@ Use `Process Management` to:
 - create a new BPMN process
 - edit an existing process in the BPMN modeler
 - import a BPMN file
+- apply reusable process templates with starter BPMN and simulation defaults
 - move a process through `Draft`, `In Review`, `Approved`, and `Archived`
 - add approval comments with timestamps and approver name
+- attach files and discussion comments to the process record
 - compare two saved versions to see metadata, BPMN, and task changes
 - organize processes by category and hierarchy
 - export or archive a process
@@ -63,52 +66,70 @@ It is designed for browsing rather than editing:
 
 ## 6. Simulations
 
-The `Simulations` page is the main place to configure and run scenarios.
+The `Simulations` page is now a full simulation workbench for configuring, running, comparing, and reporting scenarios.
 
 ### 6.1 Create a scenario
 
 1. Open `Simulations`.
 2. Click `Nouveau scenario`.
 3. Choose the linked process.
-4. Set the number of instances and the scenario dates/options.
+4. Set the number of instances, dates, Monte Carlo runs, and notification options.
 5. Save the scenario.
 
-### 6.2 Configure resources
+Each scenario also includes a discussion and attachments panel in the `Overview` tab for sharing notes and source files with your team.
 
-In the `Ressources` tab you can define:
+### 6.2 Configure the working calendar
+
+In the `Overview` tab you can define:
+
+- business start and end times
+- weekend days
+- holiday dates
+- optional shift windows
+- whether notifications are enabled for that scenario
+
+Use this when the process should follow business hours instead of running continuously.
+
+### 6.3 Configure resources
+
+In the `Resources` tab you can define:
 
 - resource name
 - type
 - quantity
 - hourly cost
 - availability rate
+- per-resource availability windows
 
 These values are used to calculate utilisation and waiting times.
 
-### 6.3 Configure task data
+### 6.4 Configure task data and SLA rules
 
-In the `Donnees des taches` tab you can define:
+In the `Task data` tab you can define:
 
 - task duration
 - duration distribution
 - standard deviation where relevant
 - assigned resource
 - task cost
+- SLA target duration per task
 
-### 6.4 Configure gateway probabilities
+Late tasks and late instances are reported automatically after the run.
 
-In the `Probabilites enchainements` tab you can define probability splits for BPMN gateway exits.
+### 6.5 Configure gateway probabilities
 
-### 6.5 Import exact arrival times from CSV
+In the `Flow probabilities` tab you can define probability splits for BPMN gateway exits.
 
-Use the `Caracteristiques` tab when you need exact instance arrival times.
+### 6.6 Import exact arrival times from CSV
+
+Use the `Overview` tab when you need exact instance arrival times.
 
 Steps:
 
 1. Enable CSV arrival import.
 2. Save the scenario.
-3. In the `Arrivees exactes (CSV)` section, choose a `.csv` file.
-4. Click `Importer`.
+3. In the `Exact arrivals (CSV)` section, paste or upload the CSV content.
+4. Click `Import arrivals`.
 
 Supported arrival formats:
 
@@ -118,9 +139,9 @@ Supported arrival formats:
 
 The system stores the imported arrivals and uses them during the next run.
 
-### 6.6 Run a simulation
+### 6.7 Run a simulation
 
-Open the `Resultats` tab and click `Simuler`.
+Open the `Results` tab and click `Run simulation`.
 
 Scenario status is managed automatically:
 
@@ -130,7 +151,7 @@ Scenario status is managed automatically:
 
 If a simulation fails, the page shows the error message directly.
 
-### 6.7 Read the results
+### 6.8 Read the results
 
 The results tab shows:
 
@@ -140,27 +161,38 @@ The results tab shows:
 - average cost and total cost
 - simulation horizon
 - resource utilisation rates
-- average waiting time per resource
+- queue wait and calendar wait per resource
 - bottlenecks
-- task-by-task performance
+- task-by-task performance with SLA breach rates
+- Monte Carlo confidence ranges
+- what-if analysis
+- sensitivity analysis
+- resource planning recommendations
 - side-by-side scenario comparison for duration, cost, utilisation, and bottlenecks
 
-You can also click `Exporter CSV` from the results tab to download the current simulation output for reuse in Excel or reporting.
+You can also export:
+
+- `CSV` for raw analysis data
+- `Excel` for a management-friendly workbook
+- `PDF` for a polished report snapshot
 
 Use these outputs to identify:
 
 - overloaded resources
 - tasks with high queue delays
+- tasks that breach SLA targets
 - expensive steps
 - unstable or long-running scenarios
 
-### 6.8 Compare two scenarios
+### 6.9 Run what-if analysis and planning
 
-Inside the `Resultats` tab:
+Inside the `Results` tab you can:
 
-1. Choose another completed scenario in the comparison card.
-2. Click `Compare`.
-3. Review KPI deltas, resource utilisation deltas, bottlenecks, and task-level differences.
+- compare the current scenario against another completed scenario
+- reduce or increase one task duration and rerun instantly
+- change one resource quantity and see the delta immediately
+- view sensitivity analysis to see what affects cycle time most
+- ask the planner how many extra units are needed to hit a target cycle time
 
 Use this when you want to test:
 
@@ -168,6 +200,7 @@ Use this when you want to test:
 - different task durations
 - different arrival patterns
 - different gateway probabilities
+- stronger or weaker SLA targets
 
 ## 7. Org Chart
 
@@ -181,6 +214,7 @@ You can:
 - assign people
 - mark positions as vacant
 - drag nodes to change reporting lines
+- attach files and discussion comments to each organigram node
 
 Changes are saved to the backend and scoped to the visible company.
 
@@ -210,7 +244,18 @@ Open `Audit Log` from the administration section to review:
 
 Company administrators only see audit entries for their own company scope.
 
-## 10. Troubleshooting
+## 10. Notifications
+
+Use the notification bell in the application shell to review:
+
+- failed simulations
+- process approvals waiting for action
+- overdue drafts
+- important admin and template actions
+
+You can mark one notification or all notifications as read.
+
+## 11. Troubleshooting
 
 ### Simulation says CSV arrivals are enabled but none are imported
 
@@ -229,7 +274,7 @@ Company administrators only see audit entries for their own company scope.
 - refresh the page
 - if backend changes were just deployed locally, restart the backend server once
 
-## 11. Best Practices
+## 12. Best Practices
 
 - assign users to the correct company before they start working
 - use the approval workflow instead of editing approved processes silently

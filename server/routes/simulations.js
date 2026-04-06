@@ -10,9 +10,19 @@ import { parseArrivalCsv } from '../utils/simulationCsv.js';
 import {
   extractTasksFromDiagram,
   runSimulation,
+  runMonteCarloSimulation,
+  runResourcePlanning,
+  runSensitivityAnalysis,
+  runWhatIfAnalysis,
 } from '../utils/simulationEngine.js';
 import { ensureSimulationSchema } from '../utils/simulationSchema.js';
 import { logAuditEvent } from '../utils/auditLog.js';
+import { createNotification } from '../utils/collaboration.js';
+import {
+  buildSimulationReportExcel,
+  buildSimulationReportHtml,
+  buildSimulationReportPdf,
+} from '../utils/simulationReport.js';
 
 const router = express.Router();
 const VALID_STATUSES = new Set(['draft', 'running', 'completed', 'failed']);
@@ -348,6 +358,137 @@ function buildScenarioComparison(primaryScenario, secondaryScenario) {
   };
 }
 
+function safeJsonParse(value, fallbackValue) {
+  if (typeof value !== 'string') {
+    return value ?? fallbackValue;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallbackValue;
+  }
+}
+
+function normalizeInteger(value, fallbackValue = null) {
+  if (value === undefined || value === null || value === '') {
+    return fallbackValue;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallbackValue;
+}
+
+function normalizeCalendarSettingsInput(input = {}) {
+  return {
+    business_hours: {
+      start: String(input?.business_hours?.start || '09:00'),
+      end: String(input?.business_hours?.end || '17:00'),
+    },
+    weekend_days: Array.isArray(input?.weekend_days)
+      ? input.weekend_days.map((day) => Number(day)).filter((day) => Number.isInteger(day))
+      : [0, 6],
+    holidays: Array.isArray(input?.holidays)
+      ? input.holidays.map((holiday) => String(holiday).trim()).filter(Boolean)
+      : [],
+    shifts: Array.isArray(input?.shifts)
+      ? input.shifts
+          .map((shift) => ({
+            start: String(shift?.start || ''),
+            end: String(shift?.end || ''),
+            ...(Array.isArray(shift?.days) ? { days: shift.days.map((day) => Number(day)).filter((day) => Number.isInteger(day)) } : {}),
+          }))
+          .filter((shift) => shift.start && shift.end)
+      : [],
+  };
+}
+
+function normalizeAvailabilityWindowsInput(input) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .map((window) => ({
+      start: String(window?.start || ''),
+      end: String(window?.end || ''),
+      ...(Array.isArray(window?.days)
+        ? { days: window.days.map((day) => Number(day)).filter((day) => Number.isInteger(day)) }
+        : {}),
+    }))
+    .filter((window) => window.start && window.end);
+}
+
+function mergeScenarioInsights(results, insights = {}) {
+  return {
+    ...results,
+    ...(insights.monteCarlo ? { monte_carlo: insights.monteCarlo } : {}),
+    ...(insights.sensitivity ? { sensitivity: insights.sensitivity } : {}),
+    ...(insights.resourcePlanning ? { resource_planning: insights.resourcePlanning } : {}),
+  };
+}
+
+async function loadScenarioInputs(scenarioId) {
+  const [tasks, resources, arrivals] = await Promise.all([
+    pool.query('SELECT * FROM simulation_task_data WHERE scenario_id = $1 ORDER BY id', [scenarioId]),
+    pool.query('SELECT * FROM simulation_resources WHERE scenario_id = $1 ORDER BY id', [scenarioId]),
+    getScenarioArrivals(scenarioId),
+  ]);
+
+  return {
+    tasks: tasks.rows.map((task) => ({
+      ...task,
+      sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
+    })),
+    resources: resources.rows.map((resource) => ({
+      ...resource,
+      availability_windows: safeJsonParse(resource.availability_windows, []),
+    })),
+    arrivals,
+  };
+}
+
+async function buildScenarioInsights(scenario, inputs) {
+  const monteCarloRuns = Math.max(1, Number(scenario?.monte_carlo_runs) || 1);
+  const monteCarlo =
+    monteCarloRuns > 1
+      ? runMonteCarloSimulation({
+          scenario,
+          tasks: inputs.tasks,
+          resources: inputs.resources,
+          arrivals: inputs.arrivals,
+          iterations: monteCarloRuns,
+        })
+      : null;
+
+  const sensitivity = runSensitivityAnalysis({
+    scenario,
+    tasks: inputs.tasks,
+    resources: inputs.resources,
+    arrivals: inputs.arrivals,
+  });
+
+  const worstTaskTarget = Math.max(
+    0,
+    ...inputs.tasks.map((task) => Number(task.sla_target_min) || 0)
+  );
+  const resourcePlanning = runResourcePlanning({
+    scenario,
+    tasks: inputs.tasks,
+    resources: inputs.resources,
+    arrivals: inputs.arrivals,
+    targetCycleTimeMin:
+      Number(scenario?.target_cycle_time_min) ||
+      (worstTaskTarget > 0 ? worstTaskTarget * Math.max(1, inputs.tasks.length || 1) : 0),
+  });
+
+  return {
+    monteCarlo,
+    sensitivity,
+    resourcePlanning,
+  };
+}
+
 router.use(async (req, res, next) => {
   try {
     await ensureSimulationSchema();
@@ -396,7 +537,12 @@ router.get('/simulations', async (req, res) => {
 
     query += ' ORDER BY s.updated_at DESC';
     const result = await pool.query(query, params);
-    res.json(result.rows);
+    res.json(
+      result.rows.map((row) => ({
+        ...row,
+        calendar_settings: safeJsonParse(row.calendar_settings, {}),
+      }))
+    );
   } catch (error) {
     serverErr(res, error);
   }
@@ -422,8 +568,15 @@ router.get('/simulations/:id', async (req, res) => {
 
     res.json({
       ...scenario,
-      resources: resources.rows,
-      task_data: tasks.rows,
+      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      resources: resources.rows.map((resource) => ({
+        ...resource,
+        availability_windows: safeJsonParse(resource.availability_windows, []),
+      })),
+      task_data: tasks.rows.map((task) => ({
+        ...task,
+        sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
+      })),
       flow_probs: flows.rows,
       arrival_times: arrivals,
     });
@@ -450,6 +603,14 @@ router.post('/simulations', async (req, res) => {
       infinite_resources = false,
       simulate_all_levels = false,
       import_csv_arrivals = false,
+      calendar_settings = {
+        business_hours: { start: '09:00', end: '17:00' },
+        weekend_days: [0, 6],
+        holidays: [],
+        shifts: [],
+      },
+      monte_carlo_runs = 1,
+      notifications_enabled = true,
     } = req.body;
 
     if (!name) {
@@ -479,9 +640,12 @@ router.post('/simulations', async (req, res) => {
           infinite_resources,
           simulate_all_levels,
           import_csv_arrivals,
+          calendar_settings,
+          monte_carlo_runs,
+          notifications_enabled,
           created_by
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15)
         RETURNING *
       `,
       [
@@ -496,6 +660,9 @@ router.post('/simulations', async (req, res) => {
         infinite_resources,
         simulate_all_levels,
         import_csv_arrivals,
+        JSON.stringify(normalizeCalendarSettingsInput(calendar_settings)),
+        Math.max(1, Number(monte_carlo_runs) || 1),
+        notifications_enabled !== false,
         req.user.id,
       ]
     );
@@ -513,7 +680,10 @@ router.post('/simulations', async (req, res) => {
       },
     });
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      ...result.rows[0],
+      calendar_settings: safeJsonParse(result.rows[0].calendar_settings, {}),
+    });
   } catch (error) {
     serverErr(res, error);
   }
@@ -542,6 +712,9 @@ router.put('/simulations/:id', async (req, res) => {
       infinite_resources,
       simulate_all_levels,
       import_csv_arrivals,
+      calendar_settings,
+      monte_carlo_runs,
+      notifications_enabled,
     } = req.body;
 
     const nextProcess = await ensureProcessAccess(req, res, process_id || currentScenario.process_id);
@@ -564,8 +737,11 @@ router.put('/simulations/:id', async (req, res) => {
           infinite_resources = $9,
           simulate_all_levels = $10,
           import_csv_arrivals = $11,
+          calendar_settings = $12::jsonb,
+          monte_carlo_runs = $13,
+          notifications_enabled = $14,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $12
+        WHERE id = $15
         RETURNING *
       `,
       [
@@ -580,6 +756,13 @@ router.put('/simulations/:id', async (req, res) => {
         infinite_resources,
         simulate_all_levels,
         import_csv_arrivals,
+        JSON.stringify(
+          normalizeCalendarSettingsInput(
+            calendar_settings ?? safeJsonParse(currentScenario.calendar_settings, {})
+          )
+        ),
+        Math.max(1, Number(monte_carlo_runs) || Number(currentScenario.monte_carlo_runs) || 1),
+        notifications_enabled ?? currentScenario.notifications_enabled ?? true,
         req.params.id,
       ]
     );
@@ -601,7 +784,10 @@ router.put('/simulations/:id', async (req, res) => {
       },
     });
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      calendar_settings: safeJsonParse(result.rows[0].calendar_settings, {}),
+    });
   } catch (error) {
     serverErr(res, error);
   }
@@ -705,6 +891,148 @@ router.get('/simulations/:id/export', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-results.csv"`);
     res.send(`\uFEFF${buildSimulationExportCsv(scenario)}`);
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.get('/simulations/:id/sensitivity', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    const inputs = await loadScenarioInputs(scenario.id);
+    const sensitivity = runSensitivityAnalysis({
+      scenario: {
+        ...scenario,
+        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      },
+      tasks: inputs.tasks,
+      resources: inputs.resources,
+      arrivals: inputs.arrivals,
+    });
+
+    res.json(sensitivity);
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.post('/simulations/:id/what-if', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    const inputs = await loadScenarioInputs(scenario.id);
+    const analysis = runWhatIfAnalysis({
+      scenario: {
+        ...scenario,
+        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      },
+      tasks: inputs.tasks,
+      resources: inputs.resources,
+      arrivals: inputs.arrivals,
+      overrides: req.body || {},
+    });
+
+    res.json(analysis);
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.post('/simulations/:id/resource-plan', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    const targetCycleTimeMin = Number(req.body?.target_cycle_time_min) || 0;
+    const inputs = await loadScenarioInputs(scenario.id);
+    const planning = runResourcePlanning({
+      scenario: {
+        ...scenario,
+        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      },
+      tasks: inputs.tasks,
+      resources: inputs.resources,
+      arrivals: inputs.arrivals,
+      targetCycleTimeMin,
+    });
+
+    res.json(planning);
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.get('/simulations/:id/report', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    if (!scenario.results) {
+      return res.status(400).json({ error: 'No simulation results are available to report.' });
+    }
+
+    const inputs = await loadScenarioInputs(scenario.id);
+    const extras = await buildScenarioInsights(
+      {
+        ...scenario,
+        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      },
+      inputs
+    );
+    const reportScenario = {
+      ...scenario,
+      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      results: mergeScenarioInsights(scenario.results, extras),
+    };
+    const filenameBase =
+      String(scenario.name || `simulation-${scenario.id}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || `simulation-${scenario.id}`;
+    const format = String(req.query.format || 'html').toLowerCase();
+
+    if (format === 'excel' || format === 'xlsx') {
+      res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-report.xls"`);
+      return res.send(buildSimulationReportExcel(reportScenario, extras));
+    }
+
+    if (format === 'pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-report.pdf"`);
+      return res.send(buildSimulationReportPdf(reportScenario, extras));
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-report.html"`);
+    res.send(buildSimulationReportHtml(reportScenario, extras));
   } catch (error) {
     serverErr(res, error);
   }
@@ -867,7 +1195,12 @@ router.get('/simulations/:id/resources', async (req, res) => {
       [scenario.id]
     );
 
-    res.json(result.rows);
+    res.json(
+      result.rows.map((resource) => ({
+        ...resource,
+        availability_windows: safeJsonParse(resource.availability_windows, []),
+      }))
+    );
   } catch (error) {
     serverErr(res, error);
   }
@@ -890,6 +1223,7 @@ router.post('/simulations/:id/resources', async (req, res) => {
       quantity = 1,
       cost_per_hour = 0,
       availability = 100,
+      availability_windows = [],
     } = req.body;
 
     if (!name) {
@@ -904,12 +1238,21 @@ router.post('/simulations/:id/resources', async (req, res) => {
           resource_type,
           quantity,
           cost_per_hour,
-          availability
+          availability,
+          availability_windows
         )
-        VALUES ($1,$2,$3,$4,$5,$6)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
         RETURNING *
       `,
-      [scenario.id, name, resource_type, quantity, cost_per_hour, availability]
+      [
+        scenario.id,
+        name,
+        resource_type,
+        quantity,
+        cost_per_hour,
+        availability,
+        JSON.stringify(normalizeAvailabilityWindowsInput(availability_windows)),
+      ]
     );
 
     await logAuditEvent({
@@ -924,7 +1267,10 @@ router.post('/simulations/:id/resources', async (req, res) => {
       },
     });
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      ...result.rows[0],
+      availability_windows: safeJsonParse(result.rows[0].availability_windows, []),
+    });
   } catch (error) {
     serverErr(res, error);
   }
@@ -941,7 +1287,7 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
       return;
     }
 
-    const { name, resource_type, quantity, cost_per_hour, availability } = req.body;
+    const { name, resource_type, quantity, cost_per_hour, availability, availability_windows } = req.body;
     const result = await pool.query(
       `
         UPDATE simulation_resources
@@ -950,11 +1296,21 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
           resource_type = $2,
           quantity = $3,
           cost_per_hour = $4,
-          availability = $5
-        WHERE id = $6 AND scenario_id = $7
+          availability = $5,
+          availability_windows = $6::jsonb
+        WHERE id = $7 AND scenario_id = $8
         RETURNING *
       `,
-      [name, resource_type, quantity, cost_per_hour, availability, req.params.rid, scenario.id]
+      [
+        name,
+        resource_type,
+        quantity,
+        cost_per_hour,
+        availability,
+        JSON.stringify(normalizeAvailabilityWindowsInput(availability_windows)),
+        req.params.rid,
+        scenario.id,
+      ]
     );
 
     if (!result.rows.length) {
@@ -973,7 +1329,10 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
       },
     });
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      availability_windows: safeJsonParse(result.rows[0].availability_windows, []),
+    });
   } catch (error) {
     serverErr(res, error);
   }
@@ -1039,7 +1398,12 @@ router.get('/simulations/:id/tasks', async (req, res) => {
       [scenario.id]
     );
 
-    res.json(result.rows);
+    res.json(
+      result.rows.map((task) => ({
+        ...task,
+        sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
+      }))
+    );
   } catch (error) {
     serverErr(res, error);
   }
@@ -1063,6 +1427,7 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
       duration_std = 0,
       resource_id = null,
       cost = 0,
+      sla_target_min = null,
     } = req.body;
 
     const existing = await pool.query(
@@ -1081,8 +1446,9 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
             duration_type = $3,
             duration_std = $4,
             resource_id = $5,
-            cost = $6
-          WHERE scenario_id = $7 AND task_id = $8
+            cost = $6,
+            sla_target_min = $7
+          WHERE scenario_id = $8 AND task_id = $9
           RETURNING *
         `,
         [
@@ -1092,6 +1458,7 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
           duration_std,
           resource_id,
           cost,
+          sla_target_min,
           scenario.id,
           req.params.taskId,
         ]
@@ -1107,9 +1474,10 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
             duration_type,
             duration_std,
             resource_id,
-            cost
+            cost,
+            sla_target_min
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
           RETURNING *
         `,
         [
@@ -1121,6 +1489,7 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
           duration_std,
           resource_id,
           cost,
+          sla_target_min,
         ]
       );
     }
@@ -1137,7 +1506,13 @@ router.put('/simulations/:id/tasks/:taskId', async (req, res) => {
       },
     });
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      sla_target_min:
+        result.rows[0].sla_target_min === null || result.rows[0].sla_target_min === undefined
+          ? null
+          : Number(result.rows[0].sla_target_min),
+    });
   } catch (error) {
     serverErr(res, error);
   }
@@ -1319,15 +1694,32 @@ router.post('/simulations/:id/run', async (req, res) => {
       throw new Error('CSV arrivals are enabled but no arrival times have been imported.');
     }
 
+    const normalizedScenario = {
+      ...scenario,
+      process_instances: scenario.import_csv_arrivals ? arrivals.length : scenario.process_instances,
+      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+    };
+    const normalizedTasks = tasks.rows.map((task) => ({
+      ...task,
+      sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
+    }));
+    const normalizedResources = resources.rows.map((resource) => ({
+      ...resource,
+      availability_windows: safeJsonParse(resource.availability_windows, []),
+    }));
+
     const results = runSimulation({
-      scenario: {
-        ...scenario,
-        process_instances: scenario.import_csv_arrivals ? arrivals.length : scenario.process_instances,
-      },
-      tasks: tasks.rows,
-      resources: resources.rows,
+      scenario: normalizedScenario,
+      tasks: normalizedTasks,
+      resources: normalizedResources,
       arrivals,
     });
+    const insights = await buildScenarioInsights(normalizedScenario, {
+      tasks: normalizedTasks,
+      resources: normalizedResources,
+      arrivals,
+    });
+    const enrichedResults = mergeScenarioInsights(results, insights);
 
     await pool.query(
       `
@@ -1341,7 +1733,7 @@ router.post('/simulations/:id/run', async (req, res) => {
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $3
       `,
-      [JSON.stringify(results), results.instances, scenario.id]
+      [JSON.stringify(enrichedResults), enrichedResults.instances, scenario.id]
     );
 
     const updatedScenario = await getScenarioById(scenario.id);
@@ -1354,16 +1746,28 @@ router.post('/simulations/:id/run', async (req, res) => {
       action: 'run_complete',
       summary: `Completed simulation "${scenario.name}"`,
       details: {
-        avg_duration_min: results.avg_duration_min,
-        total_cost: results.total_cost,
+        avg_duration_min: enrichedResults.avg_duration_min,
+        total_cost: enrichedResults.total_cost,
       },
     });
+
+    if ((enrichedResults.sla_summary?.late_instance_rate || 0) > 0 && scenario.notifications_enabled !== false) {
+      await createNotification({
+        companyId: scenario.process_company_id,
+        type: 'simulation_sla_alert',
+        title: 'Simulation breached SLA',
+        message: `${scenario.name} reports ${enrichedResults.sla_summary.late_instance_rate}% late instances.`,
+        entityType: 'simulation',
+        entityId: scenario.id,
+        severity: 'warning',
+      });
+    }
 
     res.json({
       message: 'Simulation completed',
       status: 'completed',
       scenario: updatedScenario,
-      results,
+      results: enrichedResults,
     });
   } catch (error) {
     try {
@@ -1401,6 +1805,18 @@ router.post('/simulations/:id/run', async (req, res) => {
         error: error.message || 'Simulation failed.',
       },
     });
+
+    if (scenario?.notifications_enabled !== false) {
+      await createNotification({
+        companyId: scenario?.process_company_id ?? req.user.companyId ?? null,
+        type: 'simulation_failed',
+        title: 'Simulation failed',
+        message: `${scenario?.name || `Simulation #${req.params.id}`} failed: ${error.message || 'Simulation failed.'}`,
+        entityType: 'simulation',
+        entityId: req.params.id,
+        severity: 'danger',
+      });
+    }
 
     res.status(statusCode).json({ error: error.message || 'Simulation failed.' });
   }

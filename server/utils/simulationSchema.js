@@ -30,6 +30,31 @@ export async function ensureSimulationSchema() {
       `);
 
       await pool.query(`
+        ALTER TABLE simulation_scenarios
+        ADD COLUMN IF NOT EXISTS calendar_settings JSONB DEFAULT '{}'::jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE simulation_scenarios
+        ADD COLUMN IF NOT EXISTS monte_carlo_runs INTEGER DEFAULT 1
+      `);
+
+      await pool.query(`
+        ALTER TABLE simulation_scenarios
+        ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN DEFAULT TRUE
+      `);
+
+      await pool.query(`
+        ALTER TABLE simulation_resources
+        ADD COLUMN IF NOT EXISTS availability_windows JSONB DEFAULT '[]'::jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE simulation_task_data
+        ADD COLUMN IF NOT EXISTS sla_target_min NUMERIC(10,2)
+      `);
+
+      await pool.query(`
         CREATE TABLE IF NOT EXISTS simulation_arrival_times (
           id SERIAL PRIMARY KEY,
           scenario_id INTEGER NOT NULL REFERENCES simulation_scenarios(id) ON DELETE CASCADE,

@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar } from 'react-bootstrap';
+import EntityCollaborationPanel from '../components/EntityCollaborationPanel';
 
 const API = 'http://localhost:3001/api';
 const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditorModeler'));
@@ -26,6 +27,7 @@ export function ProcessManagement() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [editingProcess, setEditingProcess] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCat, setFilterCat] = useState('');
@@ -50,6 +52,8 @@ export function ProcessManagement() {
   const [versionSelection, setVersionSelection] = useState({ fromVersion: '', toVersion: '' });
   const [versionDiff, setVersionDiff] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [applyingTemplateId, setApplyingTemplateId] = useState(null);
   const fileInputRef = useRef(null);
 
   const showMsg = (text, type = 'success') => {
@@ -89,10 +93,20 @@ export function ProcessManagement() {
     } catch {}
   };
 
+  const loadTemplates = async () => {
+    try {
+      const response = await fetch(`${API}/process-templates`);
+      if (response.ok) {
+        setTemplates(await response.json());
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     if (canManage) {
       loadCategories();
       loadCompanies();
+      loadTemplates();
     }
   }, [canManage]);
   useEffect(() => { if (canManage) loadProcesses(); }, [canManage, searchTerm, filterCat, filterStatus]);
@@ -245,6 +259,41 @@ export function ProcessManagement() {
     setImportSuccess('');
     if (fileInputRef.current) fileInputRef.current.value = '';
     setShowImport(true);
+  };
+
+  const handleApplyTemplate = async (template) => {
+    const proposedName = window.prompt('Process name', template.name);
+    if (!proposedName) {
+      return;
+    }
+
+    setApplyingTemplateId(template.id);
+    try {
+      const response = await fetch(`${API}/process-templates/${template.id}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: proposedName.trim(),
+          company_id: globalAdmin ? undefined : String(company?.id || ''),
+          create_simulation: true,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to apply template.');
+      }
+
+      await loadProcesses();
+      setShowTemplates(false);
+      showMsg(`Template "${template.name}" applied successfully.`);
+      if (payload?.process?.id) {
+        openEditDetails(payload.process);
+      }
+    } catch (error) {
+      showMsg(error.message || 'Failed to apply template.', 'danger');
+    } finally {
+      setApplyingTemplateId(null);
+    }
   };
 
   const closeProcessModal = () => {
@@ -470,6 +519,9 @@ export function ProcessManagement() {
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h4 className="mb-0 fw-bold">Processus</h4>
             <div className="d-flex gap-2">
+              <Button variant="outline-dark" size="sm" onClick={() => setShowTemplates(true)}>
+                <i className="bi bi-grid me-1" />Templates
+              </Button>
               <Button variant="outline-secondary" size="sm" onClick={openImportModal}><i className="bi bi-upload me-1" />Import</Button>
               <Button variant="danger" size="sm" onClick={() => openCreate()}><i className="bi bi-plus-lg me-1" />Nouveau</Button>
             </div>
@@ -844,6 +896,18 @@ export function ProcessManagement() {
               </Row>
             )}
 
+            {editingProcess && (
+              <Row className="g-4 mt-1">
+                <Col lg={12}>
+                  <EntityCollaborationPanel
+                    entityType="process"
+                    entityId={editingProcess.id}
+                    title="Commentaires et fichiers du processus"
+                  />
+                </Col>
+              </Row>
+            )}
+
             <div className="d-flex justify-content-end gap-2 mt-4">
               <Button variant="secondary" onClick={closeProcessModal}>Close</Button>
               <Button type="submit" variant="danger">{editingProcess ? 'Save metadata' : 'Create'}</Button>
@@ -887,6 +951,52 @@ export function ProcessManagement() {
                 <Button type="submit" variant="primary" disabled={importing || !importFile}>{importing ? <><span className="spinner-border spinner-border-sm me-2" />Importing...</> : <><i className="bi bi-upload me-2" />Import</>}</Button>
               </div>
             </Form>
+          )}
+        </Modal.Body>
+      </Modal>
+
+      <Modal show={showTemplates} onHide={() => !applyingTemplateId && setShowTemplates(false)} size="xl">
+        <Modal.Header closeButton={!applyingTemplateId}>
+          <Modal.Title><i className="bi bi-grid me-2 text-danger" />Process templates</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {templates.length === 0 ? (
+            <div className="text-muted">No templates available yet.</div>
+          ) : (
+            <Row className="g-3">
+              {templates.map((template) => (
+                <Col md={6} xl={4} key={template.id}>
+                  <Card className="border-0 shadow-sm h-100">
+                    <Card.Body className="d-flex flex-column">
+                      <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+                        <div>
+                          <h6 className="mb-1">{template.name}</h6>
+                          <div className="text-muted small">{template.description || 'Reusable starter process'}</div>
+                        </div>
+                        <Badge bg={template.company_id ? 'primary' : 'dark'}>
+                          {template.company_id ? 'Company' : 'Shared'}
+                        </Badge>
+                      </div>
+                      <div className="small text-muted mb-3">
+                        {(template.simulation_defaults?.resources || []).length} starter resource(s)
+                        {' · '}
+                        Monte Carlo {template.simulation_defaults?.monte_carlo_runs || 1}x
+                      </div>
+                      <div className="mt-auto d-flex justify-content-end">
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => handleApplyTemplate(template)}
+                          disabled={applyingTemplateId === template.id}
+                        >
+                          {applyingTemplateId === template.id ? 'Applying...' : 'Use template'}
+                        </Button>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
           )}
         </Modal.Body>
       </Modal>

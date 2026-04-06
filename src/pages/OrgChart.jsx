@@ -13,6 +13,7 @@ import {
   Spinner,
 } from 'react-bootstrap';
 import { ROLES, useAuth } from '../contexts/AuthContext';
+import EntityCollaborationPanel from '../components/EntityCollaborationPanel';
 import './OrgChart.css';
 
 const API = 'http://localhost:3001/api';
@@ -721,6 +722,14 @@ export function OrgChart() {
                     </ul>
                   </div>
                 )}
+
+                <div className="mt-4">
+                  <EntityCollaborationPanel
+                    entityType="orgchart_node"
+                    entityId={selectedNode.id}
+                    title="Commentaires et fichiers du noeud"
+                  />
+                </div>
               </>
             ) : (
               <div className="org-inspector__empty">

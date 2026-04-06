@@ -11,6 +11,7 @@ import {
   PERMISSIONS,
 } from '../utils/access.js';
 import { logAuditEvent } from '../utils/auditLog.js';
+import { createNotification } from '../utils/collaboration.js';
 
 const router = express.Router();
 
@@ -183,6 +184,16 @@ router.post('/users', async (req, res) => {
         email: user.email,
       },
     });
+
+    await createNotification({
+      companyId: user.company_id,
+      type: 'admin_action',
+      title: 'User created',
+      message: `${req.user.fullName || req.user.username} created ${user.username}.`,
+      entityType: 'user',
+      entityId: user.id,
+      severity: 'info',
+    });
   } catch (error) {
     console.error('Create user error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -282,6 +293,16 @@ router.put('/users/:id', async (req, res) => {
         email: user.email,
       },
     });
+
+    await createNotification({
+      companyId: user.company_id,
+      type: 'admin_action',
+      title: 'User updated',
+      message: `${req.user.fullName || req.user.username} updated ${user.username}.`,
+      entityType: 'user',
+      entityId: user.id,
+      severity: 'info',
+    });
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -323,6 +344,16 @@ router.delete('/users/:id', async (req, res) => {
       action: 'delete',
       summary: `Deleted user #${id}`,
       details: {},
+    });
+
+    await createNotification({
+      companyId: existingUser.rows[0].company_id,
+      type: 'admin_action',
+      title: 'User deleted',
+      message: `${req.user.fullName || req.user.username} deleted user #${id}.`,
+      entityType: 'user',
+      entityId: id,
+      severity: 'warning',
     });
 
     res.json({ message: 'User deleted successfully' });
@@ -445,6 +476,15 @@ router.put('/roles/:roleId/permissions', async (req, res) => {
       },
     });
 
+    await createNotification({
+      type: 'admin_action',
+      title: 'Role permissions updated',
+      message: `${req.user.fullName || req.user.username} updated permissions for role #${roleId}.`,
+      entityType: 'role',
+      entityId: roleId,
+      severity: 'info',
+    });
+
     res.json({ message: 'Role permissions updated successfully' });
   } catch (error) {
     console.error('Update role permissions error:', error);
@@ -476,6 +516,14 @@ router.post('/roles', async (req, res) => {
       details: {
         description: role.description,
       },
+    });
+    await createNotification({
+      type: 'admin_action',
+      title: 'Role created',
+      message: `${req.user.fullName || req.user.username} created the role ${role.name}.`,
+      entityType: 'role',
+      entityId: role.id,
+      severity: 'info',
     });
     res.status(201).json(role);
   } catch (error) {
@@ -518,6 +566,15 @@ router.put('/roles/:id', async (req, res) => {
       },
     });
 
+    await createNotification({
+      type: 'admin_action',
+      title: 'Role updated',
+      message: `${req.user.fullName || req.user.username} updated the role ${result.rows[0].name}.`,
+      entityType: 'role',
+      entityId: id,
+      severity: 'info',
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Update role error:', error);
@@ -558,6 +615,15 @@ router.delete('/roles/:id', async (req, res) => {
       action: 'delete',
       summary: `Deleted role #${id}`,
       details: {},
+    });
+
+    await createNotification({
+      type: 'admin_action',
+      title: 'Role deleted',
+      message: `${req.user.fullName || req.user.username} deleted role #${id}.`,
+      entityType: 'role',
+      entityId: id,
+      severity: 'warning',
     });
 
     res.json({ message: 'Role deleted successfully' });

@@ -6,7 +6,11 @@ import {
   extractTasksFromBpmn,
   extractTasksFromDiagram,
   extractTasksFromLegacyJson,
+  runMonteCarloSimulation,
+  runResourcePlanning,
+  runSensitivityAnalysis,
   runSimulation,
+  runWhatIfAnalysis,
 } from './simulationEngine.js';
 
 describe('simulationEngine', () => {
@@ -146,5 +150,117 @@ describe('simulationEngine', () => {
       { index: 3, offset_min: 18 },
     ]);
     expect(results.avg_duration_min).toBe(5);
+  });
+
+  it('applies working calendars and reports SLA breaches', () => {
+    const results = runSimulation({
+      scenario: {
+        process_instances: 1,
+        warmup_percent: 0,
+        cooldown_percent: 0,
+        start_date: '2026-04-01',
+        calendar_settings: {
+          business_hours: { start: '09:00', end: '17:00' },
+          weekend_days: [0, 6],
+          holidays: [],
+          shifts: [],
+        },
+      },
+      tasks: [
+        {
+          task_id: 'Task_1',
+          task_name: 'Morning Review',
+          duration_min: 30,
+          duration_type: 'fixed',
+          duration_std: 0,
+          cost: 0,
+          sla_target_min: 60,
+        },
+      ],
+      arrivals: [{ arrival_offset_min: 0 }],
+      random: () => 0.5,
+    });
+
+    expect(results.avg_duration_min).toBe(570);
+    expect(results.late_instances).toBe(1);
+    expect(results.sla_summary).toEqual(
+      expect.objectContaining({
+        late_instances: 1,
+        late_instance_rate: 100,
+      })
+    );
+    expect(results.task_results[0]).toEqual(
+      expect.objectContaining({
+        avg_calendar_wait_min: 540,
+        sla_breach_count: 1,
+        sla_breach_rate: 100,
+      })
+    );
+  });
+
+  it('supports Monte Carlo, sensitivity, what-if, and resource planning analyses', () => {
+    const scenario = {
+      process_instances: 4,
+      warmup_percent: 0,
+      cooldown_percent: 0,
+    };
+    const tasks = [
+      { task_id: 'A', task_name: 'Review', duration_min: 12, duration_type: 'fixed', duration_std: 0, cost: 0, resource_id: 1 },
+      { task_id: 'B', task_name: 'Approve', duration_min: 18, duration_type: 'fixed', duration_std: 0, cost: 0, resource_id: 1, sla_target_min: 25 },
+    ];
+    const resources = [
+      { id: 1, name: 'Analyst', quantity: 1, cost_per_hour: 30, availability: 100 },
+    ];
+
+    const monteCarlo = runMonteCarloSimulation({
+      scenario,
+      tasks,
+      resources,
+      iterations: 4,
+    });
+    expect(monteCarlo.iterations).toBe(4);
+    expect(monteCarlo.duration).toEqual(
+      expect.objectContaining({
+        mean: expect.any(Number),
+        ci_low: expect.any(Number),
+        ci_high: expect.any(Number),
+      })
+    );
+
+    const sensitivity = runSensitivityAnalysis({
+      scenario,
+      tasks,
+      resources,
+    });
+    expect(sensitivity.impacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'task', id: 'A' }),
+        expect.objectContaining({ type: 'resource', id: 1 }),
+      ])
+    );
+
+    const whatIf = runWhatIfAnalysis({
+      scenario,
+      tasks,
+      resources,
+      overrides: {
+        task_overrides: [{ task_id: 'A', duration_multiplier: 0.5 }],
+      },
+    });
+    expect(whatIf.comparison.avg_duration_delta).toBeLessThan(0);
+
+    const planning = runResourcePlanning({
+      scenario,
+      tasks,
+      resources,
+      targetCycleTimeMin: 40,
+    });
+    expect(planning).toEqual(
+      expect.objectContaining({
+        baseline: expect.any(Object),
+        target_cycle_time_min: 40,
+        recommendations: expect.any(Array),
+      })
+    );
   });
 });

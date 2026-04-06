@@ -6,7 +6,8 @@ V-BPM is a business process management platform built with React, Express, and P
 
 - BPMN process management with import/export, versioning, approval workflow, and version diffing
 - Multi-company access control with global admins and company admins
-- Process simulation with CSV arrival imports, resources, task timings, gateway probabilities, stored results, status tracking, CSV result export, side-by-side scenario comparison, and BPMN heatmaps
+- Process simulation workbench with working calendars, resource availability windows, task SLA rules, CSV arrival imports, Monte Carlo analysis, what-if analysis, sensitivity analysis, resource planning, status tracking, BPMN heatmaps, and CSV/Excel/PDF reporting
+- Cross-module collaboration with comments, attachments, in-app notifications, and reusable process templates
 - Interactive organization chart editor with drag-and-drop re-parenting
 - User, role, and company administration with audit logging
 - Jest + Supertest test suite for frontend and backend flows
@@ -118,6 +119,8 @@ Current local verification:
 - Jest suites: passing
 - Production build: passing
 - Scenario comparison and BPMN heatmap: enabled
+- Simulation workbench with SLA, Monte Carlo, what-if, sensitivity, planning, and polished reports: enabled
+- Comments, attachments, notifications, and process templates: enabled
 - Process approval workflow and version diff: enabled
 - Audit log route and admin page: enabled
 - Frontend route-level lazy loading: enabled

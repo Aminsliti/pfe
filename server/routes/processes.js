@@ -17,6 +17,7 @@ import {
   buildVersionDiff,
   normalizeProcessStatus,
 } from '../utils/processDiff.js';
+import { createNotification } from '../utils/collaboration.js';
 
 const router = express.Router();
 const uploadDir = path.resolve(process.cwd(), 'server', 'uploads');
@@ -896,6 +897,30 @@ router.post('/processes/:id/workflow', async (req, res) => {
       },
     });
 
+    if (action === 'submit_review') {
+      await createNotification({
+        companyId: process.company_id,
+        type: 'process_approval_waiting',
+        title: 'Process awaiting approval',
+        message: `${process.name} has been submitted for review.`,
+        entityType: 'process',
+        entityId: process.id,
+        severity: 'warning',
+      });
+    }
+
+    if (action === 'approve') {
+      await createNotification({
+        companyId: process.company_id,
+        type: 'process_approved',
+        title: 'Process approved',
+        message: `${process.name} was approved and is ready for use.`,
+        entityType: 'process',
+        entityId: process.id,
+        severity: 'success',
+      });
+    }
+
     res.json({
       process: serializeProcessRecord(hydratedProcess),
       workflow: {
@@ -1045,6 +1070,16 @@ router.post('/companies', async (req, res) => {
       },
     });
 
+    await createNotification({
+      companyId: result.rows[0].id,
+      type: 'admin_action',
+      title: 'Company created',
+      message: `${req.user.fullName || req.user.username} created the company ${result.rows[0].name}.`,
+      entityType: 'company',
+      entityId: result.rows[0].id,
+      severity: 'info',
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Create company error:', error);
@@ -1102,6 +1137,16 @@ router.put('/companies/:id', async (req, res) => {
       },
     });
 
+    await createNotification({
+      companyId: result.rows[0].id,
+      type: 'admin_action',
+      title: 'Company updated',
+      message: `${req.user.fullName || req.user.username} updated the company ${result.rows[0].name}.`,
+      entityType: 'company',
+      entityId: result.rows[0].id,
+      severity: 'info',
+    });
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Update company error:', error);
@@ -1129,6 +1174,16 @@ router.delete('/companies/:id', async (req, res) => {
       action: 'delete',
       summary: `Deleted company "${existingCompany.rows[0]?.name || req.params.id}"`,
       details: {},
+    });
+
+    await createNotification({
+      companyId: req.params.id,
+      type: 'admin_action',
+      title: 'Company deleted',
+      message: `${req.user.fullName || req.user.username} deleted company "${existingCompany.rows[0]?.name || req.params.id}".`,
+      entityType: 'company',
+      entityId: req.params.id,
+      severity: 'warning',
     });
 
     res.json({ message: 'Company deleted successfully' });

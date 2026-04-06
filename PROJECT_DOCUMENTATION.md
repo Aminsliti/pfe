@@ -6,9 +6,10 @@ V-BPM is a full-stack Business Process Management platform built around four maj
 
 1. Authentication, RBAC, and multi-company access control
 2. BPMN process management, approval workflow, and version diffing
-3. Process simulation, scenario comparison, and BPMN heatmaps
+3. Advanced simulation workbench with calendars, SLA, comparison, heatmaps, Monte Carlo, what-if, sensitivity, and planning
 4. Organization structure management through an interactive org chart
-5. Cross-module audit logging
+5. Cross-module collaboration with comments, attachments, notifications, and process templates
+6. Cross-module audit logging
 
 The project uses a React frontend, an Express backend, and PostgreSQL for persistence.
 
@@ -54,6 +55,8 @@ pfe-main/
 |   |   `-- AuthContext.jsx    Auth state + fetch header injection
 |   |-- components/
 |   |   |-- Layout.jsx         Main app shell
+|   |   |-- NotificationCenter.jsx
+|   |   |-- EntityCollaborationPanel.jsx
 |   |   |-- ProtectedRoute.jsx Route guards
 |   |   `-- BpmnEditor/        BPMN editing components
 |   `-- pages/                 Main screens
@@ -69,14 +72,17 @@ pfe-main/
 |   |-- routes/
 |   |   |-- auth.js
 |   |   |-- audit.js
+|   |   |-- collaboration.js
 |   |   |-- processes.js
 |   |   |-- simulations.js
 |   |   `-- orgchart.js
 |   `-- utils/
 |       |-- access.js
 |       |-- auditLog.js
+|       |-- collaboration.js
 |       |-- processDiff.js
-|       `-- simulationEngine.js
+|       |-- simulationEngine.js
+|       `-- simulationReport.js
 |
 |-- test/                      Jest/Supertest support and route tests
 |-- dist/                      Production frontend build output
@@ -230,20 +236,26 @@ Important implementation details:
 - read-oriented process library view
 - grouped, browsable overview of process families
 
-#### [src/pages/SimulationScenarios.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/SimulationScenarios.jsx)
+#### [src/pages/SimulationWorkbench.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/SimulationWorkbench.jsx)
 
 Responsibilities:
 
 - create simulation scenarios
-- edit scenario settings
+- edit scenario settings and working calendars
 - import CSV files with exact instance arrival times
-- manage simulation resources
-- manage task timings and distributions
+- manage simulation resources and availability windows
+- manage task timings, distributions, and SLA targets
 - manage gateway flow probabilities
 - run simulations and display results
-- visualize cycle times, resource utilisation, and bottlenecks
+- visualize cycle times, resource utilisation, bottlenecks, and BPMN heatmaps
+- compare scenarios side by side
+- run Monte Carlo analysis
+- run what-if analysis
+- run sensitivity analysis
+- run resource planning against a target cycle time
 - surface scenario run status and errors
-- export scenario results as CSV
+- export scenario results as CSV, Excel, and PDF
+- host scenario comments and attachments through the shared collaboration panel
 
 #### [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
 
@@ -301,6 +313,17 @@ Current status:
 
 - still covered by unit tests
 - not the main editing flow used by `ProcessManagement`
+
+#### [src/components/NotificationCenter.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/NotificationCenter.jsx)
+
+- polls in-app notifications
+- shows unread counts
+- supports mark-one and mark-all-as-read actions
+
+#### [src/components/EntityCollaborationPanel.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/EntityCollaborationPanel.jsx)
+
+- reusable comments and attachments panel
+- used by processes, simulations, and org chart nodes
 
 ## 6. Backend Modules
 
@@ -720,11 +743,35 @@ Useful query params for `GET /api/processes`:
 - `PATCH /api/orgchart/nodes/:id/move`
 - `DELETE /api/orgchart/nodes/:id`
 
-### 9.5 Audit logs
+### 9.5 Collaboration and notifications
+
+#### Comments and attachments
+
+- `GET /api/entities/:entityType/:entityId/comments`
+- `POST /api/entities/:entityType/:entityId/comments`
+- `GET /api/entities/:entityType/:entityId/attachments`
+- `POST /api/entities/:entityType/:entityId/attachments`
+- `DELETE /api/entities/:entityType/:entityId/attachments/:attachmentId`
+
+#### Notifications
+
+- `GET /api/notifications`
+- `POST /api/notifications/:id/read`
+- `POST /api/notifications/read-all`
+
+#### Process templates
+
+- `GET /api/process-templates`
+- `POST /api/process-templates`
+- `PUT /api/process-templates/:id`
+- `DELETE /api/process-templates/:id`
+- `POST /api/process-templates/:id/apply`
+
+### 9.6 Audit logs
 
 - `GET /api/audit-logs`
 
-### 9.6 Simulations
+### 9.7 Simulations
 
 #### Scenario CRUD
 
@@ -744,6 +791,7 @@ Useful query params for `GET /api/processes`:
 #### Result export
 
 - `GET /api/simulations/:id/export`
+- `GET /api/simulations/:id/report?format=html|excel|pdf`
 
 #### Scenario resources
 
@@ -762,6 +810,12 @@ Useful query params for `GET /api/processes`:
 - `GET /api/simulations/:id/flows`
 - `PUT /api/simulations/:id/flows/:flowId`
 
+#### Advanced analysis
+
+- `GET /api/simulations/:id/sensitivity`
+- `POST /api/simulations/:id/what-if`
+- `POST /api/simulations/:id/resource-plan`
+
 #### Run simulation
 
 - `POST /api/simulations/:id/run`
@@ -776,6 +830,9 @@ Responsibilities:
 - detect tasks from BPMN XML
 - build result histograms
 - run simulation calculations
+- apply working calendars and per-resource availability windows
+- evaluate task SLA targets and late-instance rates
+- run Monte Carlo, what-if, sensitivity, and resource-planning analyses
 
 #### Supported task extraction sources
 
@@ -805,6 +862,11 @@ Responsibilities:
 - BPMN heatmap-ready task metrics
 - average cost per instance
 - simulation horizon
+- late-instance counts and SLA summary
+- queue wait vs calendar wait metrics
+- Monte Carlo confidence ranges
+- sensitivity impact ranking
+- staffing recommendations against a target cycle time
 - per-task metrics
 - resource utilisation metrics
 - bottleneck detection
@@ -834,6 +896,7 @@ The project now includes an automated test suite.
 
 - [server/utils/simulationEngine.test.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationEngine.test.js)
 - [test/server/auth.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/auth.routes.test.js)
+- [test/server/collaboration.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/collaboration.routes.test.js)
 - [test/server/processes.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/processes.routes.test.js)
 - [test/server/simulations.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/simulations.routes.test.js)
 - [test/server/orgchart.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/orgchart.routes.test.js)
@@ -849,7 +912,8 @@ The project now includes an automated test suite.
 
 Latest verification completed during development:
 
-- test suites passing
+- 11/11 Jest suites passing
+- 39/39 Jest tests passing
 - production build passing
 
 ## 12. Build, Performance, and Bundling
@@ -1022,17 +1086,22 @@ Core files worth knowing first:
 - [src/App.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/App.jsx)
 - [src/contexts/AuthContext.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/contexts/AuthContext.jsx)
 - [src/components/Layout.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/Layout.jsx)
+- [src/components/NotificationCenter.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/NotificationCenter.jsx)
+- [src/components/EntityCollaborationPanel.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/EntityCollaborationPanel.jsx)
 - [src/pages/ProcessManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/ProcessManagement.jsx)
-- [src/pages/SimulationScenarios.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/SimulationScenarios.jsx)
+- [src/pages/SimulationWorkbench.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/SimulationWorkbench.jsx)
 - [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
 - [server/app.js](/C:/Users/user/CascadeProjects/pfe-main/server/app.js)
 - [server/index.js](/C:/Users/user/CascadeProjects/pfe-main/server/index.js)
 - [server/utils/access.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/access.js)
 - [server/routes/auth.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/auth.js)
+- [server/routes/collaboration.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/collaboration.js)
 - [server/routes/processes.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/processes.js)
 - [server/routes/simulations.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/simulations.js)
 - [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js)
+- [server/utils/collaboration.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/collaboration.js)
 - [server/utils/simulationEngine.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationEngine.js)
+- [server/utils/simulationReport.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationReport.js)
 - [server/utils/simulationCsv.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationCsv.js)
 - [server/init-db.js](/C:/Users/user/CascadeProjects/pfe-main/server/init-db.js)
 - [server/migrations/simulation_tables.sql](/C:/Users/user/CascadeProjects/pfe-main/server/migrations/simulation_tables.sql)
@@ -1040,4 +1109,4 @@ Core files worth knowing first:
 
 ---
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01

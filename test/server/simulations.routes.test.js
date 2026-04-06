@@ -291,6 +291,90 @@ describe('simulation routes', () => {
     );
   });
 
+  it('serves sensitivity, what-if, resource planning, and polished report endpoints', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(manager) });
+    const scenarioRow = {
+      id: 4,
+      name: 'Scenario Advanced',
+      process_id: 7,
+      process_company_id: 2,
+      process_instances: 4,
+      warmup_percent: 0,
+      cooldown_percent: 0,
+      calendar_settings: { business_hours: { start: '09:00', end: '17:00' }, weekend_days: [0, 6], holidays: [], shifts: [] },
+      results: {
+        avg_duration_min: 42,
+        p95_duration_min: 50,
+        total_cost: 180,
+        sla_summary: { late_instance_rate: 25 },
+      },
+    };
+    const taskRows = [
+      { id: 21, task_id: 'Task_1', task_name: 'Review', duration_min: 12, duration_type: 'fixed', duration_std: 0, cost: 10, resource_id: 1, sla_target_min: 20 },
+      { id: 22, task_id: 'Task_2', task_name: 'Approve', duration_min: 18, duration_type: 'fixed', duration_std: 0, cost: 15, resource_id: 1, sla_target_min: 30 },
+    ];
+    const resourceRows = [
+      { id: 1, name: 'Analyst', quantity: 1, cost_per_hour: 30, availability: 100, availability_windows: [] },
+    ];
+    const arrivalRows = [{ id: 31, arrival_offset_min: 0 }];
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([scenarioRow]))
+      .mockResolvedValueOnce(makeResult(taskRows))
+      .mockResolvedValueOnce(makeResult(resourceRows))
+      .mockResolvedValueOnce(makeResult(arrivalRows));
+    const sensitivity = await request(app).get('/api/simulations/4/sensitivity');
+    expect(sensitivity.status).toBe(200);
+    expect(sensitivity.body.impacts).toEqual(expect.any(Array));
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([scenarioRow]))
+      .mockResolvedValueOnce(makeResult(taskRows))
+      .mockResolvedValueOnce(makeResult(resourceRows))
+      .mockResolvedValueOnce(makeResult(arrivalRows));
+    const whatIf = await request(app)
+      .post('/api/simulations/4/what-if')
+      .send({ task_overrides: [{ task_id: 'Task_1', duration_multiplier: 0.5 }] });
+    expect(whatIf.status).toBe(200);
+    expect(whatIf.body.comparison.avg_duration_delta).toBeLessThan(0);
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([scenarioRow]))
+      .mockResolvedValueOnce(makeResult(taskRows))
+      .mockResolvedValueOnce(makeResult(resourceRows))
+      .mockResolvedValueOnce(makeResult(arrivalRows));
+    const planning = await request(app)
+      .post('/api/simulations/4/resource-plan')
+      .send({ target_cycle_time_min: 35 });
+    expect(planning.status).toBe(200);
+    expect(planning.body).toEqual(
+      expect.objectContaining({
+        target_cycle_time_min: 35,
+        recommendations: expect.any(Array),
+      })
+    );
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([scenarioRow]))
+      .mockResolvedValueOnce(makeResult(taskRows))
+      .mockResolvedValueOnce(makeResult(resourceRows))
+      .mockResolvedValueOnce(makeResult(arrivalRows));
+    const excelReport = await request(app).get('/api/simulations/4/report?format=excel');
+    expect(excelReport.status).toBe(200);
+    expect(excelReport.headers['content-type']).toContain('application/vnd.ms-excel');
+    expect(excelReport.headers['content-disposition']).toContain('scenario-advanced-report.xls');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([scenarioRow]))
+      .mockResolvedValueOnce(makeResult(taskRows))
+      .mockResolvedValueOnce(makeResult(resourceRows))
+      .mockResolvedValueOnce(makeResult(arrivalRows));
+    const pdfReport = await request(app).get('/api/simulations/4/report?format=pdf');
+    expect(pdfReport.status).toBe(200);
+    expect(pdfReport.headers['content-type']).toContain('application/pdf');
+    expect(pdfReport.headers['content-disposition']).toContain('scenario-advanced-report.pdf');
+  });
+
   it('runs a deterministic simulation and returns richer metrics', async () => {
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(manager) });
 
