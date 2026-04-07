@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { getHomePath } from '../utils/navigation';
 import { 
   Container, 
   Row, 
@@ -65,9 +66,8 @@ export function Login() {
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const { login, createUser } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const from = location.state?.from?.pathname || '/dashboard';
+  const getDestination = (result) => getHomePath(result?.user, result?.permissions);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -78,7 +78,7 @@ export function Login() {
       const result = await login(username, password);
 
       if (result.success) {
-        navigate(from, { replace: true });
+        navigate(getDestination(result), { replace: true });
       } else {
         setError(result.error);
       }
@@ -118,14 +118,14 @@ export function Login() {
         password: signUpData.password,
         email: signUpData.email,
         fullName: signUpData.fullName,
-        role: 'Viewer' // Default role
+        role: 'Process Observer'
       });
 
       if (result.success) {
         // Auto-login after successful registration
         const loginResult = await login(signUpData.username, signUpData.password);
         if (loginResult.success) {
-          navigate(from, { replace: true });
+          navigate(getDestination(loginResult), { replace: true });
         } else {
           setSignUpError('Account created but login failed. Please try logging in.');
         }
@@ -286,7 +286,7 @@ export function Login() {
         // Auto-login with new password
         const loginResult = await login(forgotPasswordData.email, forgotPasswordData.newPassword);
         if (loginResult.success) {
-          navigate(from, { replace: true });
+          navigate(getDestination(loginResult), { replace: true });
         }
       } else {
         setForgotPasswordError(data.error || 'Failed to reset password');

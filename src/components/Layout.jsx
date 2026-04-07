@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth, PERMISSIONS } from '../contexts/AuthContext';
 import { Button, Dropdown, Badge, Offcanvas, Nav } from 'react-bootstrap';
 import logo from '../assets/logo.png';
 import NotificationCenter from './NotificationCenter';
+import { getHomePath } from '../utils/navigation';
 
 const VBPMLogo = ({ size = 30, className = '' }) => (
   <img
@@ -17,42 +18,42 @@ const VBPMLogo = ({ size = 30, className = '' }) => (
 );
 
 export function Layout() {
-  const { user, logout, hasPermission } = useAuth();
+  const { user, permissions, logout, hasPermission, hasRole, ROLES } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarShow, setSidebarShow] = useState(false);
+  const homePath = useMemo(() => getHomePath(user, permissions), [user, permissions]);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
+  const displayRole = (role) => role || ROLES.ADMIN;
+
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: 'bi-speedometer2', permission: PERMISSIONS.VIEW_DASHBOARD },
-    { path: '/processes', label: 'Process Management', icon: 'bi-diagram-3', permission: PERMISSIONS.MANAGE_PROCESSES },
     { path: '/process-library', label: 'Process Library', icon: 'bi-collection', permission: PERMISSIONS.VIEW_DASHBOARD },
+    { path: '/processes', label: 'Process Management', icon: 'bi-diagram-3', permission: PERMISSIONS.VIEW_DASHBOARD },
     { path: '/simulations', label: 'Simulations', icon: 'bi-clock-history', permission: PERMISSIONS.MANAGE_PROCESSES },
     { path: '/orgchart', label: 'Org Chart', icon: 'bi-diagram-3-fill', permission: PERMISSIONS.VIEW_DASHBOARD },
-    { path: '/companies', label: 'Company Management', icon: 'bi-building', permission: PERMISSIONS.USER_MANAGEMENT },
     { path: '/users', label: 'User Management', icon: 'bi-people', permission: PERMISSIONS.USER_MANAGEMENT },
     { path: '/audit-logs', label: 'Audit Log', icon: 'bi-journal-text', permission: PERMISSIONS.USER_MANAGEMENT },
     { path: '/roles', label: 'Role Management', icon: 'bi-shield-check', permission: PERMISSIONS.ROLE_MANAGEMENT },
   ];
 
   const visibleNavItems = navItems.filter((item) => hasPermission(item.permission));
-  const adminPaths = new Set(['/companies', '/users', '/roles']);
+  const adminPaths = new Set(['/users', '/roles', '/audit-logs']);
+  const isAdmin = hasRole(ROLES.ADMIN);
   const primaryNavItems = visibleNavItems.filter((item) => !adminPaths.has(item.path));
-  const adminNavItems = visibleNavItems.filter((item) => adminPaths.has(item.path));
+  const adminNavItems = isAdmin ? visibleNavItems.filter((item) => adminPaths.has(item.path)) : [];
   const isActive = (path) => location.pathname === path;
 
   const getRoleBadgeVariant = (role) => {
     const map = {
-      Administrator: 'danger',
-      'Company Administrator': 'primary',
-      'Business Analyst': 'dark',
-      'Process Owner': 'secondary',
-      'Risk Manager': 'dark',
-      Viewer: 'secondary',
+      Admin: 'danger',
+      Designer: 'primary',
+      Validator: 'warning',
+      'Process Observer': 'secondary',
     };
     return map[role] || 'secondary';
   };
@@ -349,7 +350,7 @@ export function Layout() {
 
       <div className="vbpm-shell">
         <aside className="vbpm-sidebar d-none d-lg-flex">
-          <Link to="/dashboard" className="vbpm-sidebar-brand">
+          <Link to={homePath} className="vbpm-sidebar-brand">
             <span className="vbpm-sidebar-brandmark">
               <VBPMLogo size={40} />
             </span>
@@ -385,11 +386,11 @@ export function Layout() {
                 </span>
                 <span className="vbpm-user-copy">
                   <strong>{user?.fullName}</strong>
-                  <small>{user?.company?.name ? `${user.email} · ${user.company.name}` : user?.email}</small>
+                  <small>{user?.email}</small>
                 </span>
               </div>
               <div className="d-flex align-items-center justify-content-between mt-3 gap-2">
-                <Badge bg={getRoleBadgeVariant(user?.role)}>{user?.role}</Badge>
+                <Badge bg={getRoleBadgeVariant(user?.role)}>{displayRole(user?.role)}</Badge>
                 <Button variant="outline-danger" size="sm" onClick={handleLogout}>
                   <i className="bi bi-box-arrow-right me-2"></i>
                   Logout
@@ -405,7 +406,7 @@ export function Layout() {
               <i className="bi bi-list fs-4"></i>
             </Button>
 
-            <Link to="/dashboard" className="vbpm-mobile-brand">
+            <Link to={homePath} className="vbpm-mobile-brand">
               <span className="vbpm-mobile-icon">
                 <VBPMLogo size={26} />
               </span>
@@ -424,13 +425,9 @@ export function Layout() {
                   <Dropdown.Header style={{ background: '#f8fafc', borderRadius: 12 }}>
                     <strong>{user?.fullName}</strong><br />
                     <small className="text-muted">{user?.email}</small><br />
-                    <Badge bg={getRoleBadgeVariant(user?.role)} className="mt-2">{user?.role}</Badge>
+                    <Badge bg={getRoleBadgeVariant(user?.role)} className="mt-2">{displayRole(user?.role)}</Badge>
                   </Dropdown.Header>
                   <Dropdown.Divider />
-                  <Dropdown.Item onClick={() => navigate('/dashboard')}>
-                    <i className="bi bi-speedometer2 me-2" style={{ color: '#dc2626' }}></i>
-                    Dashboard
-                  </Dropdown.Item>
                   <Dropdown.Item onClick={handleLogout} className="text-danger">
                     <i className="bi bi-box-arrow-right me-2"></i>
                     Logout
@@ -475,11 +472,11 @@ export function Layout() {
                 </span>
                 <span className="vbpm-user-copy">
                   <strong>{user?.fullName}</strong>
-                  <small>{user?.company?.name ? `${user.email} · ${user.company.name}` : user?.email}</small>
+                  <small>{user?.email}</small>
                 </span>
               </div>
               <div className="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
-                <Badge bg={getRoleBadgeVariant(user?.role)}>{user?.role}</Badge>
+                <Badge bg={getRoleBadgeVariant(user?.role)}>{displayRole(user?.role)}</Badge>
                 <Button variant="outline-danger" size="sm" onClick={handleLogout}>
                   <i className="bi bi-box-arrow-right me-2"></i>
                   Logout

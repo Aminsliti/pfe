@@ -42,7 +42,7 @@ describe('Dashboard', () => {
     render(<Dashboard />);
 
     expect(screen.getByText(/welcome, anas ksiksi/i)).toBeInTheDocument();
-    expect(screen.getAllByText('Company Administrator')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Administrator')[0]).toBeInTheDocument();
     expect(screen.getByText(/operations division/i)).toBeInTheDocument();
     expect(screen.getByText(/manage user accounts \(crud operations\)/i)).toBeInTheDocument();
     expect(screen.getByText(/create and manage processes/i)).toBeInTheDocument();

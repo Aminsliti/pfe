@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -24,7 +24,7 @@ const V_GAP = 108;
 const CANVAS_PADDING = 40;
 
 const TYPE_META = {
-  company: { label: 'Company', icon: 'bi-building', color: '#dc2626' },
+  company: { label: 'Organisation', icon: 'bi-building', color: '#dc2626' },
   division: { label: 'Division', icon: 'bi-diagram-2', color: '#2563eb' },
   department: { label: 'Department', icon: 'bi-kanban', color: '#7c3aed' },
   team: { label: 'Team', icon: 'bi-people', color: '#0891b2' },
@@ -85,7 +85,6 @@ function matchesSearch(node, term) {
     node.title,
     node.userName,
     node.userRole,
-    node.companyName,
     node.description,
   ]
     .filter(Boolean)
@@ -94,20 +93,14 @@ function matchesSearch(node, term) {
   return haystack.includes(term);
 }
 
-function buildVisibleIds(nodes, search, companyFilter) {
-  const companyNodes = nodes.filter((node) => {
-    if (companyFilter === 'all') return true;
-    if (companyFilter === 'unassigned') return node.companyId === null;
-    return String(node.companyId) === companyFilter;
-  });
-
+function buildVisibleIds(nodes, search) {
   if (!search) {
-    return new Set(companyNodes.map((node) => node.id));
+    return new Set(nodes.map((node) => node.id));
   }
 
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const visible = new Set();
-  companyNodes.forEach((node) => {
+  nodes.forEach((node) => {
     if (!matchesSearch(node, search)) return;
     let current = node;
     while (current) {
@@ -228,7 +221,7 @@ async function parseApiPayload(response, fallbackMessage) {
   return payload;
 }
 
-function OrgNodeFields({ form, setForm, companies, users, parentOptions, parentLocked = false }) {
+function OrgNodeFields({ form, setForm, users, parentOptions }) {
   const availableUsers = users.filter((user) => !form.companyId || String(user.companyId) === form.companyId);
 
   return (
@@ -262,20 +255,6 @@ function OrgNodeFields({ form, setForm, companies, users, parentOptions, parentL
             <option key={option.id} value={option.id}>{option.name}</option>
           ))}
         </Form.Select>
-      </Form.Group>
-      <Form.Group>
-        <Form.Label>Company</Form.Label>
-        <Form.Select
-          value={form.companyId}
-          disabled={parentLocked}
-          onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}
-        >
-          <option value="">No company</option>
-          {companies.map((company) => (
-            <option key={company.id} value={company.id}>{company.name}</option>
-          ))}
-        </Form.Select>
-        {parentLocked && <Form.Text>Inherited from the selected parent.</Form.Text>}
       </Form.Group>
       <Form.Group>
         <Form.Label>Assigned Person</Form.Label>
@@ -330,11 +309,10 @@ function OrgNodeFields({ form, setForm, companies, users, parentOptions, parentL
 }
 
 export function OrgChart() {
-  const { user } = useAuth();
-  const canEdit = user?.role === ROLES.ADMINISTRATOR || user?.role === ROLES.COMPANY_ADMINISTRATOR;
+  const { hasAnyRole } = useAuth();
+  const canEdit = hasAnyRole([ROLES.ADMIN]);
 
   const [nodes, setNodes] = useState([]);
-  const [companies, setCompanies] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -345,11 +323,12 @@ export function OrgChart() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState('');
-  const [companyFilter, setCompanyFilter] = useState('all');
   const [zoom, setZoom] = useState(1);
   const [draggedId, setDraggedId] = useState(null);
   const [dropTargetId, setDropTargetId] = useState(null);
   const [rootDropActive, setRootDropActive] = useState(false);
+  const [boardFullscreen, setBoardFullscreen] = useState(false);
+  const boardRef = useRef(null);
 
   const deferredSearch = useDeferredValue(searchTerm.trim().toLowerCase());
 
@@ -364,7 +343,6 @@ export function OrgChart() {
       const nextNodes = await parseApiPayload(nodesResponse, 'Failed to load organigram nodes.');
       const meta = await parseApiPayload(metaResponse, 'Failed to load organigram metadata.');
       setNodes(nextNodes);
-      setCompanies(meta.companies || []);
       setUsers(meta.users || []);
       setSelectedId((current) => (current && nextNodes.some((node) => node.id === current) ? current : nextNodes[0]?.id || null));
     } catch (requestError) {
@@ -384,8 +362,17 @@ export function OrgChart() {
     setInspectorForm(selected ? toForm(selected) : EMPTY_FORM);
   }, [nodes, selectedId]);
 
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setBoardFullscreen(document.fullscreenElement === boardRef.current);
+    };
+
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
+
   const selectedNode = nodes.find((node) => node.id === selectedId) || null;
-  const visibleIds = buildVisibleIds(nodes, deferredSearch, companyFilter);
+  const visibleIds = buildVisibleIds(nodes, deferredSearch);
   const visibleNodes = nodes.filter((node) => visibleIds.has(node.id));
   const layout = buildLayout(visibleNodes);
 
@@ -397,7 +384,6 @@ export function OrgChart() {
     total: nodes.length,
     filled: nodes.filter((node) => node.userId).length,
     open: nodes.filter((node) => node.nodeType === 'position' && (node.isVacant || !node.userId)).length,
-    companies: new Set(nodes.map((node) => node.companyId).filter(Boolean)).size,
   };
 
   const showMessage = (text, variant = 'success') => setFeedback({ text, variant });
@@ -513,6 +499,23 @@ export function OrgChart() {
     }
   };
 
+  const toggleBoardFullscreen = async () => {
+    if (!boardRef.current) {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement === boardRef.current) {
+        await document.exitFullscreen();
+      } else {
+        await boardRef.current.requestFullscreen();
+      }
+    } catch (requestError) {
+      console.error(requestError);
+      showMessage('Fullscreen mode is not available in this browser context.', 'danger');
+    }
+  };
+
   return (
     <Container fluid className="org-page">
       <section className="org-hero">
@@ -538,29 +541,27 @@ export function OrgChart() {
       {!canEdit && <Alert variant="info" className="org-readonly-banner">You are viewing the organigram in read-only mode.</Alert>}
 
       <Row className="g-3 org-metrics">
-        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organisation.</p></Card.Body></Card></Col>
-        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Filled positions</span><strong>{metrics.filled}</strong><p>Roles already assigned to a person.</p></Card.Body></Card></Col>
-        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Open positions</span><strong>{metrics.open}</strong><p>Vacant or unassigned positions.</p></Card.Body></Card></Col>
-        <Col xl={3} md={6}><Card className="org-metric-card"><Card.Body><span>Companies</span><strong>{metrics.companies}</strong><p>Legal entities represented in the chart.</p></Card.Body></Card></Col>
+        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>
+        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Filled positions</span><strong>{metrics.filled}</strong><p>Roles already assigned to a person.</p></Card.Body></Card></Col>
+        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open positions</span><strong>{metrics.open}</strong><p>Vacant or unassigned positions.</p></Card.Body></Card></Col>
       </Row>
 
       <div className="org-workspace">
-        <Card className="org-board">
+        <Card className={`org-board${boardFullscreen ? ' is-fullscreen' : ''}`} ref={boardRef}>
           <Card.Body>
             <div className="org-board__toolbar">
               <div className="org-board__filters">
                 <InputGroup>
                   <InputGroup.Text><i className="bi bi-search"></i></InputGroup.Text>
-                  <Form.Control value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search nodes, roles, people, or companies" />
+                  <Form.Control value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search nodes, roles, or people" />
                 </InputGroup>
-                <Form.Select value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}>
-                  <option value="all">All companies</option>
-                  <option value="unassigned">No company</option>
-                  {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-                </Form.Select>
               </div>
 
               <div className="org-board__tools">
+                <Button variant="outline-secondary" className="org-fullscreen-btn" onClick={toggleBoardFullscreen}>
+                  <i className={`bi ${boardFullscreen ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'} me-2`}></i>
+                  {boardFullscreen ? 'Exit full screen' : 'Full screen'}
+                </Button>
                 <div className="org-zoom">
                   <button onClick={() => setZoom((current) => Math.max(0.6, +(current - 0.1).toFixed(1)))}>-</button>
                   <span>{Math.round(zoom * 100)}%</span>
@@ -594,7 +595,7 @@ export function OrgChart() {
               <div className="org-state">
                 <div className="org-state__icon"><i className="bi bi-diagram-3"></i></div>
                 <h3>No nodes to display</h3>
-                <p>{searchTerm || companyFilter !== 'all' ? 'Adjust the filters or search to bring matching nodes back into view.' : 'Create the first root node to start building the organisation.'}</p>
+                <p>{searchTerm ? 'Adjust the search to bring matching nodes back into view.' : 'Create the first root node to start building the organisation.'}</p>
                 {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Create first node</Button>}
               </div>
             ) : (
@@ -659,13 +660,13 @@ export function OrgChart() {
                             <p>{node.title || 'No title defined yet'}</p>
                           </div>
                           <div className="org-card-node__person">
-                            <div className="org-card-node__avatar">{node.isVacant ? 'V' : initials(node.userName || node.companyName || node.name)}</div>
+                            <div className="org-card-node__avatar">{node.isVacant ? 'V' : initials(node.userName || node.name)}</div>
                             <div>
                               <strong>{node.isVacant ? 'Vacant role' : node.userName || 'Unassigned'}</strong>
-                              <small>{node.isVacant ? 'Ready to fill' : node.userRole || node.companyName || 'No person assigned'}</small>
+                              <small>{node.isVacant ? 'Ready to fill' : node.userRole || 'No person assigned'}</small>
                             </div>
                           </div>
-                          <div className="org-card-node__footer"><span>{node.companyName || 'No company'}</span><span>{descendantCount(nodes, node.id)} nested</span></div>
+                          <div className="org-card-node__footer"><span>{meta.label}</span><span>{descendantCount(nodes, node.id)} nested</span></div>
                           {canEdit && (
                             <div className="org-card-node__actions">
                               <span className="org-card-node__drag"><i className="bi bi-grip-vertical"></i>Drag</span>
@@ -703,7 +704,7 @@ export function OrgChart() {
 
                 {canEdit ? (
                   <Form onSubmit={saveSelectedNode}>
-                    <OrgNodeFields form={inspectorForm} setForm={setInspectorForm} companies={companies} users={users} parentOptions={parentOptions} parentLocked={Boolean(inspectorForm.parentId)} />
+                    <OrgNodeFields form={inspectorForm} setForm={setInspectorForm} users={users} parentOptions={parentOptions} />
                     <div className="org-inspector__actions">
                       <Button variant="outline-secondary" onClick={() => openCreateModal(selectedNode)}><i className="bi bi-plus-circle me-2"></i>Add Child</Button>
                       <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
@@ -716,7 +717,6 @@ export function OrgChart() {
                   <div className="org-inspector__readonly">
                     <p>{selectedNode.description || 'No description for this node yet.'}</p>
                     <ul>
-                      <li>Company: {selectedNode.companyName || 'No company'}</li>
                       <li>Assigned: {selectedNode.userName || 'Unassigned'}</li>
                       <li>Title: {selectedNode.title || 'Not specified'}</li>
                     </ul>
@@ -749,7 +749,7 @@ export function OrgChart() {
         </Modal.Header>
         <Modal.Body className="org-modal__body">
           <Form onSubmit={createNode}>
-            <OrgNodeFields form={createForm} setForm={setCreateForm} companies={companies} users={users} parentOptions={nodes} parentLocked={Boolean(createForm.parentId)} />
+            <OrgNodeFields form={createForm} setForm={setCreateForm} users={users} parentOptions={nodes} />
             <div className="org-modal__actions">
               <Button variant="outline-secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>
               <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Creating...' : 'Create Node'}</Button>

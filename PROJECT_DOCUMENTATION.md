@@ -5,8 +5,8 @@
 V-BPM is a full-stack Business Process Management platform built around four major domains:
 
 1. Authentication, RBAC, and multi-company access control
-2. BPMN process management, approval workflow, and version diffing
-3. Advanced simulation workbench with calendars, SLA, comparison, heatmaps, Monte Carlo, what-if, sensitivity, and planning
+2. BPMN process management, approval workflow, version diffing, and diagram explanation/reporting
+3. Advanced simulation workbench with calendars, SLA, comparison, heatmaps, Monte Carlo, what-if, sensitivity, planning, and narrative reporting
 4. Organization structure management through an interactive org chart
 5. Cross-module collaboration with comments, attachments, notifications, and process templates
 6. Cross-module audit logging
@@ -223,6 +223,8 @@ Responsibilities:
 - list processes in hierarchy or list mode
 - filter by search, category, and status
 - create, edit, delete, import, and export processes
+- explain BPMN diagrams in readable business language
+- export process explanations as HTML or PDF
 - open the BPMN editor for process modeling
 
 Important implementation details:
@@ -255,6 +257,7 @@ Responsibilities:
 - run resource planning against a target cycle time
 - surface scenario run status and errors
 - export scenario results as CSV, Excel, and PDF
+- explain scenario setup and simulation outcomes in narrative form
 - host scenario comments and attachments through the shared collaboration panel
 
 #### [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
@@ -281,6 +284,8 @@ Responsibilities:
 - list users
 - create/update/delete users
 - assign users to companies
+- assign a primary role plus multiple additional roles
+- support temporary extra roles with an expiration date
 - company admin sees only their own company users
 
 #### [src/pages/RoleManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/RoleManagement.jsx)
@@ -515,6 +520,13 @@ Purpose:
 
 - many-to-many mapping from roles to permissions
 
+#### user_role_assignments
+
+Purpose:
+
+- stores additional roles granted to a user on top of their primary `users.role`
+- supports optional expiration dates for temporary access
+
 ### 7.2 Process tables
 
 #### process_categories
@@ -708,6 +720,8 @@ All non-public endpoints are mounted under `/api` and expect `x-user-id`.
 - `GET /api/processes/:id/workflow`
 - `POST /api/processes/:id/workflow`
 - `GET /api/processes/:id/diff`
+- `GET /api/processes/:id/explanation`
+- `GET /api/processes/:id/report?format=html|pdf`
 - `POST /api/processes`
 - `PUT /api/processes/:id`
 - `DELETE /api/processes/:id`
@@ -791,6 +805,7 @@ Useful query params for `GET /api/processes`:
 #### Result export
 
 - `GET /api/simulations/:id/export`
+- `GET /api/simulations/:id/explanation`
 - `GET /api/simulations/:id/report?format=html|excel|pdf`
 
 #### Scenario resources

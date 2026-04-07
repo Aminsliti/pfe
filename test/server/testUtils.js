@@ -71,12 +71,17 @@ export function createRequestUserMiddleware(user = null) {
 }
 
 export function createUser(overrides = {}) {
+  const baseRole = overrides.role ?? 'Admin';
+
   return {
     id: 1,
     username: 'admin',
     email: 'admin@pfe.com',
     fullName: 'System Administrator',
-    role: 'Administrator',
+    role: baseRole,
+    primaryRole: baseRole,
+    activeRoles: [baseRole],
+    additionalRoles: [],
     companyId: null,
     company: null,
     permissions: [

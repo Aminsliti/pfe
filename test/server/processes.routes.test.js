@@ -17,6 +17,7 @@ const { createApp } = require('../../server/app.js');
 describe('process routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    pool.query.mockReset();
   });
 
   it('lists processes and returns categories', async () => {
@@ -158,9 +159,100 @@ describe('process routes', () => {
     expect(detail.status).toBe(200);
     expect(detail.body.versions).toHaveLength(1);
 
-    pool.query.mockResolvedValueOnce(makeResult([{ id: 10, name: 'Claims', description: 'Claims category' }]));
-    const createdCategory = await request(app).post('/api/process-categories').send({ name: 'Claims', description: 'Claims category' });
+    pool.query
+      .mockResolvedValueOnce(makeResult([{ id: 7, name: 'Operations', description: 'Operations category', company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 10, name: 'Claims', description: 'Claims category', parent_id: 7, company_id: 2 }]));
+
+    const createdCategory = await request(app).post('/api/process-categories').send({
+      name: 'Claims',
+      description: 'Claims category',
+      parent_id: 7,
+      company_id: 2,
+    });
     expect(createdCategory.status).toBe(201);
+    expect(createdCategory.body.parent_id).toBe(7);
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{ id: 10, name: 'Claims', description: 'Claims category', parent_id: 7, company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 7, name: 'Operations', description: 'Operations category', company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 10 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 10, name: 'Card Claims', description: 'Updated category', parent_id: 7, company_id: 2 }]));
+
+    const updatedCategory = await request(app).put('/api/process-categories/10').send({
+      name: 'Card Claims',
+      description: 'Updated category',
+      company_id: 2,
+    });
+    expect(updatedCategory.status).toBe(200);
+    expect(updatedCategory.body.name).toBe('Card Claims');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{ id: 10, name: 'Card Claims', description: 'Updated category', parent_id: 7, company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ count: 0 }]))
+      .mockResolvedValueOnce(makeResult([{ count: 0 }]))
+      .mockResolvedValueOnce(makeResult([], { rowCount: 1 }));
+
+    const deletedCategory = await request(app).delete('/api/process-categories/10');
+    expect(deletedCategory.status).toBe(200);
+  });
+
+  it('returns a process explanation and exports the explanation as PDF', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser({ companyId: 2 })) });
+    const processRow = {
+      id: 9,
+      name: 'Card Dispute Handling',
+      description: 'Card dispute resolution process',
+      company_id: 2,
+      company_name: 'Bank Demo',
+      category_name: 'Operations',
+      status: 'approved',
+      version: 3,
+      bpmn_xml: `
+        <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
+          <bpmn:collaboration id="Collab_1">
+            <bpmn:participant id="Participant_1" name="Client" processRef="Process_1" />
+            <bpmn:participant id="Participant_2" name="Bank" processRef="Process_2" />
+            <bpmn:messageFlow id="MessageFlow_1" sourceRef="Task_1" targetRef="Task_2" />
+          </bpmn:collaboration>
+          <bpmn:process id="Process_2">
+            <bpmn:laneSet id="LaneSet_1">
+              <bpmn:lane id="Lane_1" name="Front Office" />
+              <bpmn:lane id="Lane_2" name="Back Office" />
+            </bpmn:laneSet>
+            <bpmn:startEvent id="StartEvent_1" name="Start" />
+            <bpmn:userTask id="Task_1" name="Receive claim" />
+            <bpmn:subProcess id="Task_2" name="Investigate dispute" />
+            <bpmn:endEvent id="EndEvent_1" name="End" />
+            <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_1" />
+            <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="Task_2" />
+            <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_2" targetRef="EndEvent_1" />
+          </bpmn:process>
+        </bpmn:definitions>
+      `,
+      submitted_at: '2026-04-04T08:00:00.000Z',
+      approved_at: '2026-04-04T09:00:00.000Z',
+      approved_by: 1,
+      approved_by_name: 'System Administrator',
+      archived_at: null,
+    };
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([processRow]))
+      .mockResolvedValueOnce(makeResult([{ id: 1, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' }]));
+
+    const explanation = await request(app).get('/api/processes/9/explanation');
+    expect(explanation.status).toBe(200);
+    expect(explanation.body.explanation.summary).toContain('Card Dispute Handling');
+    expect(explanation.body.explanation.metrics.participants).toBe(2);
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([processRow]))
+      .mockResolvedValueOnce(makeResult([{ id: 1, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' }]));
+
+    const report = await request(app).get('/api/processes/9/report?format=pdf');
+    expect(report.status).toBe(200);
+    expect(report.headers['content-type']).toContain('application/pdf');
+    expect(report.headers['content-disposition']).toContain('card-dispute-handling-explanation.pdf');
   });
 
   it('returns workflow history, applies workflow actions, and compares versions', async () => {

@@ -11,20 +11,17 @@ import {
 
 export function Dashboard() {
   const { user, hasPermission, ROLES, PERMISSIONS } = useAuth();
+  const displayRoleLabel = (role) => role;
 
   const getRoleBadgeVariant = (role) => {
     switch (role) {
-      case ROLES.ADMINISTRATOR:
+      case ROLES.ADMIN:
         return 'danger';
-      case ROLES.COMPANY_ADMINISTRATOR:
+      case ROLES.DESIGNER:
         return 'primary';
-      case ROLES.BUSINESS_ANALYST:
-        return 'info';
-      case ROLES.PROCESS_OWNER:
-        return 'success';
-      case ROLES.RISK_MANAGER:
+      case ROLES.VALIDATOR:
         return 'warning';
-      case ROLES.VIEWER:
+      case ROLES.PROCESS_OBSERVER:
         return 'secondary';
       default:
         return 'secondary';
@@ -47,7 +44,7 @@ export function Dashboard() {
             <h1 className="display-4">Welcome, {user?.fullName}!</h1>
             <p className="lead">
               Role: <Badge bg={getRoleBadgeVariant(user?.role)} className="p-2">
-                {user?.role}
+                {displayRoleLabel(user?.role)}
               </Badge>
             </p>
           </div>
@@ -73,7 +70,7 @@ export function Dashboard() {
                 <ListGroup.Item>
                   <strong>Role:</strong> 
                   <Badge bg={getRoleBadgeVariant(user?.role)} className="ms-2">
-                    {user?.role}
+                    {displayRoleLabel(user?.role)}
                   </Badge>
                 </ListGroup.Item>
                 <ListGroup.Item>
@@ -156,7 +153,7 @@ export function Dashboard() {
               <div className="text-center mt-3">
                 <Badge bg="light" text="dark" className="p-2">
                   <i className="bi bi-person-badge me-1"></i>
-                  {user?.role}
+                  {displayRoleLabel(user?.role)}
                 </Badge>
               </div>
             </Card.Body>

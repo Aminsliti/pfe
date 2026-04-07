@@ -19,6 +19,7 @@ import { ensureSimulationSchema } from '../utils/simulationSchema.js';
 import { logAuditEvent } from '../utils/auditLog.js';
 import { createNotification } from '../utils/collaboration.js';
 import {
+  buildSimulationExplanation,
   buildSimulationReportExcel,
   buildSimulationReportHtml,
   buildSimulationReportPdf,
@@ -1033,6 +1034,40 @@ router.get('/simulations/:id/report', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-report.html"`);
     res.send(buildSimulationReportHtml(reportScenario, extras));
+  } catch (error) {
+    serverErr(res, error);
+  }
+});
+
+router.get('/simulations/:id/explanation', async (req, res) => {
+  try {
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const scenario = await ensureScenarioAccess(req, res, req.params.id);
+    if (!scenario) {
+      return;
+    }
+
+    const inputs = await loadScenarioInputs(scenario.id);
+    const extras = await buildScenarioInsights(
+      {
+        ...scenario,
+        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      },
+      inputs
+    );
+    const enrichedScenario = {
+      ...scenario,
+      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      results: scenario.results ? mergeScenarioInsights(scenario.results, extras) : scenario.results,
+    };
+
+    res.json({
+      scenario: enrichedScenario,
+      explanation: buildSimulationExplanation(enrichedScenario, extras),
+    });
   } catch (error) {
     serverErr(res, error);
   }

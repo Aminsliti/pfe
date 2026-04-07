@@ -1,0 +1,233 @@
+import { useEffect, useState } from 'react';
+import { Alert, Button, Card, Col, Form, Row, Table } from 'react-bootstrap';
+import { API, fmt, parseWindowsText, readApiPayload, windowsToText } from './utils';
+
+export default function ResourcesTab({ scenario, onScenarioReload }) {
+  const [resources, setResources] = useState([]);
+  const [form, setForm] = useState({
+    name: '',
+    resource_type: 'human',
+    quantity: 1,
+    cost_per_hour: 0,
+    availability: 100,
+    availabilityText: '',
+  });
+  const [editingId, setEditingId] = useState(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await fetch(`${API}/simulations/${scenario.id}/resources`);
+        const payload = await readApiPayload(response, 'Failed to load resources.');
+        setResources(payload || []);
+      } catch (loadError) {
+        setError(loadError.message || 'Failed to load resources.');
+      }
+    };
+
+    load();
+  }, [scenario.id]);
+
+  const load = async () => {
+    try {
+      const response = await fetch(`${API}/simulations/${scenario.id}/resources`);
+      const payload = await readApiPayload(response, 'Failed to load resources.');
+      setResources(payload || []);
+    } catch (loadError) {
+      setError(loadError.message || 'Failed to load resources.');
+    }
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({
+      name: '',
+      resource_type: 'human',
+      quantity: 1,
+      cost_per_hour: 0,
+      availability: 100,
+      availabilityText: '',
+    });
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+
+    try {
+      const payload = {
+        ...form,
+        availability_windows: parseWindowsText(form.availabilityText),
+      };
+      const response = await fetch(
+        `${API}/simulations/${scenario.id}/resources${editingId ? `/${editingId}` : ''}`,
+        {
+          method: editingId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      await readApiPayload(response, 'Failed to save resource.');
+      setMessage('Resource saved.');
+      resetForm();
+      load();
+      onScenarioReload?.();
+    } catch (submitError) {
+      setError(submitError.message || 'Failed to save resource.');
+    }
+  };
+
+  const edit = (resource) => {
+    setEditingId(resource.id);
+    setForm({
+      name: resource.name,
+      resource_type: resource.resource_type || 'human',
+      quantity: Number(resource.quantity) || 1,
+      cost_per_hour: Number(resource.cost_per_hour) || 0,
+      availability: Number(resource.availability) || 100,
+      availabilityText: windowsToText(resource.availability_windows || []),
+    });
+  };
+
+  const remove = async (resourceId) => {
+    if (!window.confirm('Delete this resource?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API}/simulations/${scenario.id}/resources/${resourceId}`, { method: 'DELETE' });
+      await readApiPayload(response, 'Failed to delete resource.');
+      setMessage('Resource deleted.');
+      load();
+      onScenarioReload?.();
+    } catch (removeError) {
+      setError(removeError.message || 'Failed to delete resource.');
+    }
+  };
+
+  return (
+    <div className="d-flex flex-column gap-4">
+      {error && <Alert variant="danger">{error}</Alert>}
+      {message && <Alert variant="success">{message}</Alert>}
+
+      <Card className="border-0 shadow-sm">
+        <Card.Body>
+          <h6 className="mb-3">{editingId ? 'Edit resource' : 'Add resource'}</h6>
+          <Form onSubmit={submit}>
+            <Row className="g-3">
+              <Col lg={4}>
+                <Form.Group>
+                  <Form.Label>Name</Form.Label>
+                  <Form.Control value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+                </Form.Group>
+              </Col>
+              <Col lg={2}>
+                <Form.Group>
+                  <Form.Label>Type</Form.Label>
+                  <Form.Select value={form.resource_type} onChange={(event) => setForm((current) => ({ ...current, resource_type: event.target.value }))}>
+                    <option value="human">Human</option>
+                    <option value="machine">Machine</option>
+                    <option value="system">System</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col lg={2}>
+                <Form.Group>
+                  <Form.Label>Quantity</Form.Label>
+                  <Form.Control type="number" min={1} value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: Number(event.target.value) }))} />
+                </Form.Group>
+              </Col>
+              <Col lg={2}>
+                <Form.Group>
+                  <Form.Label>Cost / hour</Form.Label>
+                  <Form.Control type="number" min={0} value={form.cost_per_hour} onChange={(event) => setForm((current) => ({ ...current, cost_per_hour: Number(event.target.value) }))} />
+                </Form.Group>
+              </Col>
+              <Col lg={2}>
+                <Form.Group>
+                  <Form.Label>Availability %</Form.Label>
+                  <Form.Control type="number" min={1} max={100} value={form.availability} onChange={(event) => setForm((current) => ({ ...current, availability: Number(event.target.value) }))} />
+                </Form.Group>
+              </Col>
+              <Col lg={12}>
+                <Form.Group>
+                  <Form.Label>Availability windows</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={3}
+                    value={form.availabilityText}
+                    onChange={(event) => setForm((current) => ({ ...current, availabilityText: event.target.value }))}
+                    placeholder={'08:00-12:00 | 1,2,3,4,5\n13:00-17:00 | 1,2,3,4,5'}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+            <div className="d-flex justify-content-end gap-2 mt-3">
+              {editingId && (
+                <Button variant="outline-secondary" onClick={resetForm}>
+                  Cancel
+                </Button>
+              )}
+              <Button type="submit" variant="danger">
+                {editingId ? 'Update resource' : 'Add resource'}
+              </Button>
+            </div>
+          </Form>
+        </Card.Body>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <Card.Body className="p-0">
+          <Table hover className="sim-table mb-0">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Quantity</th>
+                <th>Cost/h</th>
+                <th>Availability</th>
+                <th>Windows</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resources.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center text-muted py-4">
+                    No resources defined yet.
+                  </td>
+                </tr>
+              ) : (
+                resources.map((resource) => (
+                  <tr key={resource.id}>
+                    <td>
+                      <strong>{resource.name}</strong>
+                    </td>
+                    <td>{resource.resource_type}</td>
+                    <td>{resource.quantity}</td>
+                    <td>{fmt(resource.cost_per_hour, 2)}</td>
+                    <td>{fmt(resource.availability, 0)}%</td>
+                    <td className="text-muted small">{windowsToText(resource.availability_windows || []) || 'Default calendar'}</td>
+                    <td>
+                      <div className="d-flex gap-2">
+                        <Button size="sm" variant="outline-secondary" onClick={() => edit(resource)}>
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="outline-danger" onClick={() => remove(resource.id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        </Card.Body>
+      </Card>
+    </div>
+  );
+}

@@ -18,7 +18,7 @@ export function createApp({ requestUserMiddleware = attachRequestUser } = {}) {
     credentials: true
   }));
   
-  app.use(express.json());
+  app.use(express.json({ limit: '15mb' }));
   app.use('/uploads', express.static(path.resolve(process.cwd(), 'server', 'uploads')));
 
   if (requestUserMiddleware) {
@@ -44,6 +44,9 @@ export function createApp({ requestUserMiddleware = attachRequestUser } = {}) {
 
   app.use((err, req, res, next) => {
     console.error('Unhandled error:', err);
+    if (err?.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'The exported diagram image is too large to attach to the PDF report.' });
+    }
     res.status(500).json({ error: 'Internal server error' });
   });
 

@@ -143,6 +143,11 @@
   align-items: center;
 }
 
+.org-fullscreen-btn.btn {
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .org-zoom {
   display: inline-flex;
   align-items: center;
@@ -239,6 +244,29 @@
     linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   background-size: 24px 24px, auto;
   min-height: 620px;
+}
+
+.org-board.is-fullscreen,
+.org-board:fullscreen {
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.org-board.is-fullscreen .card-body,
+.org-board:fullscreen .card-body {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  background: #fff;
+}
+
+.org-board.is-fullscreen .org-canvas,
+.org-board:fullscreen .org-canvas {
+  flex: 1;
+  min-height: 0;
 }
 
 .org-canvas__zoom {

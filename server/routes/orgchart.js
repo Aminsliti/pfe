@@ -209,11 +209,10 @@ async function seedDefaultOrgChart() {
     }
 
     const roleBuckets = {
-      Administrator: { key: 'leadership', label: 'Leadership', type: 'division', color: '#dc2626' },
-      'Business Analyst': { key: 'process', label: 'Process Excellence', type: 'department', color: '#2563eb' },
-      'Process Owner': { key: 'process', label: 'Process Excellence', type: 'department', color: '#2563eb' },
-      'Risk Manager': { key: 'risk', label: 'Risk & Compliance', type: 'department', color: '#7c3aed' },
-      Viewer: { key: 'support', label: 'Operations Support', type: 'team', color: '#0891b2' },
+      Admin: { key: 'leadership', label: 'Leadership', type: 'division', color: '#dc2626' },
+      Designer: { key: 'process', label: 'Process Design', type: 'department', color: '#2563eb' },
+      Validator: { key: 'validation', label: 'Validation', type: 'department', color: '#7c3aed' },
+      'Process Observer': { key: 'observation', label: 'Observation', type: 'team', color: '#0891b2' },
     };
 
     const departments = new Map();
@@ -572,7 +571,7 @@ router.post('/orgchart/nodes', async (req, res) => {
 
   try {
     if (!canEditOrgChart(req.user)) {
-      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+      return res.status(403).json({ error: 'Only admins can edit the organigram.' });
     }
 
     const parentId = normalizeInteger(req.body.parentId);
@@ -696,7 +695,7 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
 
   try {
     if (!canEditOrgChart(req.user)) {
-      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+      return res.status(403).json({ error: 'Only admins can edit the organigram.' });
     }
 
     const nodeId = normalizeInteger(req.params.id);
@@ -846,7 +845,7 @@ router.patch('/orgchart/nodes/:id/move', async (req, res) => {
 
   try {
     if (!canEditOrgChart(req.user)) {
-      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+      return res.status(403).json({ error: 'Only admins can edit the organigram.' });
     }
 
     const nodeId = normalizeInteger(req.params.id);
@@ -936,7 +935,7 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
 
   try {
     if (!canEditOrgChart(req.user)) {
-      return res.status(403).json({ error: 'Only global or company administrators can edit the organigram.' });
+      return res.status(403).json({ error: 'Only admins can edit the organigram.' });
     }
 
     const nodeId = normalizeInteger(req.params.id);

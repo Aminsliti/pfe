@@ -1,3 +1,5 @@
+import { buildPdfDocument } from './pdfDocument.js';
+
 function escapeHtml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -13,6 +15,120 @@ function formatNumber(value, decimals = 1) {
   }
 
   return Number(value).toFixed(decimals);
+}
+
+function humanJoin(items = []) {
+  const values = items.filter(Boolean);
+  if (!values.length) {
+    return '';
+  }
+  if (values.length === 1) {
+    return values[0];
+  }
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
+}
+
+export function buildSimulationExplanation(scenario, extras = {}) {
+  const results = scenario?.results || {};
+  const taskResults = Array.isArray(results.task_results) ? results.task_results : [];
+  const resourceResults = Array.isArray(results.resource_results) ? results.resource_results : [];
+  const bottlenecks = Array.isArray(results.bottlenecks) ? results.bottlenecks : [];
+  const monteCarlo = extras.monteCarlo || results.monte_carlo || null;
+  const sensitivity = extras.sensitivity || results.sensitivity || null;
+  const planning = extras.resourcePlanning || results.resource_planning || null;
+
+  const longestTasks = [...taskResults]
+    .sort((left, right) => Number(right.avg_duration || 0) - Number(left.avg_duration || 0))
+    .slice(0, 3);
+  const longestQueues = [...taskResults]
+    .sort((left, right) => Number(right.avg_wait_min || 0) - Number(left.avg_wait_min || 0))
+    .slice(0, 3);
+  const busiestResources = [...resourceResults]
+    .sort((left, right) => Number(right.utilization_rate || 0) - Number(left.utilization_rate || 0))
+    .slice(0, 3);
+
+  const overview = [
+    `${scenario?.name || `Scenario #${scenario?.id}` } is ${scenario?.status || 'draft'} and targets the process ${scenario?.process_name || '-'}.`,
+    results.avg_duration_min !== undefined
+      ? `The last run processed ${results.instances ?? 0} instance(s) with an average cycle time of ${formatNumber(results.avg_duration_min)} minutes and a total cost of ${formatNumber(results.total_cost, 2)} EUR.`
+      : 'The scenario has not been executed yet, so no performance evidence is available.',
+    results.arrival_source ? `Instance arrivals came from the ${results.arrival_source} schedule.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const throughputNarrative = longestTasks.length
+    ? `The slowest activities are ${humanJoin(longestTasks.map((task) => `${task.task_name} (${formatNumber(task.avg_duration)} min)`))}.`
+    : 'No task-level performance data is available yet.';
+
+  const waitNarrative = longestQueues.some((task) => Number(task.avg_wait_min || 0) > 0)
+    ? `The largest waiting times appear around ${humanJoin(longestQueues.map((task) => `${task.task_name} (${formatNumber(task.avg_wait_min)} min)`))}.`
+    : 'The run does not show significant queueing delays.';
+
+  const resourceNarrative = busiestResources.length
+    ? `The most loaded resources are ${humanJoin(busiestResources.map((resource) => `${resource.resource_name} (${formatNumber(resource.utilization_rate)}%)`))}.`
+    : 'No resource utilisation data is available.';
+
+  const bottleneckNarrative = bottlenecks.length
+    ? `The dominant bottlenecks are ${humanJoin(bottlenecks.slice(0, 4).map((entry) => `${entry.name} (${formatNumber(entry.metric)} ${entry.unit})`))}.`
+    : 'No critical bottleneck was detected in the current run.';
+
+  return {
+    generated_at: new Date().toISOString(),
+    summary: `${overview} ${throughputNarrative} ${resourceNarrative}`.trim(),
+    sections: [
+      {
+        title: 'Run overview',
+        body: overview,
+        bullets: [
+          `Instances simulated: ${results.instances ?? 0}`,
+          `Average cycle time: ${formatNumber(results.avg_duration_min)} min`,
+          `P95 cycle time: ${formatNumber(results.p95_duration_min)} min`,
+          `Total cost: ${formatNumber(results.total_cost, 2)} EUR`,
+        ],
+      },
+      {
+        title: 'Performance interpretation',
+        body: `${throughputNarrative} ${waitNarrative}`.trim(),
+        bullets: longestTasks.map((task) => `${task.task_name}: ${formatNumber(task.avg_duration)} min avg duration`),
+      },
+      {
+        title: 'Resources and bottlenecks',
+        body: `${resourceNarrative} ${bottleneckNarrative}`.trim(),
+        bullets: [
+          ...busiestResources.map((resource) => `${resource.resource_name}: ${formatNumber(resource.utilization_rate)}% utilisation`),
+          ...bottlenecks.slice(0, 3).map((entry) => `${entry.name}: ${formatNumber(entry.metric)} ${entry.unit}`),
+        ],
+      },
+      {
+        title: 'Service levels and planning',
+        body:
+          results.sla_summary
+            ? `The simulation tracked ${results.sla_summary.monitored_tasks ?? 0} task(s) with ${results.sla_summary.total_breaches ?? 0} SLA breach(es), and ${formatNumber(results.sla_summary.late_instance_rate ?? 0)}% late instances.`
+            : 'No SLA metrics were available for this run.',
+        bullets: [
+          monteCarlo ? `Monte Carlo iterations: ${monteCarlo.iterations}` : null,
+          monteCarlo ? `Cycle-time confidence interval: ${formatNumber(monteCarlo.duration?.ci_low)} - ${formatNumber(monteCarlo.duration?.ci_high)} min` : null,
+          sensitivity?.impacts?.[0] ? `Highest sensitivity driver: ${sensitivity.impacts[0].name}` : null,
+          planning?.recommendations?.[0]
+            ? `Best staffing action: add ${planning.recommendations[0].add_units} to ${planning.recommendations[0].resource_name}`
+            : null,
+        ].filter(Boolean),
+      },
+    ],
+    highlights: {
+      longest_tasks: longestTasks,
+      longest_queues: longestQueues,
+      busiest_resources: busiestResources,
+      bottlenecks,
+      monte_carlo: monteCarlo,
+      sensitivity,
+      planning,
+    },
+  };
 }
 
 function buildMetricCards(scenario) {
@@ -55,6 +171,7 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
   const monteCarlo = extras.monteCarlo || results.monte_carlo || null;
   const sensitivity = extras.sensitivity || results.sensitivity || null;
   const planning = extras.resourcePlanning || results.resource_planning || null;
+  const explanation = buildSimulationExplanation(scenario, extras);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -104,6 +221,24 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
     </div>
 
     <div class="metrics">${buildMetricCards(scenario)}</div>
+
+    <div class="section">
+      <h2>Executive explanation</h2>
+      <p>${escapeHtml(explanation.summary || '')}</p>
+      ${explanation.sections
+        .map(
+          (section) => `
+            <h3 style="margin:18px 0 6px;font-size:16px;">${escapeHtml(section.title)}</h3>
+            <p>${escapeHtml(section.body || '')}</p>
+            ${
+              section.bullets?.length
+                ? `<ul>${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>`
+                : ''
+            }
+          `
+        )
+        .join('')}
+    </div>
 
     <div class="section">
       <h2>Task performance</h2>
@@ -263,105 +398,70 @@ export function buildSimulationReportExcel(scenario, extras = {}) {
   return `\uFEFF${buildSimulationReportHtml(scenario, extras)}`;
 }
 
-function pdfEscape(value = '') {
-  return String(value).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-}
-
 export function buildSimulationReportPdf(scenario, extras = {}) {
   const results = scenario.results || {};
   const monteCarlo = extras.monteCarlo || results.monte_carlo || null;
   const sensitivity = extras.sensitivity || results.sensitivity || null;
   const planning = extras.resourcePlanning || results.resource_planning || null;
-
-  const lines = [
-    `Simulation report: ${scenario.name || `Scenario #${scenario.id}`}`,
-    `Process: ${scenario.process_name || '-'}`,
-    `Status: ${scenario.status || 'draft'}`,
-    `Average cycle time: ${formatNumber(results.avg_duration_min)} min`,
-    `P95 cycle time: ${formatNumber(results.p95_duration_min)} min`,
-    `Total cost: ${formatNumber(results.total_cost, 2)} EUR`,
-    `Late instance rate: ${formatNumber(results.sla_summary?.late_instance_rate ?? 0)}%`,
-    '',
-    'Top bottlenecks:',
-    ...(results.bottlenecks || []).slice(0, 6).map((entry) => `- ${entry.name}: ${formatNumber(entry.metric)} ${entry.unit}`),
-    '',
-    'Top tasks:',
-    ...(results.task_results || []).slice(0, 8).map(
-      (task) =>
-        `- ${task.task_name}: avg ${formatNumber(task.avg_duration)} min, wait ${formatNumber(task.avg_wait_min)} min, SLA breaches ${formatNumber(task.sla_breach_rate)}%`
-    ),
-  ];
-
-  if (monteCarlo) {
-    lines.push(
-      '',
-      `Monte Carlo iterations: ${monteCarlo.iterations}`,
-      `Cycle-time CI: ${formatNumber(monteCarlo.duration?.ci_low)} - ${formatNumber(monteCarlo.duration?.ci_high)} min`,
-      `Cost CI: ${formatNumber(monteCarlo.total_cost?.ci_low, 2)} - ${formatNumber(monteCarlo.total_cost?.ci_high, 2)} EUR`
-    );
-  }
-
-  if (sensitivity?.impacts?.length) {
-    lines.push('', 'Sensitivity:');
-    sensitivity.impacts.slice(0, 5).forEach((impact) => {
-      lines.push(`- ${impact.name} (${impact.change}): ${formatNumber(impact.cycle_impact_min)} min`);
-    });
-  }
-
-  if (planning?.recommendations?.length) {
-    lines.push('', 'Resource planning:');
-    planning.recommendations.slice(0, 5).forEach((recommendation) => {
-      lines.push(
-        `- ${recommendation.resource_name}: +${recommendation.add_units} => ${formatNumber(recommendation.projected_avg_duration_min)} min`
-      );
-    });
-  }
-
-  const pages = [];
-  const linesPerPage = 42;
-  for (let index = 0; index < lines.length; index += linesPerPage) {
-    pages.push(lines.slice(index, index + linesPerPage));
-  }
-
-  let pdf = '%PDF-1.4\n';
-  const offsets = [];
-
-  const objects = [];
-  const pageObjectIds = pages.map((_, index) => 3 + index * 2);
-  const contentObjectIds = pages.map((_, index) => 4 + index * 2);
-  const fontObjectId = 3 + pages.length * 2;
-
-  objects.push('1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n');
-  objects.push(`2 0 obj << /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >> endobj\n`);
-
-  pages.forEach((pageLines, pageIndex) => {
-    const pageId = pageObjectIds[pageIndex];
-    const contentId = contentObjectIds[pageIndex];
-    objects.push(
-      `${pageId} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentId} 0 R >> endobj\n`
-    );
-
-    const textCommands = pageLines
-      .map((line, lineIndex) => `BT /F1 11 Tf 40 ${780 - lineIndex * 18} Td (${pdfEscape(line)}) Tj ET`)
-      .join('\n');
-    objects.push(
-      `${contentId} 0 obj << /Length ${textCommands.length} >> stream\n${textCommands}\nendstream endobj\n`
-    );
+  const explanation = buildSimulationExplanation(scenario, extras);
+  return buildPdfDocument({
+    title: `Simulation report: ${scenario.name || `Scenario #${scenario.id}`}`,
+    subtitle: `Process: ${scenario.process_name || '-'} | Status: ${scenario.status || 'draft'}`,
+    sections: [
+      {
+        title: 'Executive summary',
+        paragraphs: [
+          explanation.summary || '',
+          `Average cycle time: ${formatNumber(results.avg_duration_min)} min | P95: ${formatNumber(results.p95_duration_min)} min | Total cost: ${formatNumber(results.total_cost, 2)} EUR | Late instance rate: ${formatNumber(results.sla_summary?.late_instance_rate ?? 0)}%`,
+        ],
+      },
+      ...explanation.sections.map((section) => ({
+        title: section.title,
+        paragraphs: [section.body || ''],
+        bullets: section.bullets || [],
+      })),
+      {
+        title: 'Top bottlenecks',
+        bullets: (results.bottlenecks || [])
+          .slice(0, 6)
+          .map((entry) => `${entry.name}: ${formatNumber(entry.metric)} ${entry.unit}`),
+      },
+      {
+        title: 'Top tasks',
+        bullets: (results.task_results || [])
+          .slice(0, 8)
+          .map(
+            (task) =>
+              `${task.task_name}: avg ${formatNumber(task.avg_duration)} min, wait ${formatNumber(task.avg_wait_min)} min, SLA breaches ${formatNumber(task.sla_breach_rate)}%`
+          ),
+      },
+      ...(monteCarlo
+        ? [{
+            title: 'Monte Carlo',
+            bullets: [
+              `Iterations: ${monteCarlo.iterations}`,
+              `Cycle-time confidence interval: ${formatNumber(monteCarlo.duration?.ci_low)} - ${formatNumber(monteCarlo.duration?.ci_high)} min`,
+              `Cost confidence interval: ${formatNumber(monteCarlo.total_cost?.ci_low, 2)} - ${formatNumber(monteCarlo.total_cost?.ci_high, 2)} EUR`,
+            ],
+          }]
+        : []),
+      ...(sensitivity?.impacts?.length
+        ? [{
+            title: 'Sensitivity',
+            bullets: sensitivity.impacts
+              .slice(0, 5)
+              .map((impact) => `${impact.name} (${impact.change}): ${formatNumber(impact.cycle_impact_min)} min cycle impact`),
+          }]
+        : []),
+      ...(planning?.recommendations?.length
+        ? [{
+            title: 'Resource planning',
+            paragraphs: [planning.summary || ''],
+            bullets: planning.recommendations
+              .slice(0, 5)
+              .map((recommendation) => `${recommendation.resource_name}: +${recommendation.add_units} => ${formatNumber(recommendation.projected_avg_duration_min)} min`),
+          }]
+        : []),
+    ],
   });
-
-  objects.push(`${fontObjectId} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n`);
-
-  objects.forEach((object) => {
-    offsets.push(Buffer.byteLength(pdf, 'utf8'));
-    pdf += object;
-  });
-
-  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.forEach((offset) => {
-    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  });
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return Buffer.from(pdf, 'utf8');
 }

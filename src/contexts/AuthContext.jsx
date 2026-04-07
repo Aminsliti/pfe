@@ -11,12 +11,19 @@ const ORIGINAL_FETCH =
       };
 
 export const ROLES = {
-  ADMINISTRATOR: 'Administrator',
-  COMPANY_ADMINISTRATOR: 'Company Administrator',
-  BUSINESS_ANALYST: 'Business Analyst',
-  PROCESS_OWNER: 'Process Owner',
-  RISK_MANAGER: 'Risk Manager',
-  VIEWER: 'Viewer',
+  ADMIN: 'Admin',
+  DESIGNER: 'Designer',
+  VALIDATOR: 'Validator',
+  PROCESS_OBSERVER: 'Process Observer',
+};
+
+const LEGACY_ROLE_MAP = {
+  Administrator: ROLES.ADMIN,
+  'Company Administrator': ROLES.ADMIN,
+  'Business Analyst': ROLES.DESIGNER,
+  'Process Owner': ROLES.DESIGNER,
+  'Risk Manager': ROLES.VALIDATOR,
+  Viewer: ROLES.PROCESS_OBSERVER,
 };
 
 export const PERMISSIONS = {
@@ -28,9 +35,50 @@ export const PERMISSIONS = {
   MANAGE_RISKS: 'manage_risks',
 };
 
+function getActiveRoleNames(user) {
+  if (Array.isArray(user?.activeRoles) && user.activeRoles.length) {
+    return [...new Set(user.activeRoles.map(canonicalizeRoleName).filter(Boolean))];
+  }
+
+  return user?.role ? [canonicalizeRoleName(user.role)] : [];
+}
+
+function canonicalizeRoleName(role) {
+  return LEGACY_ROLE_MAP[role] || role || null;
+}
+
+function normalizeRoleAssignment(assignment = {}) {
+  return {
+    ...assignment,
+    role: canonicalizeRoleName(assignment.role),
+  };
+}
+
+function normalizeStoredUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  const primaryRole = canonicalizeRoleName(user.primaryRole || user.role);
+  const additionalRoles = Array.isArray(user.additionalRoles)
+    ? user.additionalRoles.map(normalizeRoleAssignment)
+    : [];
+  const activeRoles = Array.isArray(user.activeRoles) && user.activeRoles.length
+    ? [...new Set(user.activeRoles.map(canonicalizeRoleName).filter(Boolean))]
+    : [...new Set([primaryRole, ...additionalRoles.filter((role) => role.active).map((role) => role.role)].filter(Boolean))];
+
+  return {
+    ...user,
+    role: primaryRole,
+    primaryRole,
+    activeRoles,
+    additionalRoles,
+  };
+}
+
 export function getStoredUser() {
   try {
-    return JSON.parse(localStorage.getItem('currentUser') || 'null');
+    return normalizeStoredUser(JSON.parse(localStorage.getItem('currentUser') || 'null'));
   } catch {
     return null;
   }
@@ -115,6 +163,7 @@ export function AuthProvider({ children }) {
     if (savedUser) {
       setUser(savedUser);
       setCompany(savedUser.company || null);
+      localStorage.setItem('currentUser', JSON.stringify(savedUser));
       if (savedPermissions) {
         try {
           setPermissions(JSON.parse(savedPermissions));
@@ -139,17 +188,42 @@ export function AuthProvider({ children }) {
 
       const data = await parseResponse(response, 'Login failed');
       const nextPermissions = data.permissions || [];
+      const normalizedUser = normalizeStoredUser(data.user);
 
-      setUser(data.user);
+      setUser(normalizedUser);
       setPermissions(nextPermissions);
-      setCompany(data.user.company || null);
-      localStorage.setItem('currentUser', JSON.stringify(data.user));
+      setCompany(normalizedUser?.company || null);
+      localStorage.setItem('currentUser', JSON.stringify(normalizedUser));
       localStorage.setItem('permissions', JSON.stringify(nextPermissions));
 
-      return { success: true, user: data.user };
+      return { success: true, user: normalizedUser, permissions: nextPermissions };
     } catch (error) {
       console.error('Login error:', error);
       return { success: false, error: error.message || 'Network error. Please try again.' };
+    }
+  };
+
+  const refreshCurrentUser = async () => {
+    if (!user?.id) {
+      return { success: false, error: 'No active session.' };
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/session`);
+      const data = await parseResponse(response, 'Failed to refresh session');
+      const nextPermissions = data.permissions || [];
+      const normalizedUser = normalizeStoredUser(data.user);
+
+      setUser(normalizedUser);
+      setPermissions(nextPermissions);
+      setCompany(normalizedUser?.company || null);
+      localStorage.setItem('currentUser', JSON.stringify(normalizedUser));
+      localStorage.setItem('permissions', JSON.stringify(nextPermissions));
+
+      return { success: true, user: normalizedUser, permissions: nextPermissions };
+    } catch (error) {
+      console.error('Session refresh error:', error);
+      return { success: false, error: error.message || 'Network error' };
     }
   };
 
@@ -168,10 +242,10 @@ export function AuthProvider({ children }) {
     return permissions.includes(permission);
   };
 
-  const hasRole = (role) => user?.role === role;
-  const hasAnyRole = (roles) => Boolean(user?.role) && roles.includes(user.role);
-  const isGlobalAdmin = () => user?.role === ROLES.ADMINISTRATOR;
-  const isCompanyAdmin = () => user?.role === ROLES.COMPANY_ADMINISTRATOR;
+  const hasRole = (role) => getActiveRoleNames(user).includes(role);
+  const hasAnyRole = (roles) => getActiveRoleNames(user).some((role) => roles.includes(role));
+  const isGlobalAdmin = () => hasRole(ROLES.ADMIN) && !user?.companyId;
+  const isCompanyAdmin = () => hasRole(ROLES.ADMIN) && !!user?.companyId;
 
   const getAllUsers = async () => {
     try {
@@ -212,6 +286,9 @@ export function AuthProvider({ children }) {
       });
 
       const data = await parseResponse(response, 'Failed to update user');
+      if (Number(userId) === Number(user?.id)) {
+        await refreshCurrentUser();
+      }
       return { success: true, user: data };
     } catch (error) {
       console.error('Error updating user:', error);
@@ -337,6 +414,7 @@ export function AuthProvider({ children }) {
     company,
     loading,
     login,
+    refreshCurrentUser,
     logout,
     hasPermission,
     hasRole,

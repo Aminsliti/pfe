@@ -4,6 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 export function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
   const location = useLocation();
+  const activeRoles =
+    Array.isArray(user?.activeRoles) && user.activeRoles.length
+      ? user.activeRoles
+      : user?.role
+        ? [user.role]
+        : [];
 
   if (loading) {
     return (
@@ -17,7 +23,7 @@ export function ProtectedRoute({ children, allowedRoles }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (allowedRoles && !activeRoles.some((role) => allowedRoles.includes(role))) {
     return <Navigate to="/unauthorized" replace />;
   }
 
@@ -47,4 +53,3 @@ export function RequirePermission({ permission, children }) {
 }
 
 export default ProtectedRoute;
-

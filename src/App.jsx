@@ -1,14 +1,13 @@
 import { Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider, ROLES } from './contexts/AuthContext';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, ROLES, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { getHomePath } from './utils/navigation';
 import './App.css';
 
 const Login = lazy(() => import('./pages/Login'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 const RoleManagement = lazy(() => import('./pages/RoleManagement'));
-const CompanyManagement = lazy(() => import('./pages/CompanyManagement'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const ProcessManagement = lazy(() => import('./pages/ProcessManagement'));
 const OrgChart = lazy(() => import('./pages/OrgChart'));
@@ -40,6 +39,12 @@ function AppRouteFallback() {
   );
 }
 
+function HomeRedirect() {
+  const { user, permissions } = useAuth();
+
+  return <Navigate to={getHomePath(user, permissions)} replace />;
+}
+
 function App() {
   return (
     <AuthProvider>
@@ -57,18 +62,18 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Dashboard />} />
-              <Route path="dashboard" element={<Dashboard />} />
+              <Route index element={<HomeRedirect />} />
+              <Route path="dashboard" element={<HomeRedirect />} />
 
               <Route
                 path="processes"
                 element={
                   <ProtectedRoute
                     allowedRoles={[
-                      ROLES.ADMINISTRATOR,
-                      ROLES.COMPANY_ADMINISTRATOR,
-                      ROLES.BUSINESS_ANALYST,
-                      ROLES.PROCESS_OWNER,
+                      ROLES.ADMIN,
+                      ROLES.DESIGNER,
+                      ROLES.VALIDATOR,
+                      ROLES.PROCESS_OBSERVER,
                     ]}
                   >
                     <ProcessManagement />
@@ -88,10 +93,9 @@ function App() {
                 element={
                   <ProtectedRoute
                     allowedRoles={[
-                      ROLES.ADMINISTRATOR,
-                      ROLES.COMPANY_ADMINISTRATOR,
-                      ROLES.BUSINESS_ANALYST,
-                      ROLES.PROCESS_OWNER,
+                      ROLES.ADMIN,
+                      ROLES.DESIGNER,
+                      ROLES.VALIDATOR,
                     ]}
                   >
                     <SimulationWorkbench />
@@ -106,18 +110,11 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="companies"
-                element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
-                    <CompanyManagement />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="companies" element={<Navigate to="/process-library" replace />} />
               <Route
                 path="users"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
+                  <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
                     <UserManagement />
                   </ProtectedRoute>
                 }
@@ -125,7 +122,7 @@ function App() {
               <Route
                 path="audit-logs"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR, ROLES.COMPANY_ADMINISTRATOR]}>
+                  <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
                     <AuditLogs />
                   </ProtectedRoute>
                 }
@@ -133,7 +130,7 @@ function App() {
               <Route
                 path="roles"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRATOR]}>
+                  <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
                     <RoleManagement />
                   </ProtectedRoute>
                 }

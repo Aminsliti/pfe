@@ -339,7 +339,15 @@ function normalizeProcessXml(rawValue, processName) {
   );
 }
 
-const BpmnEditorModeler = ({ process, onClose, onSave }) => {
+const BpmnEditorModeler = ({
+  process,
+  onClose,
+  onSave,
+  readOnly = false,
+  reviewActionLabel = 'Approve',
+  onReviewAction = null,
+  reviewActionBusy = false,
+}) => {
   const containerRef = useRef(null);
   const modelerRef = useRef(null);
   const mainContainerRef = useRef(null);
@@ -351,6 +359,7 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
   const [saving, setSaving] = useState(false);
   const [navigationStack, setNavigationStack] = useState([]);
   const [currentSubprocess, setCurrentSubprocess] = useState(null);
+  const currentSubprocessRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredElements, setFilteredElements] = useState([]);
@@ -379,6 +388,10 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
   useEffect(() => {
     setXml(normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
   }, [process]);
+
+  useEffect(() => {
+    currentSubprocessRef.current = currentSubprocess;
+  }, [currentSubprocess]);
 
   // Filter elements based on search
   useEffect(() => {
@@ -412,7 +425,7 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
       try {
         const modeler = new BpmnModeler({
           container: containerRef.current,
-          palette: true
+          palette: !readOnly
         });
 
         if (disposed) {
@@ -474,6 +487,14 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
 
             // Handle sub-process navigation
             if (el.type === 'bpmn:SubProcess') {
+              const nestedFlowElements = Array.isArray(el.businessObject?.flowElements)
+                ? el.businessObject.flowElements.filter((item) => item && item.$type !== 'bpmn:SequenceFlow')
+                : [];
+
+              if (!nestedFlowElements.length || currentSubprocessRef.current?.id === el.id) {
+                return;
+              }
+
               const subprocessId = el.id;
               const subprocessName = el.businessObject?.name || el.id;
               
@@ -507,10 +528,10 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
         modelerRef.current = null;
       }
     };
-  }, [xml, process?.name]);
+  }, [xml, process?.name, readOnly]);
 
   const handlePropertyChange = (key, value) => {
-    if (!selectedElement || !modelerRef.current) return;
+    if (readOnly || !selectedElement || !modelerRef.current) return;
 
     const modeling = modelerRef.current.get('modeling');
     
@@ -571,7 +592,7 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
   };
 
   const handleSave = async () => {
-    if (!modelerRef.current) return;
+    if (readOnly || !modelerRef.current) return;
 
     try {
       setSaving(true);
@@ -633,7 +654,7 @@ const BpmnEditorModeler = ({ process, onClose, onSave }) => {
 
   // Add element from palette
   const addSearchElement = (element) => {
-    if (!modelerRef.current) return;
+    if (readOnly || !modelerRef.current) return;
 
     try {
       const modeler = modelerRef.current;

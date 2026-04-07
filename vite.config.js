@@ -19,20 +19,41 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes('node_modules')) {
+          const normalizedId = id.replace(/\\/g, '/')
+
+          if (normalizedId.includes('/src/components/BpmnEditor/')) {
+            return 'feature-bpmn'
+          }
+
+          if (normalizedId.includes('/src/pages/simulation-workbench/')) {
+            return 'feature-simulation'
+          }
+
+          if (
+            normalizedId.includes('/src/components/EntityCollaborationPanel.jsx') ||
+            normalizedId.includes('/src/components/NotificationCenter.jsx')
+          ) {
+            return 'feature-collaboration'
+          }
+
+          if (!normalizedId.includes('node_modules')) {
             return undefined
           }
 
-          if (id.includes('bpmn-js') || id.includes('bpmn-moddle') || id.includes('diagram-js')) {
+          if (normalizedId.includes('bpmn-js') || normalizedId.includes('bpmn-moddle') || normalizedId.includes('diagram-js')) {
             return 'bpmn'
           }
 
-          if (id.includes('react-bootstrap') || id.includes('bootstrap')) {
+          if (normalizedId.includes('react-bootstrap') || normalizedId.includes('bootstrap')) {
             return 'bootstrap'
           }
 
-          if (id.includes('react-router') || id.includes('@remix-run')) {
+          if (normalizedId.includes('react-router') || normalizedId.includes('@remix-run')) {
             return 'router'
+          }
+
+          if (normalizedId.includes('lucide-react') || normalizedId.includes('bootstrap-icons')) {
+            return 'icons'
           }
 
           return 'vendor'

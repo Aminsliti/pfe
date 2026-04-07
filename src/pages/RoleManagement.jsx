@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth, PERMISSIONS } from '../contexts/AuthContext';
+import { useAuth, PERMISSIONS, ROLES } from '../contexts/AuthContext';
 import { 
   Container, 
   Row, 
@@ -48,13 +48,6 @@ export function RoleManagement() {
     setSelectedPermissions(role.permissions?.map(p => p.id) || []);
     setIsEditing(true);
     setIsCreating(false);
-  };
-
-  const handleCreateRole = () => {
-    setEditingRole({ name: '', description: '' });
-    setSelectedPermissions([]);
-    setIsEditing(true);
-    setIsCreating(true);
   };
 
   const handleSaveRole = async () => {
@@ -129,19 +122,17 @@ export function RoleManagement() {
     return permName;
   };
 
+  const displayRoleName = (roleName) => roleName;
+
   const getRoleBadgeVariant = (roleName) => {
     switch (roleName) {
-      case 'Administrator':
+      case ROLES.ADMIN:
         return 'danger';
-      case 'Company Administrator':
+      case ROLES.DESIGNER:
         return 'primary';
-      case 'Business Analyst':
-        return 'info';
-      case 'Process Owner':
-        return 'success';
-      case 'Risk Manager':
+      case ROLES.VALIDATOR:
         return 'warning';
-      case 'Viewer':
+      case ROLES.PROCESS_OBSERVER:
         return 'secondary';
       default:
         return 'secondary';
@@ -150,17 +141,13 @@ export function RoleManagement() {
 
   const getRoleHeaderVariant = (roleName) => {
     switch (roleName) {
-      case 'Administrator':
+      case ROLES.ADMIN:
         return 'bg-danger';
-      case 'Company Administrator':
+      case ROLES.DESIGNER:
         return 'bg-primary';
-      case 'Business Analyst':
-        return 'bg-info';
-      case 'Process Owner':
-        return 'bg-success';
-      case 'Risk Manager':
+      case ROLES.VALIDATOR:
         return 'bg-warning';
-      case 'Viewer':
+      case ROLES.PROCESS_OBSERVER:
         return 'bg-secondary';
       default:
         return 'bg-secondary';
@@ -186,9 +173,9 @@ export function RoleManagement() {
         <Col>
           <div className="d-flex justify-content-between align-items-center">
             <h2>Role & Permission Management</h2>
-            <Button variant="success" onClick={handleCreateRole}>
-              <i className="bi bi-plus-circle me-2"></i>Create New Role
-            </Button>
+            <Badge bg="light" text="dark" className="px-3 py-2">
+              Fixed governance roles
+            </Badge>
           </div>
         </Col>
       </Row>
@@ -212,7 +199,7 @@ export function RoleManagement() {
               style={{ cursor: 'pointer' }}
             >
               <Card.Header className={`d-flex justify-content-between align-items-center ${getRoleHeaderVariant(role.name)}`}>
-                <h5 className="mb-0 text-white">{role.name}</h5>
+                <h5 className="mb-0 text-white">{displayRoleName(role.name)}</h5>
                 <div>
                   <Button
                     variant="outline-light"
@@ -226,20 +213,6 @@ export function RoleManagement() {
                   >
                     <i className="bi bi-pencil-fill"></i>
                   </Button>
-                  {role.name !== 'Administrator' && (
-                    <Button
-                      variant="outline-light"
-                      size="sm"
-                      className="border-white text-white"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteRole(role);
-                      }}
-                      title="Delete Role"
-                    >
-                      <i className="bi bi-trash-fill"></i>
-                    </Button>
-                  )}
                 </div>
               </Card.Header>
               <Card.Body className="bg-white">
@@ -255,7 +228,7 @@ export function RoleManagement() {
               </Card.Body>
               <Card.Footer className="bg-transparent">
                 <Badge bg={getRoleBadgeVariant(role.name)} className="w-100 justify-content-center">
-                  {role.name}
+                  {displayRoleName(role.name)}
                 </Badge>
               </Card.Footer>
             </Card>
@@ -285,9 +258,9 @@ export function RoleManagement() {
         </Col>
       </Row>
 
-      <Modal show={isEditing} onHide={handleCancelEdit} size="lg">
+        <Modal show={isEditing} onHide={handleCancelEdit} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>{isCreating ? 'Create New Role' : 'Edit Role'}</Modal.Title>
+          <Modal.Title>Edit Role</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form onSubmit={(e) => { e.preventDefault(); handleSaveRole(); }}>
@@ -298,7 +271,9 @@ export function RoleManagement() {
                 value={editingRole?.name || ''}
                 onChange={(e) => setEditingRole({ ...editingRole, name: e.target.value })}
                 placeholder="Enter role name"
+                disabled
               />
+              <Form.Text className="text-muted">Core role names are fixed and only their permissions can be adjusted.</Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-3">
@@ -340,7 +315,7 @@ export function RoleManagement() {
                 Cancel
               </Button>
               <Button variant="primary" type="submit">
-                {isCreating ? 'Create' : 'Save'}
+                Save
               </Button>
             </div>
           </Form>

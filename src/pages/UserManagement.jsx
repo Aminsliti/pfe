@@ -21,9 +21,36 @@ const EMPTY_FORM = {
   password: '',
   email: '',
   fullName: '',
-  role: ROLES.VIEWER,
+  role: ROLES.PROCESS_OBSERVER,
   companyId: '',
+  additionalRoles: [],
 };
+
+function requiresCompanyAssignment(primaryRole, additionalRoles = []) {
+  const effectiveRoles = [primaryRole, ...additionalRoles.map((item) => item.role)].filter(Boolean);
+  return !effectiveRoles.includes(ROLES.ADMIN);
+}
+
+function formatExpiryLabel(expiresOn) {
+  if (!expiresOn) {
+    return 'Permanent';
+  }
+
+  const parsed = new Date(`${expiresOn}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return expiresOn;
+  }
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(parsed);
+}
+
+function displayRoleLabel(role) {
+  return role;
+}
 
 export function UserManagement() {
   const {
@@ -34,7 +61,6 @@ export function UserManagement() {
     updateUser,
     deleteUser,
     isGlobalAdmin,
-    isCompanyAdmin,
   } = useAuth();
   const [users, setUsers] = useState([]);
   const [companies, setCompanies] = useState([]);
@@ -46,21 +72,7 @@ export function UserManagement() {
   const [error, setError] = useState('');
 
   const globalAdmin = isGlobalAdmin();
-  const companyAdmin = isCompanyAdmin();
-
-  const roleOptions = useMemo(() => {
-    if (globalAdmin) {
-      return Object.values(ROLES);
-    }
-
-    return [
-      ROLES.COMPANY_ADMINISTRATOR,
-      ROLES.BUSINESS_ANALYST,
-      ROLES.PROCESS_OWNER,
-      ROLES.RISK_MANAGER,
-      ROLES.VIEWER,
-    ];
-  }, [globalAdmin]);
+  const roleOptions = useMemo(() => Object.values(ROLES), []);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -94,6 +106,7 @@ export function UserManagement() {
       item.fullName,
       item.email,
       item.role,
+      ...(item.additionalRoles || []).map((roleItem) => roleItem.role),
       item.companyName,
     ]
       .filter(Boolean)
@@ -107,8 +120,9 @@ export function UserManagement() {
     setEditingUser(null);
     setFormData({
       ...EMPTY_FORM,
-      role: roleOptions[0] || ROLES.VIEWER,
+      role: roleOptions[0] || ROLES.PROCESS_OBSERVER,
       companyId: globalAdmin ? '' : String(company?.id || ''),
+      additionalRoles: [],
     });
   };
 
@@ -125,8 +139,12 @@ export function UserManagement() {
       password: '',
       email: selectedUser.email || '',
       fullName: selectedUser.fullName || '',
-      role: selectedUser.role || ROLES.VIEWER,
+      role: selectedUser.role || ROLES.PROCESS_OBSERVER,
       companyId: selectedUser.companyId ? String(selectedUser.companyId) : '',
+      additionalRoles: (selectedUser.additionalRoles || []).map((item) => ({
+        role: item.role || '',
+        expiresOn: item.expiresOn || '',
+      })),
     });
     setError('');
     setShowModal(true);
@@ -159,8 +177,8 @@ export function UserManagement() {
       return;
     }
 
-    if (formData.role !== ROLES.ADMINISTRATOR && !formData.companyId) {
-      setError('A company is required for non-administrator users.');
+    if (requiresCompanyAssignment(formData.role, formData.additionalRoles) && !formData.companyId) {
+      setError('A company scope is required for non-admin users.');
       return;
     }
 
@@ -170,6 +188,12 @@ export function UserManagement() {
       fullName: formData.fullName.trim(),
       role: formData.role,
       companyId: formData.companyId ? Number(formData.companyId) : null,
+      additionalRoles: formData.additionalRoles
+        .filter((item) => item.role)
+        .map((item) => ({
+          role: item.role,
+          expiresOn: item.expiresOn || null,
+        })),
     };
 
     if (formData.password) {
@@ -189,22 +213,43 @@ export function UserManagement() {
     setShowModal(false);
   };
 
+  const updateAdditionalRole = (index, field, value) => {
+    setFormData((current) => ({
+      ...current,
+      additionalRoles: current.additionalRoles.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item
+      ),
+    }));
+  };
+
+  const addAdditionalRole = () => {
+    setFormData((current) => ({
+      ...current,
+      additionalRoles: [...current.additionalRoles, { role: '', expiresOn: '' }],
+    }));
+  };
+
+  const removeAdditionalRole = (index) => {
+    setFormData((current) => ({
+      ...current,
+      additionalRoles: current.additionalRoles.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
   const getRoleBadgeVariant = (role) => {
     switch (role) {
-      case ROLES.ADMINISTRATOR:
+      case ROLES.ADMIN:
         return 'danger';
-      case ROLES.COMPANY_ADMINISTRATOR:
+      case ROLES.DESIGNER:
         return 'primary';
-      case ROLES.BUSINESS_ANALYST:
-        return 'info';
-      case ROLES.PROCESS_OWNER:
-        return 'success';
-      case ROLES.RISK_MANAGER:
+      case ROLES.VALIDATOR:
         return 'warning';
       default:
         return 'secondary';
     }
   };
+
+  const companyRequired = requiresCompanyAssignment(formData.role, formData.additionalRoles);
 
   return (
     <Container fluid className="py-4">
@@ -215,8 +260,8 @@ export function UserManagement() {
               <h2 className="mb-1">User Management</h2>
               <p className="text-muted mb-0">
                 {globalAdmin
-                  ? 'Manage users across all companies and assign company administrators.'
-                  : `Manage users inside ${company?.name || 'your company'} only.`}
+                  ? 'Manage workspace accounts, permissions, and temporary role assignments.'
+                  : 'Manage workspace accounts and temporary role assignments.'}
               </p>
             </div>
             <Button variant="success" onClick={handleCreate}>
@@ -227,13 +272,6 @@ export function UserManagement() {
         </Col>
       </Row>
 
-      {(companyAdmin || company) && (
-        <Alert variant="info">
-          <strong>Company scope:</strong> {company?.name || 'Assigned company'}.
-          Users on this page can only access data from that company.
-        </Alert>
-      )}
-
       <Row className="mb-4">
         <Col md={7} xl={6}>
           <InputGroup>
@@ -241,7 +279,7 @@ export function UserManagement() {
               <i className="bi bi-search"></i>
             </InputGroup.Text>
             <Form.Control
-              placeholder="Search by name, email, username, role, or company..."
+              placeholder="Search by name, email, username, or role..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
             />
@@ -275,14 +313,13 @@ export function UserManagement() {
                         <th>Full Name</th>
                         <th>Email</th>
                         <th>Role</th>
-                        <th>Company</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredUsers.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="text-center py-4 text-muted">
+                          <td colSpan="6" className="text-center py-4 text-muted">
                             {searchTerm ? 'No users found matching your search.' : 'No users available.'}
                           </td>
                         </tr>
@@ -294,9 +331,18 @@ export function UserManagement() {
                             <td>{item.fullName}</td>
                             <td>{item.email}</td>
                             <td>
-                              <Badge bg={getRoleBadgeVariant(item.role)}>{item.role}</Badge>
+                              <div className="d-flex flex-wrap gap-1">
+                                <Badge bg={getRoleBadgeVariant(item.role)}>{displayRoleLabel(item.role)}</Badge>
+                                {(item.additionalRoles || [])
+                                  .filter((roleItem) => roleItem.active)
+                                  .map((roleItem) => (
+                                    <Badge key={`${item.id}-${roleItem.role}`} bg="dark">
+                                      {displayRoleLabel(roleItem.role)}
+                                      {roleItem.expiresOn ? ` until ${formatExpiryLabel(roleItem.expiresOn)}` : ''}
+                                    </Badge>
+                                  ))}
+                              </div>
                             </td>
-                            <td>{item.companyName || 'No company'}</td>
                             <td>
                               <Button
                                 variant="outline-primary"
@@ -396,33 +442,93 @@ export function UserManagement() {
                     required
                   >
                     {roleOptions.map((role) => (
-                      <option key={role} value={role}>{role}</option>
+                      <option key={role} value={role}>{displayRoleLabel(role)}</option>
                     ))}
                   </Form.Select>
                 </Form.Group>
               </Col>
-              <Col md={6}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Company {formData.role === ROLES.ADMINISTRATOR ? '(optional)' : '*'}</Form.Label>
-                  <Form.Select
-                    value={formData.companyId}
-                    disabled={!globalAdmin}
-                    onChange={(event) => setFormData((current) => ({ ...current, companyId: event.target.value }))}
-                    required={formData.role !== ROLES.ADMINISTRATOR}
-                  >
-                    <option value="">Select company</option>
-                    {companies.map((item) => (
-                      <option key={item.id} value={item.id}>{item.name}</option>
-                    ))}
-                  </Form.Select>
-                  {!globalAdmin && (
-                    <Form.Text>
-                      Company administrators can only create or edit users inside their own company.
-                    </Form.Text>
-                  )}
-                </Form.Group>
-              </Col>
+              {globalAdmin && (
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Access scope {companyRequired ? '*' : '(optional)'}</Form.Label>
+                    <Form.Select
+                      value={formData.companyId}
+                      onChange={(event) => setFormData((current) => ({ ...current, companyId: event.target.value }))}
+                      required={companyRequired}
+                    >
+                      <option value="">Select organisation</option>
+                      {companies.map((item) => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+              )}
             </Row>
+
+            <div className="border rounded-3 p-3 mb-3 bg-light">
+              <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                <div>
+                  <Form.Label className="mb-1">Additional roles</Form.Label>
+                  <div className="text-muted small">
+                    Add temporary or permanent extra roles. A dated role stops granting access after that day.
+                  </div>
+                </div>
+                <Button type="button" variant="outline-secondary" size="sm" onClick={addAdditionalRole}>
+                  <i className="bi bi-plus-circle me-2"></i>
+                  Add role
+                </Button>
+              </div>
+
+              {formData.additionalRoles.length === 0 ? (
+                <div className="text-muted small">No additional roles assigned.</div>
+              ) : (
+                <div className="d-flex flex-column gap-3">
+                  {formData.additionalRoles.map((item, index) => (
+                    <Row key={`extra-role-${index}`} className="g-2 align-items-end">
+                      <Col md={6}>
+                        <Form.Group>
+                          <Form.Label className="small text-muted">Role</Form.Label>
+                          <Form.Select
+                            value={item.role}
+                            onChange={(event) => updateAdditionalRole(index, 'role', event.target.value)}
+                          >
+                            <option value="">Select additional role</option>
+                            {roleOptions
+                              .filter((roleOption) => roleOption !== formData.role)
+                              .map((roleOption) => (
+                                <option key={`${index}-${roleOption}`} value={roleOption}>
+                                  {displayRoleLabel(roleOption)}
+                                </option>
+                              ))}
+                          </Form.Select>
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group>
+                          <Form.Label className="small text-muted">Valid until</Form.Label>
+                          <Form.Control
+                            type="date"
+                            value={item.expiresOn}
+                            onChange={(event) => updateAdditionalRole(index, 'expiresOn', event.target.value)}
+                          />
+                        </Form.Group>
+                      </Col>
+                      <Col md={2}>
+                        <Button
+                          type="button"
+                          variant="outline-danger"
+                          className="w-100"
+                          onClick={() => removeAdditionalRole(index)}
+                        >
+                          Remove
+                        </Button>
+                      </Col>
+                    </Row>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="d-flex justify-content-end gap-2">
               <Button variant="secondary" onClick={() => setShowModal(false)}>

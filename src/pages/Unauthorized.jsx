@@ -1,8 +1,12 @@
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { getHomePath } from '../utils/navigation';
 import './Unauthorized.css';
 
 export function Unauthorized() {
   const navigate = useNavigate();
+  const { user, permissions } = useAuth();
+  const homePath = getHomePath(user, permissions);
 
   return (
     <div className="unauthorized">
@@ -14,8 +18,8 @@ export function Unauthorized() {
         <button onClick={() => navigate(-1)} className="back-button">
           Go Back
         </button>
-        <button onClick={() => navigate('/dashboard')} className="home-button">
-          Go to Dashboard
+        <button onClick={() => navigate(homePath)} className="home-button">
+          Go to Home
         </button>
       </div>
     </div>
@@ -23,4 +27,3 @@ export function Unauthorized() {
 }
 
 export default Unauthorized;
-

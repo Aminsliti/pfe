@@ -4,11 +4,14 @@ import pool from '../db.js';
 import {
   buildRequestUser,
   canManageRoles,
+  canonicalizeRoleName,
   ensurePermission,
   ensureCompanyAccess,
+  ensureUserRoleAssignmentsTable,
   isGlobalAdmin,
   sanitizeUserPayloadForRole,
   PERMISSIONS,
+  ROLES,
 } from '../utils/access.js';
 import { logAuditEvent } from '../utils/auditLog.js';
 import { createNotification } from '../utils/collaboration.js';
@@ -21,13 +24,158 @@ function normalizeCompanyId(value) {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
-function validateScopedUserCompany(res, role, companyId) {
-  if (role !== 'Administrator' && !companyId) {
-    res.status(400).json({ error: 'Non-administrator users must be assigned to a company.' });
+function normalizeExpiresOn(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+function normalizeAdditionalRoles(rawRoles, primaryRole, actor) {
+  if (!Array.isArray(rawRoles)) {
+    return [];
+  }
+
+  const allowedRoles = new Set(Object.values(ROLES));
+  const seen = new Set();
+  const normalized = [];
+
+  for (const item of rawRoles) {
+    const roleName = canonicalizeRoleName(item?.role);
+
+    if (!allowedRoles.has(roleName) || roleName === primaryRole || seen.has(roleName)) {
+      continue;
+    }
+
+    if (!isGlobalAdmin(actor) && roleName === ROLES.ADMIN) {
+      continue;
+    }
+
+    const expiresOn = normalizeExpiresOn(item?.expiresOn);
+    if (item?.expiresOn && !expiresOn) {
+      throw new Error(`Invalid expiration date for additional role "${roleName}".`);
+    }
+
+    seen.add(roleName);
+    normalized.push({ role: roleName, expiresOn });
+  }
+
+  return normalized;
+}
+
+function requiresCompanyAssignment(primaryRole, additionalRoles = []) {
+  const effectiveRoles = [primaryRole, ...additionalRoles.map((item) => item.role)];
+  return !effectiveRoles.includes(ROLES.ADMIN);
+}
+
+function validateScopedUserCompany(res, role, companyId, additionalRoles = []) {
+  if (requiresCompanyAssignment(role, additionalRoles) && !companyId) {
+    res.status(400).json({ error: 'Non-admin users must be assigned to a company.' });
     return false;
   }
 
   return true;
+}
+
+function mapRoleAssignmentRow(row) {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    role: canonicalizeRoleName(row.role_name),
+    expiresOn: row.expires_on,
+    assignedBy: row.assigned_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    active: !row.expires_on || row.expires_on >= today,
+  };
+}
+
+async function loadAdditionalRolesForUsers(userIds) {
+  const normalizedIds = [...new Set((userIds || []).map((id) => Number(id)).filter(Number.isInteger))];
+  if (!normalizedIds.length) {
+    return new Map();
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          user_id,
+          role_name,
+          expires_on,
+          assigned_by,
+          created_at,
+          updated_at
+        FROM user_role_assignments
+        WHERE user_id = ANY($1::int[])
+        ORDER BY user_id, role_name
+      `,
+      [normalizedIds]
+    );
+
+    const assignments = new Map();
+    for (const row of result.rows) {
+      const mapped = mapRoleAssignmentRow(row);
+      const bucket = assignments.get(row.user_id) || [];
+      bucket.push(mapped);
+      assignments.set(row.user_id, bucket);
+    }
+
+    return assignments;
+  } catch (error) {
+    if (error?.code === '42P01') {
+      return new Map();
+    }
+
+    throw error;
+  }
+}
+
+function buildUserResponse(row, additionalRoles = []) {
+  const primaryRole = canonicalizeRoleName(row.role);
+  const activeRoles = [...new Set([primaryRole, ...additionalRoles.filter((item) => item.active).map((item) => item.role)])];
+
+  return {
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    fullName: row.full_name,
+    role: primaryRole,
+    primaryRole,
+    activeRoles,
+    additionalRoles,
+    companyId: row.company_id,
+    companyName: row.company_name || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function syncAdditionalRoles(userId, primaryRole, additionalRoles, assignedBy) {
+  if (additionalRoles === undefined) {
+    return;
+  }
+
+  await ensureUserRoleAssignmentsTable();
+  await pool.query('DELETE FROM user_role_assignments WHERE user_id = $1', [userId]);
+
+  for (const assignment of additionalRoles) {
+    if (!assignment?.role || assignment.role === primaryRole) {
+      continue;
+    }
+
+    await pool.query(
+      `
+        INSERT INTO user_role_assignments (user_id, role_name, expires_on, assigned_by, updated_at)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      `,
+      [userId, assignment.role, assignment.expiresOn, assignedBy]
+    );
+  }
 }
 
 // Login
@@ -59,6 +207,27 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/session', async (req, res) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    const requestUser = await buildRequestUser(req.user.id);
+    if (!requestUser) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    res.json({
+      user: requestUser,
+      permissions: requestUser.permissions || [],
+    });
+  } catch (error) {
+    console.error('Session refresh error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -97,18 +266,9 @@ router.get('/users', async (req, res) => {
       query,
       params
     );
-    
-    const users = result.rows.map(user => ({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      fullName: user.full_name,
-      role: user.role,
-      companyId: user.company_id,
-      companyName: user.company_name,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at
-    }));
+
+    const assignmentsByUser = await loadAdditionalRolesForUsers(result.rows.map((row) => row.id));
+    const users = result.rows.map((userRow) => buildUserResponse(userRow, assignmentsByUser.get(userRow.id) || []));
     
     res.json(users);
   } catch (error) {
@@ -126,13 +286,23 @@ router.post('/users', async (req, res) => {
 
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
     const { username, password, email, fullName, role, companyId } = scopedPayload;
+    const primaryRole = canonicalizeRoleName(role);
+    if (!Object.values(ROLES).includes(primaryRole)) {
+      return res.status(400).json({ error: 'Invalid role selection.' });
+    }
+    let additionalRoles;
+    try {
+      additionalRoles = normalizeAdditionalRoles(scopedPayload.additionalRoles, primaryRole, req.user);
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
+    }
     const nextCompanyId = isGlobalAdmin(req.user) ? normalizeCompanyId(companyId) : req.user.companyId;
 
     if (!nextCompanyId && !isGlobalAdmin(req.user)) {
-      return res.status(400).json({ error: 'A company administrator must belong to a company.' });
+      return res.status(400).json({ error: 'A scoped admin must belong to a company.' });
     }
 
-    if (!validateScopedUserCompany(res, role, nextCompanyId)) {
+    if (!validateScopedUserCompany(res, primaryRole, nextCompanyId, additionalRoles)) {
       return;
     }
     
@@ -155,22 +325,24 @@ router.post('/users', async (req, res) => {
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id, username, email, full_name, role, company_id
       `,
-      [username, hashedPassword, email, fullName, role, nextCompanyId]
+      [username, hashedPassword, email, fullName, primaryRole, nextCompanyId]
     );
     
     const user = result.rows[0];
+    await syncAdditionalRoles(user.id, user.role, additionalRoles, req.user.id);
     const companyResult = user.company_id
       ? await pool.query('SELECT name FROM companies WHERE id = $1', [user.company_id])
       : { rows: [] };
-    res.status(201).json({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      fullName: user.full_name,
-      role: user.role,
-      companyId: user.company_id,
-      companyName: companyResult.rows[0]?.name || null,
-    });
+    const assignmentsByUser = await loadAdditionalRolesForUsers([user.id]);
+    res.status(201).json(
+      buildUserResponse(
+        {
+          ...user,
+          company_name: companyResult.rows[0]?.name || null,
+        },
+        assignmentsByUser.get(user.id) || []
+      )
+    );
 
     await logAuditEvent({
       actor: req.user,
@@ -182,6 +354,7 @@ router.post('/users', async (req, res) => {
       details: {
         role: user.role,
         email: user.email,
+        additionalRoles,
       },
     });
 
@@ -210,6 +383,16 @@ router.put('/users/:id', async (req, res) => {
     const { id } = req.params;
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
     const { username, password, email, fullName, role, companyId } = scopedPayload;
+    const primaryRole = canonicalizeRoleName(role);
+    if (!Object.values(ROLES).includes(primaryRole)) {
+      return res.status(400).json({ error: 'Invalid role selection.' });
+    }
+    let additionalRoles;
+    try {
+      additionalRoles = normalizeAdditionalRoles(scopedPayload.additionalRoles, primaryRole, req.user);
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
+    }
 
     const existingUser = await pool.query(
       'SELECT id, company_id, role FROM users WHERE id = $1',
@@ -228,7 +411,7 @@ router.put('/users/:id', async (req, res) => {
       ? normalizeCompanyId(companyId)
       : existingUser.rows[0].company_id;
 
-    if (!validateScopedUserCompany(res, role, nextCompanyId)) {
+    if (!validateScopedUserCompany(res, primaryRole, nextCompanyId, additionalRoles)) {
       return;
     }
     
@@ -241,7 +424,7 @@ router.put('/users/:id', async (req, res) => {
           company_id = $5,
           updated_at = CURRENT_TIMESTAMP
     `;
-    let params = [username, email, fullName, role, nextCompanyId, id];
+    let params = [username, email, fullName, primaryRole, nextCompanyId, id];
     
     // If password is provided, hash and update it
     if (password) {
@@ -256,7 +439,7 @@ router.put('/users/:id', async (req, res) => {
             company_id = $6,
             updated_at = CURRENT_TIMESTAMP
       `;
-      params = [username, hashedPassword, email, fullName, role, nextCompanyId, id];
+      params = [username, hashedPassword, email, fullName, primaryRole, nextCompanyId, id];
     }
     
     query += ' WHERE id = $' + params.length + ' RETURNING id, username, email, full_name, role, company_id';
@@ -268,18 +451,20 @@ router.put('/users/:id', async (req, res) => {
     }
     
     const user = result.rows[0];
+    await syncAdditionalRoles(user.id, user.role, additionalRoles, req.user.id);
     const companyResult = user.company_id
       ? await pool.query('SELECT name FROM companies WHERE id = $1', [user.company_id])
       : { rows: [] };
-    res.json({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      fullName: user.full_name,
-      role: user.role,
-      companyId: user.company_id,
-      companyName: companyResult.rows[0]?.name || null,
-    });
+    const assignmentsByUser = await loadAdditionalRolesForUsers([user.id]);
+    res.json(
+      buildUserResponse(
+        {
+          ...user,
+          company_name: companyResult.rows[0]?.name || null,
+        },
+        assignmentsByUser.get(user.id) || []
+      )
+    );
 
     await logAuditEvent({
       actor: req.user,
@@ -291,6 +476,7 @@ router.put('/users/:id', async (req, res) => {
       details: {
         role: user.role,
         email: user.email,
+        additionalRoles,
       },
     });
 
@@ -367,7 +553,7 @@ router.delete('/users/:id', async (req, res) => {
 router.get('/roles', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const result = await pool.query('SELECT * FROM roles ORDER BY id');
     res.json(result.rows);
@@ -381,7 +567,7 @@ router.get('/roles', async (req, res) => {
 router.get('/permissions', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const result = await pool.query('SELECT * FROM permissions ORDER BY id');
     res.json(result.rows);
@@ -395,7 +581,7 @@ router.get('/permissions', async (req, res) => {
 router.get('/roles/:roleId/permissions', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const { roleId } = req.params;
     const result = await pool.query(
@@ -415,7 +601,7 @@ router.get('/roles/:roleId/permissions', async (req, res) => {
 router.get('/roles-with-permissions', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const rolesResult = await pool.query('SELECT * FROM roles ORDER BY id');
     const roles = rolesResult.rows;
@@ -448,7 +634,7 @@ router.get('/roles-with-permissions', async (req, res) => {
 router.put('/roles/:roleId/permissions', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const { roleId } = req.params;
     const { permissionIds } = req.body;
@@ -496,36 +682,9 @@ router.put('/roles/:roleId/permissions', async (req, res) => {
 router.post('/roles', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
-    const { name, description } = req.body;
-    
-    const result = await pool.query(
-      'INSERT INTO roles (name, description) VALUES ($1, $2) RETURNING id, name, description',
-      [name, description]
-    );
-    
-    const role = result.rows[0];
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'role',
-      entityId: role.id,
-      companyId: null,
-      action: 'create',
-      summary: `Created role "${role.name}"`,
-      details: {
-        description: role.description,
-      },
-    });
-    await createNotification({
-      type: 'admin_action',
-      title: 'Role created',
-      message: `${req.user.fullName || req.user.username} created the role ${role.name}.`,
-      entityType: 'role',
-      entityId: role.id,
-      severity: 'info',
-    });
-    res.status(201).json(role);
+    return res.status(400).json({ error: 'The role catalog is fixed. Update permissions on the existing roles instead.' });
   } catch (error) {
     console.error('Create role error:', error);
     if (error.code === '23505') {
@@ -540,14 +699,21 @@ router.post('/roles', async (req, res) => {
 router.put('/roles/:id', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const { id } = req.params;
     const { name, description } = req.body;
+    const existingRole = await pool.query('SELECT id, name FROM roles WHERE id = $1', [id]);
+    if (!existingRole.rows.length) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+    if (name && name !== existingRole.rows[0].name) {
+      return res.status(400).json({ error: 'Role names are fixed and cannot be renamed.' });
+    }
     
     const result = await pool.query(
       'UPDATE roles SET name = $1, description = $2 WHERE id = $3 RETURNING id, name, description',
-      [name, description, id]
+      [existingRole.rows[0].name, description, id]
     );
     
     if (result.rows.length === 0) {
@@ -590,12 +756,29 @@ router.put('/roles/:id', async (req, res) => {
 router.delete('/roles/:id', async (req, res) => {
   try {
     if (!canManageRoles(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can manage roles.' });
+      return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
     const { id } = req.params;
+    const roleResult = await pool.query('SELECT id, name FROM roles WHERE id = $1', [id]);
+    if (!roleResult.rows.length) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+    if (Object.values(ROLES).includes(roleResult.rows[0].name)) {
+      return res.status(400).json({ error: 'Core roles cannot be deleted.' });
+    }
     
     // Check if role is being used by users
-    const usersWithRole = await pool.query('SELECT COUNT(*) FROM users WHERE role = (SELECT name FROM roles WHERE id = $1)', [id]);
+    await ensureUserRoleAssignmentsTable();
+    const usersWithRole = await pool.query(
+      `
+        SELECT (
+          (SELECT COUNT(*)::int FROM users WHERE role = (SELECT name FROM roles WHERE id = $1))
+          +
+          (SELECT COUNT(*)::int FROM user_role_assignments WHERE role_name = (SELECT name FROM roles WHERE id = $1))
+        ) AS count
+      `,
+      [id]
+    );
     
     if (parseInt(usersWithRole.rows[0].count) > 0) {
       return res.status(400).json({ error: 'Cannot delete role that is assigned to users' });

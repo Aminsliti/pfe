@@ -8,8 +8,11 @@ import {
   ensureAuthenticated,
   ensureCompanyAccess,
   ensurePermission,
+  hasRole,
+  isAdmin,
   isCompanyAdmin,
   isGlobalAdmin,
+  ROLES,
 } from '../utils/access.js';
 import { logAuditEvent } from '../utils/auditLog.js';
 import {
@@ -18,6 +21,11 @@ import {
   normalizeProcessStatus,
 } from '../utils/processDiff.js';
 import { createNotification } from '../utils/collaboration.js';
+import {
+  buildProcessExplanation,
+  buildProcessReportHtml,
+  buildProcessReportPdf,
+} from '../utils/processNarrative.js';
 
 const router = express.Router();
 const uploadDir = path.resolve(process.cwd(), 'server', 'uploads');
@@ -113,6 +121,31 @@ async function ensureProcessEnhancements() {
         CREATE INDEX IF NOT EXISTS idx_process_workflow_comments_process
         ON process_workflow_comments(process_id, created_at DESC)
       `);
+
+      await pool.query(`
+        ALTER TABLE process_categories
+        ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES process_categories(id) ON DELETE SET NULL
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_categories
+        ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_categories
+        ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_process_categories_parent
+        ON process_categories(parent_id, name)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_process_categories_company
+        ON process_categories(company_id, name)
+      `);
     })().catch((error) => {
       processSchemaPromise = null;
       throw error;
@@ -201,12 +234,63 @@ async function getProcessById(id) {
   return result.rows[0] || null;
 }
 
+async function getCategoryById(id) {
+  const result = await pool.query(
+    `
+      SELECT
+        pc.*,
+        parent.name AS parent_name,
+        c.name AS company_name
+      FROM process_categories pc
+      LEFT JOIN process_categories parent ON parent.id = pc.parent_id
+      LEFT JOIN companies c ON c.id = pc.company_id
+      WHERE pc.id = $1
+    `,
+    [id]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function getDescendantCategoryIds(categoryId) {
+  const normalizedCategoryId = normalizeInteger(categoryId, null);
+  if (!normalizedCategoryId) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      WITH RECURSIVE category_tree AS (
+        SELECT id
+        FROM process_categories
+        WHERE id = $1
+        UNION ALL
+        SELECT child.id
+        FROM process_categories child
+        JOIN category_tree parent_tree ON parent_tree.id = child.parent_id
+      )
+      SELECT id FROM category_tree
+    `,
+    [normalizedCategoryId]
+  );
+
+  return result.rows.map((row) => row.id);
+}
+
 function resolveProcessCompanyId(req, requestedCompanyId, fallbackCompanyId = null) {
   if (isGlobalAdmin(req.user)) {
     return normalizeInteger(requestedCompanyId, fallbackCompanyId);
   }
 
   return req.user.companyId ?? null;
+}
+
+function resolveCategoryCompanyId(req, requestedCompanyId, fallbackCompanyId = null) {
+  if (isGlobalAdmin(req.user)) {
+    return normalizeInteger(requestedCompanyId, fallbackCompanyId);
+  }
+
+  return req.user.companyId ?? fallbackCompanyId ?? null;
 }
 
 function ensureAssignedCompany(req, res, companyId) {
@@ -216,6 +300,95 @@ function ensureAssignedCompany(req, res, companyId) {
 
   res.status(400).json({ error: 'A company must be assigned to this record.' });
   return false;
+}
+
+function canCreateProcessDefinition(user) {
+  return isAdmin(user) || hasRole(user, ROLES.DESIGNER);
+}
+
+function canEditProcessDefinition(user, process) {
+  if (!process) {
+    return false;
+  }
+
+  return isAdmin(user) || (hasRole(user, ROLES.DESIGNER) && normalizeProcessStatus(process.status, 'draft') === 'draft');
+}
+
+function canDeleteProcessDefinition(user, process) {
+  if (!process) {
+    return false;
+  }
+
+  return isAdmin(user) || (hasRole(user, ROLES.DESIGNER) && normalizeProcessStatus(process.status, 'draft') === 'draft');
+}
+
+function canSubmitProcessForReview(user) {
+  return isAdmin(user) || hasRole(user, ROLES.DESIGNER);
+}
+
+function canApproveProcess(user) {
+  return isAdmin(user) || hasRole(user, ROLES.VALIDATOR);
+}
+
+function canRequestProcessChange(user) {
+  return isAdmin(user) || hasRole(user, ROLES.DESIGNER);
+}
+
+async function getGovernanceRecipientIds(companyId, roles = []) {
+  const normalizedRoles = [...new Set(roles.filter(Boolean))];
+  if (!normalizedRoles.length) {
+    return [];
+  }
+
+  const params = [normalizedRoles];
+  let query = `
+    SELECT DISTINCT u.id
+    FROM users u
+    LEFT JOIN user_role_assignments ura
+      ON ura.user_id = u.id
+      AND (ura.expires_on IS NULL OR ura.expires_on >= CURRENT_DATE)
+    WHERE (u.role = ANY($1::text[]) OR ura.role_name = ANY($1::text[]))
+  `;
+
+  if (companyId) {
+    query += ' AND u.company_id = $2';
+    params.push(companyId);
+  } else {
+    query += ' AND u.company_id IS NULL';
+  }
+
+  const result = await pool.query(query, params);
+  return result.rows.map((row) => row.id);
+}
+
+async function notifyRoleRecipients({
+  actor,
+  companyId,
+  roles,
+  type,
+  title,
+  message,
+  entityId,
+  severity = 'info',
+}) {
+  const recipientIds = await getGovernanceRecipientIds(companyId, roles);
+
+  await Promise.all(
+    recipientIds
+      .filter((recipientId) => Number(recipientId) !== Number(actor?.id))
+      .map((recipientId) =>
+        createNotification({
+          userId: recipientId,
+          companyId,
+          type,
+          title,
+          message,
+          entityType: 'process',
+          entityId,
+          severity,
+        })
+      )
+  );
 }
 
 function cleanupUploadedFile(file) {
@@ -314,6 +487,8 @@ function resolveWorkflowTransition(action, currentStatus) {
       return { nextStatus: 'review', changeDescription: 'Submitted for review' };
     case 'approve':
       return { nextStatus: 'approved', changeDescription: 'Approved process' };
+    case 'request_change':
+      return { nextStatus: normalized, changeDescription: 'Requested change to approved process' };
     case 'return_draft':
       return { nextStatus: 'draft', changeDescription: 'Returned to draft' };
     case 'archive':
@@ -383,8 +558,9 @@ router.get('/processes', async (req, res) => {
 
     const categoryId = normalizeInteger(category, null);
     if (categoryId) {
-      query += ` AND p.category_id = $${paramIndex}`;
-      params.push(categoryId);
+      const categoryIds = await getDescendantCategoryIds(categoryId);
+      query += ` AND p.category_id = ANY($${paramIndex}::int[])`;
+      params.push(categoryIds.length ? categoryIds : [categoryId]);
       paramIndex += 1;
     }
 
@@ -444,7 +620,15 @@ router.get('/processes/:id', async (req, res) => {
 
 router.post('/processes', async (req, res) => {
   try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    if (!canCreateProcessDefinition(req.user)) {
+      return res.status(403).json({ error: 'Only admins and designers can create processes.' });
+    }
+
+    if (!hasRole(req.user, ROLES.ADMIN) && !ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
       return;
     }
 
@@ -501,7 +685,7 @@ router.post('/processes', async (req, res) => {
 
 router.put('/processes/:id', async (req, res) => {
   try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+    if (!ensureAuthenticated(req, res)) {
       return;
     }
 
@@ -512,6 +696,10 @@ router.put('/processes/:id', async (req, res) => {
 
     if (!ensureCompanyAccess(req, res, currentProcess.company_id)) {
       return;
+    }
+
+    if (!canEditProcessDefinition(req.user, currentProcess)) {
+      return res.status(403).json({ error: 'This process can only be edited by an admin or by a designer while it is still in draft.' });
     }
 
     const {
@@ -602,7 +790,7 @@ router.put('/processes/:id', async (req, res) => {
 
 router.delete('/processes/:id', async (req, res) => {
   try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+    if (!ensureAuthenticated(req, res)) {
       return;
     }
 
@@ -613,6 +801,10 @@ router.delete('/processes/:id', async (req, res) => {
 
     if (!ensureCompanyAccess(req, res, process.company_id)) {
       return;
+    }
+
+    if (!canDeleteProcessDefinition(req.user, process)) {
+      return res.status(403).json({ error: 'Only admins or designers working on a draft can delete this process.' });
     }
 
     await pool.query('DELETE FROM processes WHERE id = $1', [req.params.id]);
@@ -637,7 +829,17 @@ router.delete('/processes/:id', async (req, res) => {
 
 router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => {
   try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+    if (!ensureAuthenticated(req, res)) {
+      cleanupUploadedFile(req.file);
+      return;
+    }
+
+    if (!canCreateProcessDefinition(req.user)) {
+      cleanupUploadedFile(req.file);
+      return res.status(403).json({ error: 'Only admins and designers can import BPMN processes.' });
+    }
+
+    if (!hasRole(req.user, ROLES.ADMIN) && !ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
       cleanupUploadedFile(req.file);
       return;
     }
@@ -664,7 +866,9 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       return res.status(400).json({ error: 'Invalid BPMN file format' });
     }
 
-    const initialStatus = normalizeProcessStatus(status, 'draft');
+    const initialStatus = isAdmin(req.user)
+      ? normalizeProcessStatus(status, 'draft')
+      : 'draft';
 
     const result = await pool.query(
       `
@@ -763,6 +967,112 @@ router.get('/processes/:id/export', async (req, res) => {
   }
 });
 
+router.get('/processes/:id/explanation', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    const process = await getProcessById(req.params.id);
+    if (!process) {
+      return res.status(404).json({ error: 'Process not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, process.company_id)) {
+      return;
+    }
+
+    const workflow = {
+      process_id: process.id,
+      status: normalizeProcessStatus(process.status, 'draft'),
+      submitted_at: process.submitted_at,
+      approved_at: process.approved_at,
+      approved_by: process.approved_by,
+      approved_by_name: process.approved_by_name || null,
+      archived_at: process.archived_at,
+      comments: await getWorkflowComments(process.id),
+    };
+
+    res.json({
+      process: serializeProcessRecord(process),
+      explanation: buildProcessExplanation(process, workflow),
+    });
+  } catch (error) {
+    console.error('Get process explanation error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+async function sendProcessReport(req, res, { format = 'html', diagramImageDataUrl = null } = {}) {
+  const process = await getProcessById(req.params.id);
+  if (!process) {
+    res.status(404).json({ error: 'Process not found' });
+    return;
+  }
+
+  if (!ensureCompanyAccess(req, res, process.company_id)) {
+    return;
+  }
+
+  const workflow = {
+    process_id: process.id,
+    status: normalizeProcessStatus(process.status, 'draft'),
+    submitted_at: process.submitted_at,
+    approved_at: process.approved_at,
+    approved_by: process.approved_by,
+    approved_by_name: process.approved_by_name || null,
+    archived_at: process.archived_at,
+    comments: await getWorkflowComments(process.id),
+  };
+  const explanation = buildProcessExplanation(process, workflow);
+  const filenameBase =
+    String(process.name || `process-${process.id}`)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `process-${process.id}`;
+
+  if (format === 'pdf') {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-explanation.pdf"`);
+    res.send(buildProcessReportPdf(process, explanation, { diagramImageDataUrl }));
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-explanation.html"`);
+  res.send(buildProcessReportHtml(process, explanation));
+}
+
+router.get('/processes/:id/report', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+    await sendProcessReport(req, res, {
+      format: String(req.query.format || 'html').toLowerCase(),
+    });
+  } catch (error) {
+    console.error('Get process report error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/processes/:id/report', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    await sendProcessReport(req, res, {
+      format: String(req.body?.format || 'pdf').toLowerCase(),
+      diagramImageDataUrl: typeof req.body?.diagramImageDataUrl === 'string' ? req.body.diagramImageDataUrl : null,
+    });
+  } catch (error) {
+    console.error('Create process report error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.get('/processes/:id/workflow', async (req, res) => {
   try {
     if (!ensureAuthenticated(req, res)) {
@@ -797,7 +1107,11 @@ router.get('/processes/:id/workflow', async (req, res) => {
 
 router.post('/processes/:id/workflow', async (req, res) => {
   try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES) && !isAdmin(req.user)) {
       return;
     }
 
@@ -815,8 +1129,32 @@ router.post('/processes/:id/workflow', async (req, res) => {
     const currentStatus = normalizeProcessStatus(process.status, 'draft');
     const { nextStatus, changeDescription } = resolveWorkflowTransition(action, currentStatus);
 
-    if (!['submit_review', 'approve', 'return_draft', 'archive', 'restore'].includes(action)) {
+    if (!['submit_review', 'approve', 'request_change', 'return_draft', 'archive', 'restore'].includes(action)) {
       return res.status(400).json({ error: 'Unsupported workflow action.' });
+    }
+
+    if (action === 'submit_review' && !(currentStatus === 'draft' && canSubmitProcessForReview(req.user))) {
+      return res.status(403).json({ error: 'Only admins or designers can submit a draft for review.' });
+    }
+
+    if (action === 'approve' && !(currentStatus === 'review' && canApproveProcess(req.user))) {
+      return res.status(403).json({ error: 'Only admins or validators can approve a process in review.' });
+    }
+
+    if (action === 'request_change' && !(currentStatus === 'approved' && canRequestProcessChange(req.user))) {
+      return res.status(403).json({ error: 'Only admins or designers can request a change on an approved process.' });
+    }
+
+    if (action === 'return_draft' && !(['review', 'approved'].includes(currentStatus) && canApproveProcess(req.user))) {
+      return res.status(403).json({ error: 'Only admins or validators can reopen this process as a draft.' });
+    }
+
+    if (action === 'archive' && !(currentStatus === 'approved' && canApproveProcess(req.user))) {
+      return res.status(403).json({ error: 'Only admins or validators can archive an approved process.' });
+    }
+
+    if (action === 'restore' && !(currentStatus === 'archived' && canApproveProcess(req.user))) {
+      return res.status(403).json({ error: 'Only admins or validators can restore an archived process.' });
     }
 
     const newVersion = (process.version || 0) + 1;
@@ -898,6 +1236,16 @@ router.post('/processes/:id/workflow', async (req, res) => {
     });
 
     if (action === 'submit_review') {
+      await notifyRoleRecipients({
+        actor: req.user,
+        companyId: process.company_id,
+        roles: [ROLES.VALIDATOR, ROLES.ADMIN],
+        type: 'process_approval_waiting',
+        title: 'Process awaiting approval',
+        message: `${process.name} has been submitted for review.`,
+        entityId: process.id,
+        severity: 'warning',
+      });
       await createNotification({
         companyId: process.company_id,
         type: 'process_approval_waiting',
@@ -918,6 +1266,19 @@ router.post('/processes/:id/workflow', async (req, res) => {
         entityType: 'process',
         entityId: process.id,
         severity: 'success',
+      });
+    }
+
+    if (action === 'request_change') {
+      await notifyRoleRecipients({
+        actor: req.user,
+        companyId: process.company_id,
+        roles: [ROLES.VALIDATOR, ROLES.ADMIN],
+        type: 'process_change_requested',
+        title: 'Approved process needs a change',
+        message: `${process.name} has a change request waiting for validation.`,
+        entityId: process.id,
+        severity: 'warning',
       });
     }
 
@@ -984,7 +1345,34 @@ router.get('/process-categories', async (req, res) => {
       return;
     }
 
-    const result = await pool.query('SELECT * FROM process_categories ORDER BY name');
+    const requestedCompanyId = normalizeInteger(req.query.company, null);
+    const params = [];
+    let query = `
+      SELECT
+        pc.*,
+        parent.name AS parent_name,
+        c.name AS company_name
+      FROM process_categories pc
+      LEFT JOIN process_categories parent ON parent.id = pc.parent_id
+      LEFT JOIN companies c ON c.id = pc.company_id
+      WHERE 1 = 1
+    `;
+
+    if (isGlobalAdmin(req.user)) {
+      if (requestedCompanyId) {
+        query += ' AND (pc.company_id = $1 OR pc.company_id IS NULL)';
+        params.push(requestedCompanyId);
+      }
+    } else if (req.user.companyId) {
+      query += ' AND (pc.company_id = $1 OR pc.company_id IS NULL)';
+      params.push(req.user.companyId);
+    } else {
+      query += ' AND pc.company_id IS NULL';
+    }
+
+    query += ' ORDER BY COALESCE(parent.name, pc.name), pc.parent_id NULLS FIRST, pc.name';
+
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('Get categories error:', error);
@@ -994,19 +1382,62 @@ router.get('/process-categories', async (req, res) => {
 
 router.post('/process-categories', async (req, res) => {
   try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+    if (!ensureAuthenticated(req, res)) {
       return;
     }
 
-    const { name, description } = req.body;
+    if (!canCreateProcessDefinition(req.user)) {
+      return res.status(403).json({ error: 'Only admins and designers can create categories.' });
+    }
+
+    if (!hasRole(req.user, ROLES.ADMIN) && !ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const { name, description, parent_id, company_id } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
+    const parentId = normalizeInteger(parent_id, null);
+    const categoryCompanyId = resolveCategoryCompanyId(req, company_id);
+    let parentCategory = null;
+
+    if (parentId) {
+      parentCategory = await getCategoryById(parentId);
+      if (!parentCategory) {
+        return res.status(400).json({ error: 'Parent category not found.' });
+      }
+
+      if (!ensureCompanyAccess(req, res, parentCategory.company_id)) {
+        return;
+      }
+
+      if (normalizeInteger(parentCategory.company_id, null) !== normalizeInteger(categoryCompanyId, null)) {
+        return res.status(400).json({ error: 'A sub-category must belong to the same company scope as its parent category.' });
+      }
+    }
+
     const result = await pool.query(
-      'INSERT INTO process_categories (name, description) VALUES ($1, $2) RETURNING *',
-      [name, description || null]
+      `
+        INSERT INTO process_categories (name, description, parent_id, company_id, created_by)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+      `,
+      [name, description || null, parentId, categoryCompanyId, req.user.id]
     );
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process_category',
+      entityId: result.rows[0].id,
+      companyId: categoryCompanyId,
+      action: 'create',
+      summary: `Created process category "${result.rows[0].name}"`,
+      details: {
+        parent_id: result.rows[0].parent_id,
+      },
+    });
 
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -1016,6 +1447,153 @@ router.post('/process-categories', async (req, res) => {
     } else {
       res.status(500).json({ error: 'Server error' });
     }
+  }
+});
+
+router.put('/process-categories/:id', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    if (!canCreateProcessDefinition(req.user)) {
+      return res.status(403).json({ error: 'Only admins and designers can update categories.' });
+    }
+
+    if (!hasRole(req.user, ROLES.ADMIN) && !ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const existingCategory = await getCategoryById(req.params.id);
+    if (!existingCategory) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, existingCategory.company_id)) {
+      return;
+    }
+
+    const { name, description, parent_id, company_id } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const nextParentId = normalizeInteger(parent_id, existingCategory.parent_id);
+    const nextCompanyId = resolveCategoryCompanyId(req, company_id, existingCategory.company_id);
+
+    if (nextParentId && Number(nextParentId) === Number(req.params.id)) {
+      return res.status(400).json({ error: 'A category cannot be its own parent.' });
+    }
+
+    if (nextParentId) {
+      const parentCategory = await getCategoryById(nextParentId);
+      if (!parentCategory) {
+        return res.status(400).json({ error: 'Parent category not found.' });
+      }
+
+      if (!ensureCompanyAccess(req, res, parentCategory.company_id)) {
+        return;
+      }
+
+      if (normalizeInteger(parentCategory.company_id, null) !== normalizeInteger(nextCompanyId, null)) {
+        return res.status(400).json({ error: 'A sub-category must belong to the same company scope as its parent category.' });
+      }
+
+      const descendants = await getDescendantCategoryIds(req.params.id);
+      if (descendants.includes(nextParentId)) {
+        return res.status(400).json({ error: 'A category cannot be moved under one of its descendants.' });
+      }
+    }
+
+    const result = await pool.query(
+      `
+        UPDATE process_categories
+        SET
+          name = $1,
+          description = $2,
+          parent_id = $3,
+          company_id = $4
+        WHERE id = $5
+        RETURNING *
+      `,
+      [name, description || null, nextParentId, nextCompanyId, req.params.id]
+    );
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process_category',
+      entityId: req.params.id,
+      companyId: nextCompanyId,
+      action: 'update',
+      summary: `Updated process category "${result.rows[0].name}"`,
+      details: {
+        parent_id: result.rows[0].parent_id,
+      },
+    });
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update category error:', error);
+    if (error.code === '23505') {
+      res.status(400).json({ error: 'Category name already exists' });
+    } else {
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+});
+
+router.delete('/process-categories/:id', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    if (!canCreateProcessDefinition(req.user)) {
+      return res.status(403).json({ error: 'Only admins and designers can delete categories.' });
+    }
+
+    if (!hasRole(req.user, ROLES.ADMIN) && !ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
+      return;
+    }
+
+    const category = await getCategoryById(req.params.id);
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (!ensureCompanyAccess(req, res, category.company_id)) {
+      return;
+    }
+
+    const [childCountResult, processCountResult] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM process_categories WHERE parent_id = $1', [req.params.id]),
+      pool.query('SELECT COUNT(*)::int AS count FROM processes WHERE category_id = $1', [req.params.id]),
+    ]);
+
+    if ((childCountResult.rows[0]?.count || 0) > 0) {
+      return res.status(400).json({ error: 'Delete or move sub-categories before deleting this category.' });
+    }
+
+    if ((processCountResult.rows[0]?.count || 0) > 0) {
+      return res.status(400).json({ error: 'Move processes out of this category before deleting it.' });
+    }
+
+    await pool.query('DELETE FROM process_categories WHERE id = $1', [req.params.id]);
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'process_category',
+      entityId: req.params.id,
+      companyId: category.company_id,
+      action: 'delete',
+      summary: `Deleted process category "${category.name}"`,
+      details: {},
+    });
+
+    res.json({ message: 'Category deleted successfully' });
+  } catch (error) {
+    console.error('Delete category error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

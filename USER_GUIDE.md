@@ -45,6 +45,8 @@ Use `Process Management` to:
 - add approval comments with timestamps and approver name
 - attach files and discussion comments to the process record
 - compare two saved versions to see metadata, BPMN, and task changes
+- generate a readable explanation of the BPMN diagram, participants, lanes, routing, and workflow lifecycle
+- export that explanation as `PDF` or `HTML`
 - organize processes by category and hierarchy
 - export or archive a process
 
@@ -53,6 +55,7 @@ Tips:
 - older legacy processes are normalized so they can still open in the modeler
 - hierarchy mode shows parent and child processes inside categories
 - open the process details panel to manage approval workflow and compare versions
+- open the process details panel to read the auto-generated diagram explanation and export it
 
 ## 5. Process Library
 
@@ -157,6 +160,7 @@ The results tab shows:
 
 - cycle time KPIs
 - BPMN heatmap directly on the diagram
+- a narrative explanation of what the scenario means, what slowed it down, and what resources are most constrained
 - histogram of cycle times
 - average cost and total cost
 - simulation horizon
@@ -174,7 +178,7 @@ You can also export:
 
 - `CSV` for raw analysis data
 - `Excel` for a management-friendly workbook
-- `PDF` for a polished report snapshot
+- `PDF` for a polished report snapshot including the scenario explanation
 
 Use these outputs to identify:
 
@@ -225,7 +229,9 @@ Depending on your permissions, you can:
 - create or edit companies
 - create users
 - assign each user to a company
-- assign roles
+- assign a primary role
+- grant additional roles at the same time
+- make an additional role temporary by setting its end date
 - review the audit log of admin, process, org chart, and simulation changes
 
 Important:

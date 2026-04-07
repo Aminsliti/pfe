@@ -4,9 +4,9 @@ V-BPM is a business process management platform built with React, Express, and P
 
 ## Main Capabilities
 
-- BPMN process management with import/export, versioning, approval workflow, and version diffing
+- BPMN process management with import/export, versioning, approval workflow, version diffing, human-readable diagram explanations, and PDF/HTML explanation reports
 - Multi-company access control with global admins and company admins
-- Process simulation workbench with working calendars, resource availability windows, task SLA rules, CSV arrival imports, Monte Carlo analysis, what-if analysis, sensitivity analysis, resource planning, status tracking, BPMN heatmaps, and CSV/Excel/PDF reporting
+- Process simulation workbench with working calendars, resource availability windows, task SLA rules, CSV arrival imports, Monte Carlo analysis, what-if analysis, sensitivity analysis, resource planning, status tracking, BPMN heatmaps, scenario explanations, and CSV/Excel/PDF reporting
 - Cross-module collaboration with comments, attachments, in-app notifications, and reusable process templates
 - Interactive organization chart editor with drag-and-drop re-parenting
 - User, role, and company administration with audit logging
@@ -23,7 +23,9 @@ That document covers:
 - frontend modules and pages
 - backend modules and API endpoints
 - RBAC and company scoping rules
+- temporary additional user roles with expiration dates
 - process approval, version diff, and audit-log workflows
+- process and simulation explanation/report generation
 - database schema and bootstrap behavior
 - simulation engine behavior
 - end-user workflows for login, simulations, and org chart editing
@@ -120,6 +122,7 @@ Current local verification:
 - Production build: passing
 - Scenario comparison and BPMN heatmap: enabled
 - Simulation workbench with SLA, Monte Carlo, what-if, sensitivity, planning, and polished reports: enabled
+- Diagram and simulation explanation with PDF/HTML reports: enabled
 - Comments, attachments, notifications, and process templates: enabled
 - Process approval workflow and version diff: enabled
 - Audit log route and admin page: enabled

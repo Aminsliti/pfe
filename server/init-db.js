@@ -54,6 +54,20 @@ const initDatabase = async () => {
     `);
     console.log('Role permissions table created successfully');
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_role_assignments (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role_name VARCHAR(50) NOT NULL REFERENCES roles(name) ON UPDATE CASCADE ON DELETE CASCADE,
+        expires_on DATE,
+        assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (user_id, role_name)
+      )
+    `);
+    console.log('User role assignments table created successfully');
+
     // Create process categories table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS process_categories (
@@ -183,11 +197,10 @@ const seedData = async () => {
 
     // Insert roles
     const roles = [
-      { name: 'Administrator', description: 'Full system access' },
-      { name: 'Business Analyst', description: 'Can view reports and manage processes' },
-      { name: 'Process Owner', description: 'Can manage processes' },
-      { name: 'Risk Manager', description: 'Can manage risks and view reports' },
-      { name: 'Viewer', description: 'Can only view dashboard' },
+      { name: 'Admin', description: 'Full system access' },
+      { name: 'Designer', description: 'Can create and edit draft processes' },
+      { name: 'Validator', description: 'Can review and approve governed processes' },
+      { name: 'Process Observer', description: 'Can consult processes without changing them' },
     ];
 
     for (const role of roles) {
@@ -255,17 +268,15 @@ const seedData = async () => {
     const bcrypt = await import('bcryptjs');
 
     const hashedAdmin = await bcrypt.default.hash('admin123', 10);
-    const hashedAnalyst = await bcrypt.default.hash('analyst123', 10);
-    const hashedOwner = await bcrypt.default.hash('owner123', 10);
-    const hashedRisk = await bcrypt.default.hash('risk123', 10);
+    const hashedDesigner = await bcrypt.default.hash('designer123', 10);
+    const hashedValidator = await bcrypt.default.hash('validator123', 10);
     const hashedViewer = await bcrypt.default.hash('viewer123', 10);
 
     const users = [
-      { username: 'admin', password: hashedAdmin, email: 'admin@pfe.com', full_name: 'System Administrator', role: 'Administrator', company_id: 1 },
-      { username: 'analyst', password: hashedAnalyst, email: 'analyst@pfe.com', full_name: 'Business Analyst', role: 'Business Analyst', company_id: 1 },
-      { username: 'owner', password: hashedOwner, email: 'owner@pfe.com', full_name: 'Process Owner', role: 'Process Owner', company_id: 1 },
-      { username: 'risk', password: hashedRisk, email: 'risk@pfe.com', full_name: 'Risk Manager', role: 'Risk Manager', company_id: 1 },
-      { username: 'viewer', password: hashedViewer, email: 'viewer@pfe.com', full_name: 'Viewer', role: 'Viewer', company_id: 1 },
+      { username: 'admin', password: hashedAdmin, email: 'admin@pfe.com', full_name: 'System Administrator', role: 'Admin', company_id: 1 },
+      { username: 'designer', password: hashedDesigner, email: 'designer@pfe.com', full_name: 'Process Designer', role: 'Designer', company_id: 1 },
+      { username: 'validator', password: hashedValidator, email: 'validator@pfe.com', full_name: 'Process Validator', role: 'Validator', company_id: 1 },
+      { username: 'viewer', password: hashedViewer, email: 'viewer@pfe.com', full_name: 'Process Observer', role: 'Process Observer', company_id: 1 },
     ];
 
     for (const user of users) {
@@ -347,11 +358,10 @@ const seedData = async () => {
 
     // Assign permissions to roles
     const rolePermissions = [
-      { role: 'Administrator', permissions: ['user_management', 'role_management', 'view_dashboard', 'view_reports', 'manage_processes', 'manage_risks'] },
-      { role: 'Business Analyst', permissions: ['view_dashboard', 'view_reports', 'manage_processes'] },
-      { role: 'Process Owner', permissions: ['view_dashboard', 'view_reports', 'manage_processes'] },
-      { role: 'Risk Manager', permissions: ['view_dashboard', 'view_reports', 'manage_risks'] },
-      { role: 'Viewer', permissions: ['view_dashboard'] },
+      { role: 'Admin', permissions: ['user_management', 'role_management', 'view_dashboard', 'view_reports', 'manage_processes', 'manage_risks'] },
+      { role: 'Designer', permissions: ['view_dashboard', 'view_reports', 'manage_processes'] },
+      { role: 'Validator', permissions: ['view_dashboard', 'view_reports', 'manage_processes'] },
+      { role: 'Process Observer', permissions: ['view_dashboard', 'view_reports'] },
     ];
 
     for (const rp of rolePermissions) {

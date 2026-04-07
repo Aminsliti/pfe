@@ -359,6 +359,15 @@ describe('simulation routes', () => {
       .mockResolvedValueOnce(makeResult(taskRows))
       .mockResolvedValueOnce(makeResult(resourceRows))
       .mockResolvedValueOnce(makeResult(arrivalRows));
+    const explanation = await request(app).get('/api/simulations/4/explanation');
+    expect(explanation.status).toBe(200);
+    expect(explanation.body.explanation.summary).toContain('Scenario Advanced');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([scenarioRow]))
+      .mockResolvedValueOnce(makeResult(taskRows))
+      .mockResolvedValueOnce(makeResult(resourceRows))
+      .mockResolvedValueOnce(makeResult(arrivalRows));
     const excelReport = await request(app).get('/api/simulations/4/report?format=excel');
     expect(excelReport.status).toBe(200);
     expect(excelReport.headers['content-type']).toContain('application/vnd.ms-excel');

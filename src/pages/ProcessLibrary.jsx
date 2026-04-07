@@ -1,40 +1,42 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 
 const API = 'http://localhost:3001/api';
+const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
 
 const SECTION_CONFIG = {
   pilotage: {
     title: 'Processus de Pilotage',
-    subtitle: 'Gouvernance, controle, planification et conformite.',
-    accent: '#b42318',
-    bg: '#fff3f1',
-    layout: 'grid',
+    subtitle: 'Gouvernance, controle et orientation strategique.',
+    accent: '#991b1b',
+    background: '#fff7f5',
   },
   metier: {
     title: 'Processus Metiers',
-    subtitle: 'Parcours client et operations au coeur de l activite.',
-    accent: '#0f7c90',
-    bg: '#eefafc',
-    layout: 'stack',
+    subtitle: 'Parcours client et execution bancaire.',
+    accent: '#0f766e',
+    background: '#f2fbfa',
   },
   support: {
     title: 'Processus Support',
-    subtitle: 'Fonctions transverses qui outillent le reste de l organisation.',
-    accent: '#8a5a00',
-    bg: '#fff7ea',
-    layout: 'grid',
+    subtitle: 'Fonctions de support et moyens transverses.',
+    accent: '#92400e',
+    background: '#fff9f0',
   },
 };
 
 const STATUS_META = {
-  active: { label: 'Actif', bg: '#dcfce7', color: '#166534', border: '#86efac' },
-  draft: { label: 'Brouillon', bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
-  archived: { label: 'Archive', bg: '#e2e8f0', color: '#475569', border: '#cbd5e1' },
-  published: { label: 'Publie', bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
+  active: { label: 'Actif', bg: '#dcfce7', color: '#166534' },
+  approved: { label: 'Approuve', bg: '#dcfce7', color: '#166534' },
+  review: { label: 'En revue', bg: '#dbeafe', color: '#1d4ed8' },
+  draft: { label: 'Brouillon', bg: '#fef3c7', color: '#92400e' },
+  archived: { label: 'Archive', bg: '#e2e8f0', color: '#475569' },
 };
 
 const CATEGORY_SECTIONS = {
   Compliance: 'pilotage',
+  'Retail Banking': 'metier',
+  Credit: 'metier',
+  'Cards & Payments': 'metier',
   'Customer Service': 'metier',
   Operations: 'metier',
   HR: 'support',
@@ -42,313 +44,384 @@ const CATEGORY_SECTIONS = {
 };
 
 const KEYWORDS = {
-  pilotage: [
-    'pilotage',
-    'strategie',
-    'strategic',
-    'governance',
-    'planification',
-    'planning',
-    'budget',
-    'reporting',
-    'finance',
-    'financial reporting',
-    'conformite',
-    'compliance',
-    'risk',
-    'risque',
-    'control',
-    'controle',
-    'audit',
-    'quality',
-    'qualite',
-  ],
-  metier: [
-    'business',
-    'client',
-    'customer',
-    'order',
-    'commande',
-    'invoice',
-    'facture',
-    'payment',
-    'paiement',
-    'placement',
-    'compte',
-    'account',
-    'recouvrement',
-    'engagement',
-    'tresorerie',
-    'cash',
-    'coffre',
-    'compartiment',
-    'banque',
-    'credit',
-    'monetique',
-    'operation',
-    'service',
-    'fulfillment',
-    'onboarding',
-  ],
-  support: [
-    'support',
-    'system',
-    'systeme',
-    'monitoring',
-    'deployment',
-    'deploiement',
-    'software',
-    'it ',
-    'rh',
-    'human resources',
-    'resource',
-    'ressource',
-    'administration',
-    'administratif',
-    'marketing',
-    'communication',
-    'procedure',
-    'comptabilite',
-  ],
+  pilotage: ['pilotage', 'strategie', 'governance', 'conformite', 'compliance', 'risk', 'risque', 'audit', 'controle'],
+  metier: ['client', 'compte', 'account', 'credit', 'banque', 'monetique', 'operation', 'payment', 'paiement', 'swift', 'virement', 'retail'],
+  support: ['support', 'system', 'it ', 'resource', 'administration', 'procedure', 'communication'],
 };
 
 function normalizeText(value = '') {
-  return String(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
+  return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function formatDate(value) {
+  try {
+    return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-';
+  } catch {
+    return '-';
+  }
 }
 
 function getStatusMeta(status) {
   return STATUS_META[status] || STATUS_META.draft;
 }
 
-function resolveSection(process) {
-  const category = process.category_name || '';
-  if (CATEGORY_SECTIONS[category]) {
-    return CATEGORY_SECTIONS[category];
-  }
+function statusMatches(status, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'approved') return status === 'approved' || status === 'active';
+  return status === filter;
+}
 
-  const haystack = normalizeText(`${process.name} ${process.description || ''} ${category}`);
-
-  if (category === 'Finance') {
-    if (KEYWORDS.metier.some((keyword) => haystack.includes(keyword))) return 'metier';
-    if (KEYWORDS.support.some((keyword) => haystack.includes(keyword))) return 'support';
-    return 'pilotage';
-  }
-
-  if (KEYWORDS.pilotage.some((keyword) => haystack.includes(keyword))) return 'pilotage';
-  if (KEYWORDS.metier.some((keyword) => haystack.includes(keyword))) return 'metier';
-  if (KEYWORDS.support.some((keyword) => haystack.includes(keyword))) return 'support';
-
+function resolveSection(entity) {
+  const category = entity.category_name || entity.name || '';
+  if (CATEGORY_SECTIONS[category]) return CATEGORY_SECTIONS[category];
+  const haystack = normalizeText(`${entity.name || ''} ${entity.description || ''} ${category}`);
+  if (KEYWORDS.pilotage.some((item) => haystack.includes(item))) return 'pilotage';
+  if (KEYWORDS.metier.some((item) => haystack.includes(item))) return 'metier';
   return 'support';
 }
 
-function matchesSearch(process, searchValue) {
+function matchesProcessSearch(process, searchValue) {
   if (!searchValue) return true;
-  const haystack = normalizeText(
-    `${process.name} ${process.description || ''} ${process.category_name || ''} ${process.created_by_name || ''}`
-  );
+  const haystack = normalizeText(`${process.name} ${process.description || ''} ${process.category_name || ''} ${process.created_by_name || ''}`);
   return haystack.includes(searchValue);
 }
 
-function formatDate(value) {
-  if (!value) return '-';
-  try {
-    return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value));
-  } catch {
-    return '-';
-  }
+function matchesCategorySearch(category, searchValue) {
+  if (!searchValue) return true;
+  return normalizeText(`${category.name} ${category.description || ''}`).includes(searchValue);
 }
 
-function StatCard({ label, value, tone }) {
+function buildProcessTree(processes = []) {
+  const byId = new Map();
+  const roots = [];
+
+  processes.forEach((process) => {
+    byId.set(process.id, { ...process, children: [], childCount: 0, descendantCount: 0 });
+  });
+
+  byId.forEach((process) => {
+    const parent = process.parent_id ? byId.get(process.parent_id) : null;
+    if (parent) parent.children.push(process);
+    else roots.push(process);
+  });
+
+  const sortBranch = (items) => {
+    items.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    items.forEach((item) => sortBranch(item.children));
+  };
+
+  const decorate = (node) => {
+    node.childCount = node.children.length;
+    node.descendantCount = node.children.reduce((sum, child) => sum + 1 + decorate(child), 0);
+    return node.descendantCount;
+  };
+
+  sortBranch(roots);
+  roots.forEach((root) => decorate(root));
+  return { roots, byId };
+}
+
+function buildCategoryTree(categories = [], rootProcesses = []) {
+  const byId = new Map();
+  const roots = [];
+
+  categories.forEach((category) => {
+    byId.set(category.id, {
+      ...category,
+      children: [],
+      processes: [],
+      section: 'support',
+      totalProcessCount: 0,
+    });
+  });
+
+  byId.forEach((category) => {
+    const parent = category.parent_id ? byId.get(category.parent_id) : null;
+    if (parent) parent.children.push(category);
+    else roots.push(category);
+  });
+
+  rootProcesses.forEach((process) => {
+    const category = process.category_id ? byId.get(Number(process.category_id)) : null;
+    if (category) category.processes.push(process);
+  });
+
+  const sortBranch = (items) => {
+    items.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    items.forEach((item) => {
+      item.processes.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+      sortBranch(item.children);
+    });
+  };
+
+  const decorate = (node, inheritedSection = null) => {
+    node.section = inheritedSection || resolveSection({ name: node.name, description: node.description || '', category_name: node.name });
+    node.children.forEach((child) => decorate(child, node.section));
+    node.totalProcessCount = node.processes.reduce((sum, process) => sum + 1 + process.descendantCount, 0) + node.children.reduce((sum, child) => sum + child.totalProcessCount, 0);
+  };
+
+  sortBranch(roots);
+  roots.forEach((root) => decorate(root));
+  return { roots, byId };
+}
+
+function isProcessVisible(process, searchValue, statusFilter) {
+  const selfVisible = matchesProcessSearch(process, searchValue) && statusMatches(process.status, statusFilter);
+  return selfVisible || process.children.some((child) => isProcessVisible(child, searchValue, statusFilter));
+}
+
+function isCategoryVisible(category, searchValue, statusFilter) {
+  const selfVisible = matchesCategorySearch(category, searchValue);
+  const hasProcess = category.processes.some((process) => isProcessVisible(process, searchValue, statusFilter));
+  const hasChild = category.children.some((child) => isCategoryVisible(child, searchValue, statusFilter));
+  return selfVisible || hasProcess || hasChild;
+}
+
+function HeroStat({ label, value }) {
   return (
-    <div className={`process-library-stat process-library-stat-${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="border rounded-4 bg-white px-3 py-3 shadow-sm">
+      <div className="small text-uppercase text-muted fw-bold">{label}</div>
+      <div className="fs-4 fw-bold text-dark">{value}</div>
     </div>
   );
 }
 
-function ProcessTile({ process, selected, onSelect }) {
-  const status = getStatusMeta(process.status);
-
+function CategoryCard({ category, onOpen }) {
   return (
-    <button
-      type="button"
-      className={`process-library-tile${selected ? ' is-selected' : ''}`}
-      onClick={() => onSelect(process)}
-    >
-      <span className="process-library-tile-top">
-        <span className="process-library-tile-category">{process.category_name || 'Sans categorie'}</span>
-        <span className="process-library-tile-arrow">
-          <i className="bi bi-arrow-up-right" />
-        </span>
-      </span>
-      <span className="process-library-tile-name">{process.name}</span>
-      <span className="process-library-tile-meta">
-        <span
-          className="process-library-status"
-          style={{ backgroundColor: status.bg, color: status.color, borderColor: status.border }}
-        >
-          {status.label}
-        </span>
-        <span className="process-library-tile-owner">{process.created_by_name || 'Equipe BPM'}</span>
-      </span>
-    </button>
-  );
-}
-
-function ProcessRibbon({ process, selected, onSelect }) {
-  const status = getStatusMeta(process.status);
-
-  return (
-    <button
-      type="button"
-      className={`process-library-ribbon${selected ? ' is-selected' : ''}`}
-      onClick={() => onSelect(process)}
-    >
-      <span className="process-library-ribbon-body">
-        <span className="process-library-ribbon-title">{process.name}</span>
-        <span className="process-library-ribbon-details">
-          <span>{process.category_name || 'Sans categorie'}</span>
-          <span className="process-library-ribbon-divider" />
-          <span>{process.created_by_name || 'Equipe BPM'}</span>
-        </span>
-      </span>
-      <span
-        className="process-library-status"
-        style={{ backgroundColor: status.bg, color: status.color, borderColor: status.border }}
-      >
-        {status.label}
-      </span>
-    </button>
-  );
-}
-
-function LibrarySection({ sectionId, items, selectedId, onSelect }) {
-  const section = SECTION_CONFIG[sectionId];
-
-  return (
-    <section className="process-library-section" style={{ background: section.bg }}>
-      <div className="process-library-section-head">
-        <div>
-          <h2 style={{ color: section.accent }}>{section.title}</h2>
-          <p>{section.subtitle}</p>
+    <button type="button" className="card border-0 shadow-sm text-start h-100" onClick={() => onOpen(category)} style={{ background: 'linear-gradient(135deg,#4a1326 0%,#8f1d3d 55%,#d4551e 100%)', color: 'white', borderRadius: 24 }}>
+      <div className="card-body d-flex flex-column gap-3 p-4">
+        <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-diagram-3 me-2" />Categorie</div>
+        <div className="fs-4 fw-bold lh-sm">{category.name}</div>
+        <div className="small opacity-75">{category.description || 'Entrez dans cette categorie pour afficher ses sous-categories et ses processus.'}</div>
+        <div className="mt-auto d-flex flex-wrap gap-2">
+          <span className="badge text-bg-light">{category.children.length} sous-categorie(s)</span>
+          <span className="badge text-bg-light">{category.processes.length} processus directs</span>
+          <span className="badge text-bg-light">{category.totalProcessCount} total</span>
         </div>
-        <span className="process-library-section-count">{items.length} processus</span>
       </div>
+    </button>
+  );
+}
 
-      {items.length === 0 ? (
-        <div className="process-library-empty">
-          Aucun processus ne correspond aux filtres dans cette section.
+function ProcessCard({ process, onOpen }) {
+  const status = getStatusMeta(process.status);
+  return (
+    <button type="button" className="card border-0 shadow-sm text-start h-100" onClick={() => onOpen(process)} style={{ background: 'linear-gradient(135deg,#4a1326 0%,#8f1d3d 55%,#d4551e 100%)', color: 'white', borderRadius: 24 }}>
+      <div className="card-body d-flex flex-column gap-3 p-4">
+        <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-bezier2 me-2" />{process.childCount > 0 ? 'Macro-processus' : 'Processus'}</div>
+        <div className="fs-4 fw-bold lh-sm">{process.name}</div>
+        <div className="small opacity-75">{process.description || 'Ouvrez ce processus pour continuer la navigation jusqu au diagramme BPMN.'}</div>
+        <div className="mt-auto d-flex flex-wrap gap-2">
+          <span className="badge" style={{ background: status.bg, color: status.color }}>{status.label}</span>
+          <span className="badge text-bg-light">v{process.version || 1}</span>
+          <span className="badge text-bg-light">{process.childCount > 0 ? `${process.childCount} sous-processus` : 'Diagramme final'}</span>
         </div>
-      ) : section.layout === 'stack' ? (
-        <div className="process-library-ribbons">
-          {items.map((process) => (
-            <ProcessRibbon
-              key={process.id}
-              process={process}
-              selected={selectedId === process.id}
-              onSelect={onSelect}
-            />
-          ))}
+      </div>
+    </button>
+  );
+}
+
+function EmptyBox({ title, text }) {
+  return (
+    <div className="border border-dashed rounded-4 bg-white px-4 py-4 text-muted">
+      <div className="fw-bold text-dark mb-2">{title}</div>
+      <div>{text}</div>
+    </div>
+  );
+}
+
+function RootSection({ sectionId, categories, looseProcesses, onOpenCategory, onOpenProcess }) {
+  const section = SECTION_CONFIG[sectionId];
+  if (!categories.length && !looseProcesses.length) return null;
+
+  return (
+    <section className="card border-0 shadow-sm" style={{ background: section.background, borderRadius: 28 }}>
+      <div className="card-body p-4 d-flex flex-column gap-4">
+        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+          <div>
+            <h2 className="mb-1" style={{ color: section.accent }}>{section.title}</h2>
+            <p className="mb-0 text-muted">{section.subtitle}</p>
+          </div>
+          <div className="d-flex gap-2 flex-wrap">
+            <span className="badge rounded-pill text-bg-light">{categories.length} categories</span>
+            {looseProcesses.length ? <span className="badge rounded-pill text-bg-light">{looseProcesses.length} sans categorie</span> : null}
+          </div>
         </div>
-      ) : (
-        <div className="process-library-grid">
-          {items.map((process) => (
-            <ProcessTile
-              key={process.id}
-              process={process}
-              selected={selectedId === process.id}
-              onSelect={onSelect}
-            />
-          ))}
-        </div>
-      )}
+
+        {categories.length ? (
+          <div className="row g-3">
+            {categories.map((category) => (
+              <div key={category.id} className="col-12 col-md-6 col-xl-4">
+                <CategoryCard category={category} onOpen={onOpenCategory} />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {looseProcesses.length ? (
+          <div className="d-flex flex-column gap-3">
+            <h3 className="h5 mb-0">Processus sans categorie</h3>
+            <div className="row g-3">
+              {looseProcesses.map((process) => (
+                <div key={process.id} className="col-12 col-md-6 col-xl-4">
+                  <ProcessCard process={process} onOpen={onOpenProcess} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
 
-function ProcessDetails({ process, onClose }) {
-  if (!process) return null;
-
-  const status = getStatusMeta(process.status);
-  const section = SECTION_CONFIG[process.section];
-  const hasDiagram = typeof process.bpmn_xml === 'string' && process.bpmn_xml.trim().length > 0;
-
+function CategoryView({ category, childCategories, directProcesses, onOpenCategory, onOpenProcess, onBack }) {
   return (
-    <>
-      <div className="process-library-overlay" onClick={onClose} />
-      <aside className="process-library-drawer">
-        <div className="process-library-drawer-head">
+    <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
+      <div className="card-body p-4 d-flex flex-column gap-4">
+        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
           <div>
-            <span className="process-library-drawer-kicker">{section.title}</span>
-            <h3>{process.name}</h3>
+            <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-diagram-2 me-2" />Categorie</div>
+            <h2 className="mb-2">{category.name}</h2>
+            <p className="mb-0 text-muted">{category.description || 'Descendez dans les sous-categories ou ouvrez un processus de cette branche.'}</p>
           </div>
-          <button type="button" className="process-library-close" onClick={onClose} aria-label="Fermer">
-            <i className="bi bi-x-lg" />
-          </button>
-        </div>
-
-        <div className="process-library-drawer-body">
-          <div className="process-library-detail-grid">
-            <div className="process-library-detail-card">
-              <span>Statut</span>
-              <strong
-                className="process-library-status"
-                style={{ backgroundColor: status.bg, color: status.color, borderColor: status.border }}
-              >
-                {status.label}
-              </strong>
-            </div>
-            <div className="process-library-detail-card">
-              <span>Categorie</span>
-              <strong>{process.category_name || 'Sans categorie'}</strong>
-            </div>
-            <div className="process-library-detail-card">
-              <span>Version</span>
-              <strong>v{process.version || 1}</strong>
-            </div>
-            <div className="process-library-detail-card">
-              <span>Diagramme BPMN</span>
-              <strong>{hasDiagram ? 'Disponible' : 'Non renseigne'}</strong>
-            </div>
-          </div>
-
-          <div className="process-library-copy">
-            <h4>Description</h4>
-            <p>{process.description || 'Aucune description fournie pour ce processus.'}</p>
-          </div>
-
-          <div className="process-library-copy">
-            <h4>Informations</h4>
-            <ul>
-              <li>Responsable ou createur: {process.created_by_name || 'Equipe BPM'}</li>
-              <li>Societe: {process.company_name || 'Societe par defaut'}</li>
-              <li>Creation: {formatDate(process.created_at)}</li>
-              <li>Derniere mise a jour: {formatDate(process.updated_at)}</li>
-            </ul>
+          <div className="d-flex gap-2 flex-wrap">
+            <span className="badge rounded-pill text-bg-light">{childCategories.length} sous-categorie(s)</span>
+            <span className="badge rounded-pill text-bg-light">{directProcesses.length} processus</span>
+            <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
+              <i className="bi bi-arrow-left me-2" />Retour
+            </button>
           </div>
         </div>
-      </aside>
-    </>
+
+        <div className="d-flex flex-column gap-3">
+          <h3 className="h5 mb-0">Sous-categories</h3>
+          {childCategories.length ? (
+            <div className="row g-3">
+              {childCategories.map((child) => (
+                <div key={child.id} className="col-12 col-md-6 col-xl-4">
+                  <CategoryCard category={child} onOpen={onOpenCategory} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyBox title="Aucune sous-categorie visible" text="Passez directement aux processus de cette categorie ou ajustez vos filtres." />
+          )}
+        </div>
+
+        <div className="d-flex flex-column gap-3">
+          <h3 className="h5 mb-0">Processus de cette categorie</h3>
+          {directProcesses.length ? (
+            <div className="row g-3">
+              {directProcesses.map((process) => (
+                <div key={process.id} className="col-12 col-md-6 col-xl-4">
+                  <ProcessCard process={process} onOpen={onOpenProcess} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyBox title="Aucun processus direct visible" text="Les processus peuvent etre classes dans une sous-categorie plus bas dans la hierarchie." />
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
-export function ProcessLibrary() {
+function ProcessBranchView({ process, children, onOpenProcess, onBack }) {
+  return (
+    <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
+      <div className="card-body p-4 d-flex flex-column gap-4">
+        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+          <div>
+            <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-bezier2 me-2" />Macro-processus</div>
+            <h2 className="mb-2">{process.name}</h2>
+            <p className="mb-0 text-muted">{process.description || 'Ouvrez un sous-processus pour continuer jusqu au diagramme detaille.'}</p>
+          </div>
+          <div className="d-flex gap-2 flex-wrap">
+            <span className="badge rounded-pill text-bg-light">{children.length} sous-processus visible(s)</span>
+            <span className="badge rounded-pill text-bg-light">{process.descendantCount} niveau(x) en profondeur</span>
+            <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
+              <i className="bi bi-arrow-left me-2" />Retour
+            </button>
+          </div>
+        </div>
+
+        {children.length ? (
+          <div className="row g-3">
+            {children.map((child) => (
+              <div key={child.id} className="col-12 col-md-6 col-xl-4">
+                <ProcessCard process={child} onOpen={onOpenProcess} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyBox title="Aucun sous-processus visible" text="Ajustez vos filtres ou revenez en arriere pour choisir une autre branche." />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ProcessLeafView({ process, onBack }) {
+  const status = getStatusMeta(process.status);
+
+  return (
+    <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
+      <div className="card-body p-4 d-flex flex-column gap-4">
+        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+          <div>
+            <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-image me-2" />Diagramme BPMN final</div>
+            <h2 className="mb-2">{process.name}</h2>
+            <p className="mb-0 text-muted">{process.description || 'Vous avez atteint le dernier niveau de navigation: le diagramme du processus detaille.'}</p>
+          </div>
+          <div className="d-flex gap-2 flex-wrap">
+            <span className="badge rounded-pill" style={{ background: status.bg, color: status.color }}>{status.label}</span>
+            <span className="badge rounded-pill text-bg-light">v{process.version || 1}</span>
+            <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
+              <i className="bi bi-arrow-left me-2" />Retour
+            </button>
+          </div>
+        </div>
+
+        <div className="row g-4">
+          <div className="col-xl-8">
+            <div className="border rounded-4 bg-white p-3 shadow-sm">
+              <Suspense fallback={<div className="text-center py-5 text-muted">Rendu du diagramme BPMN...</div>}>
+                <BpmnProcessPreview xml={process.bpmn_xml} />
+              </Suspense>
+            </div>
+          </div>
+          <div className="col-xl-4">
+            <div className="card border-0 shadow-sm h-100" style={{ background: '#fffdfa', borderRadius: 24 }}>
+              <div className="card-body d-flex flex-column gap-3">
+                <h3 className="h5 mb-0">Informations</h3>
+                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Categorie</span><strong className="text-end">{process.category_name || 'Sans categorie'}</strong></div>
+                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Responsable</span><strong className="text-end">{process.created_by_name || 'Equipe BPM'}</strong></div>
+                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Creation</span><strong className="text-end">{formatDate(process.created_at)}</strong></div>
+                <div className="d-flex justify-content-between gap-3"><span className="text-muted">Mise a jour</span><strong className="text-end">{formatDate(process.updated_at)}</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function ProcessLibrary() {
   const [processes, setProcesses] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selected, setSelected] = useState(null);
+  const [navigation, setNavigation] = useState([]);
   const deferredSearch = useDeferredValue(search);
 
   const loadLibrary = useCallback(async () => {
     setLoading(true);
     setError('');
-
     try {
       const [processResponse, categoryResponse] = await Promise.all([
         fetch(`${API}/processes`),
@@ -361,19 +434,12 @@ export function ProcessLibrary() {
 
       const processList = await processResponse.json();
       const categoryList = await categoryResponse.json();
-      const categoryById = new Map(categoryList.map((category) => [category.id, category.name]));
 
-      const enriched = (Array.isArray(processList) ? processList : []).map((process) => {
-        const categoryName = process.category_name || categoryById.get(process.category_id) || null;
-        const withCategory = { ...process, category_name: categoryName };
-        return { ...withCategory, section: resolveSection(withCategory) };
-      });
-
-      setProcesses(enriched);
-      setSelected((current) => {
-        if (!current) return null;
-        return enriched.find((process) => process.id === current.id) || null;
-      });
+      setProcesses((Array.isArray(processList) ? processList : []).map((process) => ({
+        ...process,
+        section: resolveSection(process),
+      })));
+      setCategories(Array.isArray(categoryList) ? categoryList : []);
     } catch (loadError) {
       console.error(loadError);
       setError('La bibliotheque des processus est indisponible pour le moment.');
@@ -386,594 +452,250 @@ export function ProcessLibrary() {
     loadLibrary();
   }, [loadLibrary]);
 
-  const visibleProcesses = useMemo(() => {
-    const searchValue = normalizeText(deferredSearch);
+  const hierarchy = useMemo(() => buildProcessTree(processes), [processes]);
+  const categoryTree = useMemo(() => buildCategoryTree(categories, hierarchy.roots), [categories, hierarchy.roots]);
+  const normalizedSearch = normalizeText(deferredSearch);
 
-    return processes
-      .filter((process) => matchesSearch(process, searchValue))
-      .filter((process) => statusFilter === 'all' || process.status === statusFilter)
-      .sort((left, right) => left.name.localeCompare(right.name, 'fr', { sensitivity: 'base' }));
-  }, [deferredSearch, processes, statusFilter]);
-
-  const grouped = useMemo(() => {
-    const initial = { pilotage: [], metier: [], support: [] };
-    visibleProcesses.forEach((process) => {
-      initial[process.section].push(process);
+  const rootCategoriesBySection = useMemo(() => {
+    const groups = { pilotage: [], metier: [], support: [] };
+    categoryTree.roots.forEach((category) => {
+      if (isCategoryVisible(category, normalizedSearch, statusFilter)) {
+        groups[category.section].push(category);
+      }
     });
-    return initial;
-  }, [visibleProcesses]);
+    return groups;
+  }, [categoryTree.roots, normalizedSearch, statusFilter]);
 
-  const totalActive = useMemo(
-    () => processes.filter((process) => process.status === 'active').length,
-    [processes]
+  const rootLooseProcesses = useMemo(() => {
+    const groups = { pilotage: [], metier: [], support: [] };
+    hierarchy.roots
+      .filter((process) => !process.category_id && isProcessVisible(process, normalizedSearch, statusFilter))
+      .forEach((process) => {
+        groups[process.section].push(process);
+      });
+    return groups;
+  }, [hierarchy.roots, normalizedSearch, statusFilter]);
+
+  const currentEntry = navigation.length ? navigation[navigation.length - 1] : null;
+  const currentCategory = currentEntry?.type === 'category' ? categoryTree.byId.get(currentEntry.id) || null : null;
+  const currentProcess = currentEntry?.type === 'process' ? hierarchy.byId.get(currentEntry.id) || null : null;
+
+  const visibleChildCategories = useMemo(
+    () => (currentCategory ? currentCategory.children.filter((category) => isCategoryVisible(category, normalizedSearch, statusFilter)) : []),
+    [currentCategory, normalizedSearch, statusFilter]
   );
-  const totalCategories = useMemo(
-    () => new Set(processes.map((process) => process.category_name).filter(Boolean)).size,
-    [processes]
+
+  const visibleDirectProcesses = useMemo(
+    () => (currentCategory ? currentCategory.processes.filter((process) => isProcessVisible(process, normalizedSearch, statusFilter)) : []),
+    [currentCategory, normalizedSearch, statusFilter]
   );
+
+  const visibleProcessChildren = useMemo(
+    () => (currentProcess ? currentProcess.children.filter((process) => isProcessVisible(process, normalizedSearch, statusFilter)) : []),
+    [currentProcess, normalizedSearch, statusFilter]
+  );
+
+  const navigationLabels = navigation.map((entry) => {
+    if (entry.type === 'category') {
+      const category = categoryTree.byId.get(entry.id);
+      return category ? { ...entry, label: category.name } : null;
+    }
+    const process = hierarchy.byId.get(entry.id);
+    return process ? { ...entry, label: process.name } : null;
+  }).filter(Boolean);
+
+  const rootVisibleProcessCount = useMemo(
+    () => hierarchy.roots.filter((process) => isProcessVisible(process, normalizedSearch, statusFilter)).length,
+    [hierarchy.roots, normalizedSearch, statusFilter]
+  );
+
+  const totalRootCategories = categoryTree.roots.length;
+  const totalSubcategories = categories.filter((category) => category.parent_id !== null && category.parent_id !== undefined).length;
+  const hasRootContent = Object.values(rootCategoriesBySection).some((items) => items.length > 0) || Object.values(rootLooseProcesses).some((items) => items.length > 0);
+
+  const enterCategory = (category) => {
+    setNavigation((current) => [...current, { type: 'category', id: category.id }]);
+  };
+
+  const enterProcess = (process) => {
+    setNavigation((current) => [...current, { type: 'process', id: process.id }]);
+  };
+
+  const goBack = () => {
+    setNavigation((current) => current.slice(0, -1));
+  };
+
+  const jumpTo = (index) => {
+    if (index < 0) {
+      setNavigation([]);
+      return;
+    }
+    setNavigation((current) => current.slice(0, index + 1));
+  };
 
   return (
-    <div className="process-library-page">
-      <style>{`
-        .process-library-page {
-          min-height: calc(100vh - 108px);
-          color: #17202b;
-        }
-        .process-library-shell {
-          max-width: 1380px;
-          margin: 0 auto;
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-        }
-        .process-library-hero,
-        .process-library-section {
-          border: 1px solid #eadacc;
-          border-radius: 28px;
-          box-shadow: 0 18px 40px rgba(113, 77, 34, 0.08);
-        }
-        .process-library-hero {
-          background:
-            radial-gradient(circle at top left, rgba(180, 35, 24, 0.08), transparent 38%),
-            linear-gradient(180deg, #fffcf8 0%, #ffffff 100%);
-          padding: 28px;
-          display: grid;
-          grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
-          gap: 24px;
-        }
-        .process-library-breadcrumb {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 12px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.92);
-          border: 1px solid #eadacc;
-          color: #7b5b35;
-          font-size: 0.84rem;
-          font-weight: 600;
-          width: fit-content;
-        }
-        .process-library-hero h1 {
-          margin: 18px 0 12px;
-          font-size: clamp(2rem, 3vw, 3rem);
-          line-height: 1.05;
-          color: #991b1b;
-        }
-        .process-library-hero p {
-          margin: 0;
-          color: #5b6470;
-          line-height: 1.6;
-          max-width: 62ch;
-        }
-        .process-library-stats {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 12px;
-          margin-top: 22px;
-        }
-        .process-library-stat {
-          border-radius: 20px;
-          padding: 16px 18px;
-          border: 1px solid transparent;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .process-library-stat span {
-          color: #6b7280;
-          font-size: 0.8rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-        .process-library-stat strong {
-          color: #111827;
-          font-size: 1.65rem;
-          line-height: 1;
-        }
-        .process-library-stat-neutral { background: #fff; border-color: #eadacc; }
-        .process-library-stat-mint { background: #eefbf5; border-color: #b7ebcf; }
-        .process-library-stat-gold { background: #fff7ea; border-color: #f0d7a7; }
-        .process-library-toolbar {
-          background: #fff;
-          border: 1px solid #eadacc;
-          border-radius: 24px;
-          padding: 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-        .process-library-toolbar-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          flex-wrap: wrap;
-        }
-        .process-library-toolbar h2 {
-          margin: 0;
-          font-size: 1.05rem;
-          color: #0f172a;
-        }
-        .process-library-toolbar p {
-          margin: 4px 0 0;
-          color: #64748b;
-          font-size: 0.95rem;
-        }
-        .process-library-actions {
-          display: flex;
-          gap: 12px;
-          flex-wrap: wrap;
-          align-items: center;
-        }
-        .process-library-search {
-          position: relative;
-          min-width: min(100%, 320px);
-          flex: 1 1 320px;
-        }
-        .process-library-search i {
-          position: absolute;
-          left: 14px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #94a3b8;
-          pointer-events: none;
-        }
-        .process-library-search input {
-          width: 100%;
-          height: 48px;
-          border-radius: 16px;
-          border: 1px solid #d7c6b7;
-          background: #fffdf9;
-          padding: 0 16px 0 42px;
-          color: #0f172a;
-          outline: none;
-          transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-        .process-library-search input:focus {
-          border-color: #0f7c90;
-          box-shadow: 0 0 0 3px rgba(15, 124, 144, 0.12);
-        }
-        .process-library-filter-row {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .process-library-filter-row button {
-          height: 38px;
-          border-radius: 999px;
-          border: 1px solid #d8cabd;
-          background: #fff;
-          padding: 0 14px;
-          color: #475569;
-          font-weight: 600;
-          transition: all 0.15s ease;
-        }
-        .process-library-filter-row button.active {
-          background: #b42318;
-          border-color: #b42318;
-          color: #fff;
-          box-shadow: 0 10px 18px rgba(180, 35, 24, 0.16);
-        }
-        .process-library-section {
-          padding: 22px;
-        }
-        .process-library-section-head {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 18px;
-        }
-        .process-library-section-head h2 {
-          margin: 0;
-          font-size: 1.55rem;
-          line-height: 1.05;
-        }
-        .process-library-section-head p {
-          margin: 8px 0 0;
-          color: #64748b;
-        }
-        .process-library-section-count {
-          white-space: nowrap;
-          border-radius: 999px;
-          border: 1px solid rgba(15, 23, 42, 0.1);
-          background: rgba(255, 255, 255, 0.85);
-          padding: 8px 12px;
-          font-size: 0.85rem;
-          font-weight: 700;
-          color: #475569;
-        }
-        .process-library-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 14px;
-        }
-        .process-library-tile,
-        .process-library-ribbon {
-          width: 100%;
-          border: none;
-          color: #fff;
-          cursor: pointer;
-          background: linear-gradient(135deg, #10abc3 0%, #0f8ea3 100%);
-          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-          text-align: left;
-        }
-        .process-library-tile:hover,
-        .process-library-ribbon:hover,
-        .process-library-tile.is-selected,
-        .process-library-ribbon.is-selected {
-          transform: translateY(-2px);
-          filter: brightness(1.02);
-          box-shadow: 0 18px 24px rgba(15, 124, 144, 0.22);
-        }
-        .process-library-tile {
-          min-height: 144px;
-          padding: 16px 18px;
-          clip-path: polygon(0 0, 89% 0, 100% 50%, 89% 100%, 0 100%);
-        }
-        .process-library-tile-top,
-        .process-library-tile-meta {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-        }
-        .process-library-tile-category,
-        .process-library-tile-owner {
-          font-size: 0.74rem;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.84);
-          font-weight: 700;
-        }
-        .process-library-tile-arrow {
-          width: 26px;
-          height: 26px;
-          border-radius: 999px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(255, 255, 255, 0.16);
-        }
-        .process-library-tile-name {
-          display: block;
-          margin: 18px 0 20px;
-          font-size: 1rem;
-          font-weight: 800;
-          line-height: 1.25;
-          max-width: 18ch;
-        }
-        .process-library-status {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: fit-content;
-          padding: 4px 10px;
-          border-radius: 999px;
-          border: 1px solid transparent;
-          font-size: 0.75rem;
-          font-weight: 800;
-        }
-        .process-library-ribbons {
-          max-width: 860px;
-          margin: 0 auto;
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-        .process-library-ribbon {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          min-height: 66px;
-          padding: 0 24px;
-          clip-path: polygon(0 50%, 9% 0, 89% 0, 100% 50%, 89% 100%, 9% 100%);
-        }
-        .process-library-ribbon-body {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          min-width: 0;
-        }
-        .process-library-ribbon-title {
-          font-size: 1rem;
-          font-weight: 800;
-          line-height: 1.2;
-        }
-        .process-library-ribbon-details {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 8px;
-          color: rgba(255, 255, 255, 0.85);
-          font-size: 0.8rem;
-          font-weight: 600;
-        }
-        .process-library-ribbon-divider {
-          width: 6px;
-          height: 6px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.75);
-        }
-        .process-library-empty {
-          border-radius: 20px;
-          border: 1px dashed rgba(15, 23, 42, 0.16);
-          padding: 30px 18px;
-          text-align: center;
-          color: #64748b;
-          background: rgba(255, 255, 255, 0.75);
-        }
-        .process-library-state {
-          border-radius: 28px;
-          border: 1px solid #eadacc;
-          background: #fff;
-          padding: 56px 24px;
-          text-align: center;
-          color: #64748b;
-        }
-        .process-library-state i {
-          font-size: 2.2rem;
-          color: #c2410c;
-          display: block;
-          margin-bottom: 14px;
-        }
-        .process-library-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(15, 23, 42, 0.36);
-          backdrop-filter: blur(4px);
-          z-index: 1040;
-        }
-        .process-library-drawer {
-          position: fixed;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          width: min(460px, 100vw);
-          background: #fffdf8;
-          border-left: 1px solid #eadacc;
-          z-index: 1050;
-          box-shadow: -16px 0 32px rgba(15, 23, 42, 0.16);
-          display: flex;
-          flex-direction: column;
-        }
-        .process-library-drawer-head {
-          padding: 24px 24px 18px;
-          border-bottom: 1px solid #eadacc;
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-        }
-        .process-library-drawer-kicker {
-          display: inline-block;
-          margin-bottom: 10px;
-          color: #0f7c90;
-          font-size: 0.78rem;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-        .process-library-drawer-head h3 {
-          margin: 0;
-          color: #0f172a;
-          font-size: 1.5rem;
-          line-height: 1.1;
-        }
-        .process-library-close {
-          width: 40px;
-          height: 40px;
-          border-radius: 999px;
-          border: 1px solid #d8cabd;
-          background: #fff;
-          color: #334155;
-          flex-shrink: 0;
-        }
-        .process-library-drawer-body {
-          padding: 24px;
-          overflow-y: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-        }
-        .process-library-detail-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-        .process-library-detail-card {
-          background: #fff;
-          border-radius: 18px;
-          border: 1px solid #eadacc;
-          padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .process-library-detail-card span {
-          color: #64748b;
-          font-size: 0.82rem;
-          font-weight: 700;
-        }
-        .process-library-detail-card strong {
-          color: #0f172a;
-          font-size: 0.98rem;
-        }
-        .process-library-copy h4 {
-          margin: 0 0 10px;
-          color: #0f172a;
-          font-size: 1rem;
-        }
-        .process-library-copy p,
-        .process-library-copy ul {
-          margin: 0;
-          color: #475569;
-          line-height: 1.7;
-        }
-        .process-library-copy ul {
-          padding-left: 18px;
-        }
-        @media (max-width: 960px) {
-          .process-library-hero {
-            grid-template-columns: 1fr;
-          }
-          .process-library-stats {
-            grid-template-columns: 1fr;
-          }
-        }
-        @media (max-width: 720px) {
-          .process-library-page {
-            padding-bottom: 24px;
-          }
-          .process-library-hero,
-          .process-library-section,
-          .process-library-toolbar {
-            border-radius: 22px;
-          }
-          .process-library-ribbon {
-            padding: 14px 18px;
-            min-height: 0;
-            align-items: flex-start;
-            clip-path: none;
-            border-radius: 20px;
-          }
-          .process-library-tile {
-            clip-path: none;
-            border-radius: 20px;
-          }
-          .process-library-detail-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-
-      <div className="process-library-shell">
-        <section className="process-library-hero">
-          <div>
-            <span className="process-library-breadcrumb">
-              <i className="bi bi-collection" />
-              Bibliotheque des processus
-            </span>
-            <h1>Vue d ensemble des processus de l organisation</h1>
-            <p>
-              Une cartographie lisible, inspiree de votre modele de bibliotheque, pour parcourir les
-              processus de pilotage, metiers et support a partir des donnees deja gerees dans v-bpm.
-            </p>
-            <div className="process-library-stats">
-              <StatCard label="Total" value={processes.length} tone="neutral" />
-              <StatCard label="Actifs" value={totalActive} tone="mint" />
-              <StatCard label="Categories" value={totalCategories} tone="gold" />
-            </div>
-          </div>
-
-          <div className="process-library-toolbar">
-            <div className="process-library-toolbar-top">
-              <div>
-                <h2>Explorer la bibliotheque</h2>
-                <p>Filtrez rapidement, puis ouvrez un processus pour voir ses details.</p>
-              </div>
-              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadLibrary}>
-                <i className="bi bi-arrow-clockwise me-2" />
-                Actualiser
-              </button>
-            </div>
-
-            <div className="process-library-actions">
-              <label className="process-library-search">
-                <i className="bi bi-search" />
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Rechercher un processus, une categorie, un responsable..."
-                />
-              </label>
-            </div>
-
-            <div className="process-library-filter-row">
-              {[
-                ['all', 'Tous'],
-                ['active', 'Actifs'],
-                ['draft', 'Brouillons'],
-                ['archived', 'Archives'],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={statusFilter === value ? 'active' : ''}
-                  onClick={() => setStatusFilter(value)}
-                >
-                  {label}
+    <div className="container-fluid py-4">
+      <div className="mx-auto d-flex flex-column gap-4" style={{ maxWidth: 1520 }}>
+        <section className="card border-0 shadow-sm" style={{ borderRadius: 28, background: 'radial-gradient(circle at top left,rgba(153,27,27,.08),transparent 32%),linear-gradient(180deg,#fffdfa 0%,#fff 100%)' }}>
+          <div className="card-body p-4">
+            <div className="d-flex flex-column gap-4">
+              <div className="d-flex flex-wrap gap-2">
+                <button type="button" className={`btn btn-sm rounded-pill ${navigation.length === 0 ? 'btn-danger' : 'btn-outline-secondary'}`} onClick={() => jumpTo(-1)}>
+                  Bibliotheque
                 </button>
-              ))}
+                {navigationLabels.map((entry, index) => (
+                  <button
+                    key={`${entry.type}-${entry.id}`}
+                    type="button"
+                    className={`btn btn-sm rounded-pill ${index === navigationLabels.length - 1 ? 'btn-danger' : 'btn-outline-secondary'}`}
+                    onClick={() => jumpTo(index)}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="row g-4 align-items-start">
+                <div className="col-xl-7">
+                  <h1 className="display-4 fw-bold mb-3 text-danger-emphasis">
+                    {currentCategory
+                      ? `Entrez dans ${currentCategory.name}`
+                      : currentProcess
+                        ? (currentProcess.childCount > 0 ? 'Continuez dans les sous-processus' : 'Vous etes arrive au diagramme')
+                        : 'Naviguez de categorie en sous-categorie jusqu au diagramme'}
+                  </h1>
+                  <p className="lead text-muted mb-0">
+                    {currentCategory
+                      ? 'Cette vue affiche ses sous-categories puis ses processus directs, comme une representation graphique du classement du referentiel.'
+                      : currentProcess
+                        ? (currentProcess.childCount > 0 ? 'Ouvrez le sous-processus suivant pour descendre plus bas dans la decomposition.' : 'Le dernier niveau vous presente le BPMN detaille du processus selectionne.')
+                        : 'Le Process Library devient une vraie porte d entree visuelle vers Process Management: categories, sous-categories, macro-processus, puis diagramme.'}
+                  </p>
+                </div>
+
+                <div className="col-xl-5">
+                  <div className="card border-0 shadow-sm h-100" style={{ borderRadius: 24, background: '#fffdfa' }}>
+                    <div className="card-body d-flex flex-column gap-3">
+                      <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                          <h2 className="h4 mb-1">Exploration</h2>
+                          <p className="text-muted mb-0">Filtrez, puis avancez niveau par niveau.</p>
+                        </div>
+                        <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={loadLibrary}>
+                          <i className="bi bi-arrow-clockwise me-2" />Actualiser
+                        </button>
+                      </div>
+
+                      <div className="position-relative">
+                        <i className="bi bi-search position-absolute top-50 start-0 translate-middle-y text-muted ms-3" />
+                        <input
+                          type="search"
+                          className="form-control rounded-4 ps-5"
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                          placeholder="Rechercher une categorie ou un processus..."
+                        />
+                      </div>
+
+                      <div className="d-flex gap-2 flex-wrap">
+                        {[
+                          ['all', 'Tous'],
+                          ['approved', 'Approuves'],
+                          ['review', 'En revue'],
+                          ['draft', 'Brouillons'],
+                          ['archived', 'Archives'],
+                        ].map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={`btn btn-sm rounded-pill ${statusFilter === value ? 'btn-danger' : 'btn-outline-secondary'}`}
+                            onClick={() => setStatusFilter(value)}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="row g-3">
+                        <div className="col-md-4"><HeroStat label="Categories racines" value={totalRootCategories} /></div>
+                        <div className="col-md-4"><HeroStat label="Sous-categories" value={totalSubcategories} /></div>
+                        <div className="col-md-4"><HeroStat label="Processus visibles" value={rootVisibleProcessCount} /></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
 
         {loading ? (
-          <div className="process-library-state">
-            <i className="bi bi-hourglass-split" />
-            Chargement de la bibliotheque des processus...
+          <div className="card border-0 shadow-sm text-center text-muted" style={{ borderRadius: 28 }}>
+            <div className="card-body py-5">
+              <i className="bi bi-hourglass-split fs-1 d-block mb-3 text-danger" />
+              Chargement de la bibliotheque des processus...
+            </div>
           </div>
         ) : error ? (
-          <div className="process-library-state">
-            <i className="bi bi-exclamation-triangle" />
-            {error}
+          <div className="card border-0 shadow-sm text-center text-muted" style={{ borderRadius: 28 }}>
+            <div className="card-body py-5">
+              <i className="bi bi-exclamation-triangle fs-1 d-block mb-3 text-danger" />
+              {error}
+            </div>
           </div>
-        ) : visibleProcesses.length === 0 ? (
-          <div className="process-library-state">
-            <i className="bi bi-search" />
-            Aucun processus ne correspond aux filtres actuels.
+        ) : currentCategory ? (
+          <CategoryView
+            category={currentCategory}
+            childCategories={visibleChildCategories}
+            directProcesses={visibleDirectProcesses}
+            onOpenCategory={enterCategory}
+            onOpenProcess={enterProcess}
+            onBack={goBack}
+          />
+        ) : currentProcess ? (
+          currentProcess.childCount > 0 ? (
+            <ProcessBranchView
+              process={currentProcess}
+              children={visibleProcessChildren}
+              onOpenProcess={enterProcess}
+              onBack={goBack}
+            />
+          ) : (
+            <ProcessLeafView process={currentProcess} onBack={goBack} />
+          )
+        ) : !hasRootContent ? (
+          <div className="card border-0 shadow-sm text-center text-muted" style={{ borderRadius: 28 }}>
+            <div className="card-body py-5">
+              <i className="bi bi-search fs-1 d-block mb-3 text-danger" />
+              Aucune categorie ni aucun processus ne correspond aux filtres actuels.
+            </div>
           </div>
         ) : (
           <>
-            <LibrarySection
+            <RootSection
               sectionId="pilotage"
-              items={grouped.pilotage}
-              selectedId={selected?.id}
-              onSelect={setSelected}
+              categories={rootCategoriesBySection.pilotage}
+              looseProcesses={rootLooseProcesses.pilotage}
+              onOpenCategory={enterCategory}
+              onOpenProcess={enterProcess}
             />
-            <LibrarySection
+            <RootSection
               sectionId="metier"
-              items={grouped.metier}
-              selectedId={selected?.id}
-              onSelect={setSelected}
+              categories={rootCategoriesBySection.metier}
+              looseProcesses={rootLooseProcesses.metier}
+              onOpenCategory={enterCategory}
+              onOpenProcess={enterProcess}
             />
-            <LibrarySection
+            <RootSection
               sectionId="support"
-              items={grouped.support}
-              selectedId={selected?.id}
-              onSelect={setSelected}
+              categories={rootCategoriesBySection.support}
+              looseProcesses={rootLooseProcesses.support}
+              onOpenCategory={enterCategory}
+              onOpenProcess={enterProcess}
             />
           </>
         )}
       </div>
-
-      <ProcessDetails process={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
-
-export default ProcessLibrary;
