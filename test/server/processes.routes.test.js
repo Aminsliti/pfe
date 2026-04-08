@@ -263,7 +263,7 @@ describe('process routes', () => {
         id: 4,
         name: 'Order Process',
         company_id: 2,
-        status: 'review',
+        status: 'submitted',
         submitted_at: '2026-04-01T08:00:00.000Z',
         approved_at: null,
         approved_by: null,
@@ -275,7 +275,7 @@ describe('process routes', () => {
 
     const workflow = await request(app).get('/api/processes/4/workflow');
     expect(workflow.status).toBe(200);
-    expect(workflow.body.status).toBe('review');
+    expect(workflow.body.status).toBe('submitted');
     expect(workflow.body.comments).toHaveLength(1);
 
     pool.query
@@ -284,13 +284,16 @@ describe('process routes', () => {
         name: 'Order Process',
         company_id: 2,
         bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review" /></bpmn:definitions>',
-        status: 'review',
+        status: 'submitted',
         version: 1,
         submitted_at: '2026-04-01T08:00:00.000Z',
         approved_at: null,
         approved_by: null,
         archived_at: null,
       }]))
+      .mockResolvedValueOnce(makeResult([
+        { id: 71, action: 'submit_review', comment: 'Ready for approval', created_at: '2026-04-01T08:00:00.000Z', created_by_name: 'System Administrator' },
+      ]))
       .mockResolvedValueOnce(makeResult([{
         id: 4,
         name: 'Order Process',
@@ -363,6 +366,67 @@ describe('process routes', () => {
       ])
     );
     expect(diff.body.task_changes.added).toHaveLength(1);
+  });
+
+  it('ignores a pending change request while keeping the process approved', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser({ companyId: 2 })) });
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review" /></bpmn:definitions>',
+        status: 'approved',
+        version: 4,
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: '2026-04-01T09:00:00.000Z',
+        approved_by: 1,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([
+        { id: 83, action: 'request_change', comment: 'Please update this step', created_at: '2026-04-08T09:00:00.000Z', created_by_name: 'Designer User' },
+        { id: 82, action: 'approve', comment: 'Approved', created_at: '2026-04-08T08:00:00.000Z', created_by_name: 'System Administrator' },
+      ]))
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        bpmn_xml: '<bpmn:definitions><bpmn:userTask id="Task_1" name="Review" /></bpmn:definitions>',
+        status: 'approved',
+        version: 5,
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: '2026-04-01T09:00:00.000Z',
+        approved_by: 1,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([{
+        id: 4,
+        name: 'Order Process',
+        company_id: 2,
+        status: 'approved',
+        approved_by: 1,
+        approved_by_name: 'System Administrator',
+        submitted_at: '2026-04-01T08:00:00.000Z',
+        approved_at: '2026-04-01T09:00:00.000Z',
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(makeResult([
+        { id: 84, action: 'ignore_change_request', comment: 'Keep the current approved version', created_at: '2026-04-08T10:00:00.000Z', created_by_name: 'System Administrator' },
+        { id: 83, action: 'request_change', comment: 'Please update this step', created_at: '2026-04-08T09:00:00.000Z', created_by_name: 'Designer User' },
+        { id: 82, action: 'approve', comment: 'Approved', created_at: '2026-04-08T08:00:00.000Z', created_by_name: 'System Administrator' },
+      ]));
+
+    const action = await request(app).post('/api/processes/4/workflow').send({
+      action: 'ignore_change_request',
+      comment: 'Keep the current approved version',
+    });
+
+    expect(action.status).toBe(200);
+    expect(action.body.workflow.status).toBe('approved');
+    expect(action.body.workflow.pending_change_request).toBe(false);
   });
 
   it('manages companies with correct scoping rules', async () => {

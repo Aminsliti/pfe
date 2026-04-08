@@ -329,6 +329,7 @@ export function OrgChart() {
   const [rootDropActive, setRootDropActive] = useState(false);
   const [boardFullscreen, setBoardFullscreen] = useState(false);
   const boardRef = useRef(null);
+  const canvasRef = useRef(null);
 
   const deferredSearch = useDeferredValue(searchTerm.trim().toLowerCase());
 
@@ -385,6 +386,42 @@ export function OrgChart() {
     filled: nodes.filter((node) => node.userId).length,
     open: nodes.filter((node) => node.nodeType === 'position' && (node.isVacant || !node.userId)).length,
   };
+
+  const fitBoardToViewport = () => {
+    if (!canvasRef.current || !layout.width || !layout.height) {
+      return;
+    }
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const horizontalPadding = 56;
+    const verticalPadding = 56;
+    const availableWidth = Math.max(rect.width - horizontalPadding, 240);
+    const availableHeight = Math.max(rect.height - verticalPadding, 240);
+    const widthScale = availableWidth / layout.width;
+    const heightScale = availableHeight / layout.height;
+    const nextZoom = Math.max(0.35, Math.min(1.6, +Math.min(widthScale, heightScale).toFixed(2)));
+
+    setZoom(nextZoom);
+    canvasRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  };
+
+  useEffect(() => {
+    if (!boardFullscreen || loading || visibleNodes.length === 0) {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      fitBoardToViewport();
+    });
+
+    const handleResize = () => fitBoardToViewport();
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [boardFullscreen, loading, visibleNodes.length, layout.width, layout.height]);
 
   const showMessage = (text, variant = 'success') => setFeedback({ text, variant });
 
@@ -599,7 +636,7 @@ export function OrgChart() {
                 {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Create first node</Button>}
               </div>
             ) : (
-              <div className="org-canvas">
+              <div className="org-canvas" ref={canvasRef}>
                 <div className="org-canvas__zoom" style={{ width: layout.width * zoom, height: layout.height * zoom }}>
                   <div className="org-canvas__inner" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
                     <svg className="org-canvas__links" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`}>

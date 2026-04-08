@@ -27,13 +27,15 @@ const SECTION_CONFIG = {
 const STATUS_META = {
   active: { label: 'Actif', bg: '#dcfce7', color: '#166534' },
   approved: { label: 'Approuve', bg: '#dcfce7', color: '#166534' },
-  review: { label: 'En revue', bg: '#dbeafe', color: '#1d4ed8' },
+  submitted: { label: 'Soumis', bg: '#dbeafe', color: '#1d4ed8' },
+  change_requested: { label: 'Changement demande', bg: '#fef3c7', color: '#92400e' },
   draft: { label: 'Brouillon', bg: '#fef3c7', color: '#92400e' },
   archived: { label: 'Archive', bg: '#e2e8f0', color: '#475569' },
 };
 
 const CATEGORY_SECTIONS = {
   Compliance: 'pilotage',
+  Finance: 'pilotage',
   'Retail Banking': 'metier',
   Credit: 'metier',
   'Cards & Payments': 'metier',
@@ -44,9 +46,9 @@ const CATEGORY_SECTIONS = {
 };
 
 const KEYWORDS = {
-  pilotage: ['pilotage', 'strategie', 'governance', 'conformite', 'compliance', 'risk', 'risque', 'audit', 'controle'],
+  pilotage: ['pilotage', 'strategie', 'governance', 'conformite', 'compliance', 'risk', 'risque', 'audit', 'controle', 'finance'],
   metier: ['client', 'compte', 'account', 'credit', 'banque', 'monetique', 'operation', 'payment', 'paiement', 'swift', 'virement', 'retail'],
-  support: ['support', 'system', 'it ', 'resource', 'administration', 'procedure', 'communication'],
+  support: ['support', 'system', 'it ', 'resource', 'administration', 'procedure', 'communication', 'hr', 'human resources'],
 };
 
 function normalizeText(value = '') {
@@ -62,12 +64,16 @@ function formatDate(value) {
 }
 
 function getStatusMeta(status) {
+  if (status === 'review') {
+    return STATUS_META.submitted;
+  }
   return STATUS_META[status] || STATUS_META.draft;
 }
 
 function statusMatches(status, filter) {
   if (filter === 'all') return true;
   if (filter === 'approved') return status === 'approved' || status === 'active';
+  if (filter === 'submitted') return status === 'submitted' || status === 'review';
   return status === filter;
 }
 
@@ -157,7 +163,9 @@ function buildCategoryTree(categories = [], rootProcesses = []) {
   const decorate = (node, inheritedSection = null) => {
     node.section = inheritedSection || resolveSection({ name: node.name, description: node.description || '', category_name: node.name });
     node.children.forEach((child) => decorate(child, node.section));
-    node.totalProcessCount = node.processes.reduce((sum, process) => sum + 1 + process.descendantCount, 0) + node.children.reduce((sum, child) => sum + child.totalProcessCount, 0);
+    node.totalProcessCount =
+      node.processes.reduce((sum, process) => sum + 1 + process.descendantCount, 0) +
+      node.children.reduce((sum, child) => sum + child.totalProcessCount, 0);
   };
 
   sortBranch(roots);
@@ -177,6 +185,32 @@ function isCategoryVisible(category, searchValue, statusFilter) {
   return selfVisible || hasProcess || hasChild;
 }
 
+function getVisibleChildren(process, searchValue, statusFilter) {
+  return process.children.filter((child) => isProcessVisible(child, searchValue, statusFilter));
+}
+
+function collapseSingleVisibleProcessChain(process, searchValue, statusFilter) {
+  let current = process;
+  const visited = new Set([process.id]);
+
+  while (current) {
+    const children = getVisibleChildren(current, searchValue, statusFilter);
+    if (children.length !== 1) {
+      break;
+    }
+
+    const [next] = children;
+    if (visited.has(next.id)) {
+      break;
+    }
+
+    visited.add(next.id);
+    current = next;
+  }
+
+  return current;
+}
+
 function HeroStat({ label, value }) {
   return (
     <div className="border rounded-4 bg-white px-3 py-3 shadow-sm">
@@ -188,9 +222,17 @@ function HeroStat({ label, value }) {
 
 function CategoryCard({ category, onOpen }) {
   return (
-    <button type="button" className="card border-0 shadow-sm text-start h-100" onClick={() => onOpen(category)} style={{ background: 'linear-gradient(135deg,#4a1326 0%,#8f1d3d 55%,#d4551e 100%)', color: 'white', borderRadius: 24 }}>
+    <button
+      type="button"
+      className="card border-0 shadow-sm text-start h-100"
+      onClick={() => onOpen(category)}
+      style={{ background: 'linear-gradient(135deg,#4a1326 0%,#8f1d3d 55%,#d4551e 100%)', color: 'white', borderRadius: 24 }}
+    >
       <div className="card-body d-flex flex-column gap-3 p-4">
-        <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-diagram-3 me-2" />Categorie</div>
+        <div className="small text-uppercase fw-bold opacity-75">
+          <i className="bi bi-diagram-3 me-2" />
+          Categorie
+        </div>
         <div className="fs-4 fw-bold lh-sm">{category.name}</div>
         <div className="small opacity-75">{category.description || 'Entrez dans cette categorie pour afficher ses sous-categories et ses processus.'}</div>
         <div className="mt-auto d-flex flex-wrap gap-2">
@@ -206,9 +248,17 @@ function CategoryCard({ category, onOpen }) {
 function ProcessCard({ process, onOpen }) {
   const status = getStatusMeta(process.status);
   return (
-    <button type="button" className="card border-0 shadow-sm text-start h-100" onClick={() => onOpen(process)} style={{ background: 'linear-gradient(135deg,#4a1326 0%,#8f1d3d 55%,#d4551e 100%)', color: 'white', borderRadius: 24 }}>
+    <button
+      type="button"
+      className="card border-0 shadow-sm text-start h-100"
+      onClick={() => onOpen(process)}
+      style={{ background: 'linear-gradient(135deg,#4a1326 0%,#8f1d3d 55%,#d4551e 100%)', color: 'white', borderRadius: 24 }}
+    >
       <div className="card-body d-flex flex-column gap-3 p-4">
-        <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-bezier2 me-2" />{process.childCount > 0 ? 'Macro-processus' : 'Processus'}</div>
+        <div className="small text-uppercase fw-bold opacity-75">
+          <i className="bi bi-bezier2 me-2" />
+          {process.childCount > 0 ? 'Macro-processus' : 'Processus'}
+        </div>
         <div className="fs-4 fw-bold lh-sm">{process.name}</div>
         <div className="small opacity-75">{process.description || 'Ouvrez ce processus pour continuer la navigation jusqu au diagramme BPMN.'}</div>
         <div className="mt-auto d-flex flex-wrap gap-2">
@@ -281,7 +331,10 @@ function CategoryView({ category, childCategories, directProcesses, onOpenCatego
       <div className="card-body p-4 d-flex flex-column gap-4">
         <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
           <div>
-            <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-diagram-2 me-2" />Categorie</div>
+            <div className="small text-uppercase fw-bold text-danger mb-2">
+              <i className="bi bi-diagram-2 me-2" />
+              Categorie
+            </div>
             <h2 className="mb-2">{category.name}</h2>
             <p className="mb-0 text-muted">{category.description || 'Descendez dans les sous-categories ou ouvrez un processus de cette branche.'}</p>
           </div>
@@ -289,7 +342,8 @@ function CategoryView({ category, childCategories, directProcesses, onOpenCatego
             <span className="badge rounded-pill text-bg-light">{childCategories.length} sous-categorie(s)</span>
             <span className="badge rounded-pill text-bg-light">{directProcesses.length} processus</span>
             <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
-              <i className="bi bi-arrow-left me-2" />Retour
+              <i className="bi bi-arrow-left me-2" />
+              Retour
             </button>
           </div>
         </div>
@@ -334,7 +388,10 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack }) {
       <div className="card-body p-4 d-flex flex-column gap-4">
         <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
           <div>
-            <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-bezier2 me-2" />Macro-processus</div>
+            <div className="small text-uppercase fw-bold text-danger mb-2">
+              <i className="bi bi-bezier2 me-2" />
+              Macro-processus
+            </div>
             <h2 className="mb-2">{process.name}</h2>
             <p className="mb-0 text-muted">{process.description || 'Ouvrez un sous-processus pour continuer jusqu au diagramme detaille.'}</p>
           </div>
@@ -342,7 +399,8 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack }) {
             <span className="badge rounded-pill text-bg-light">{children.length} sous-processus visible(s)</span>
             <span className="badge rounded-pill text-bg-light">{process.descendantCount} niveau(x) en profondeur</span>
             <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
-              <i className="bi bi-arrow-left me-2" />Retour
+              <i className="bi bi-arrow-left me-2" />
+              Retour
             </button>
           </div>
         </div>
@@ -363,7 +421,7 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack }) {
   );
 }
 
-function ProcessLeafView({ process, onBack }) {
+function ProcessLeafView({ process, effectiveCategoryLabel, onBack }) {
   const status = getStatusMeta(process.status);
 
   return (
@@ -371,7 +429,10 @@ function ProcessLeafView({ process, onBack }) {
       <div className="card-body p-4 d-flex flex-column gap-4">
         <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
           <div>
-            <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-image me-2" />Diagramme BPMN final</div>
+            <div className="small text-uppercase fw-bold text-danger mb-2">
+              <i className="bi bi-image me-2" />
+              Diagramme BPMN final
+            </div>
             <h2 className="mb-2">{process.name}</h2>
             <p className="mb-0 text-muted">{process.description || 'Vous avez atteint le dernier niveau de navigation: le diagramme du processus detaille.'}</p>
           </div>
@@ -379,7 +440,8 @@ function ProcessLeafView({ process, onBack }) {
             <span className="badge rounded-pill" style={{ background: status.bg, color: status.color }}>{status.label}</span>
             <span className="badge rounded-pill text-bg-light">v{process.version || 1}</span>
             <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
-              <i className="bi bi-arrow-left me-2" />Retour
+              <i className="bi bi-arrow-left me-2" />
+              Retour
             </button>
           </div>
         </div>
@@ -396,7 +458,7 @@ function ProcessLeafView({ process, onBack }) {
             <div className="card border-0 shadow-sm h-100" style={{ background: '#fffdfa', borderRadius: 24 }}>
               <div className="card-body d-flex flex-column gap-3">
                 <h3 className="h5 mb-0">Informations</h3>
-                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Categorie</span><strong className="text-end">{process.category_name || 'Sans categorie'}</strong></div>
+                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Categorie</span><strong className="text-end">{effectiveCategoryLabel || process.category_name || 'Sans categorie'}</strong></div>
                 <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Responsable</span><strong className="text-end">{process.created_by_name || 'Equipe BPM'}</strong></div>
                 <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Creation</span><strong className="text-end">{formatDate(process.created_at)}</strong></div>
                 <div className="d-flex justify-content-between gap-3"><span className="text-muted">Mise a jour</span><strong className="text-end">{formatDate(process.updated_at)}</strong></div>
@@ -471,7 +533,7 @@ export default function ProcessLibrary() {
     hierarchy.roots
       .filter((process) => !process.category_id && isProcessVisible(process, normalizedSearch, statusFilter))
       .forEach((process) => {
-        groups[process.section].push(process);
+        groups[process.section].push(collapseSingleVisibleProcessChain(process, normalizedSearch, statusFilter));
       });
     return groups;
   }, [hierarchy.roots, normalizedSearch, statusFilter]);
@@ -486,12 +548,24 @@ export default function ProcessLibrary() {
   );
 
   const visibleDirectProcesses = useMemo(
-    () => (currentCategory ? currentCategory.processes.filter((process) => isProcessVisible(process, normalizedSearch, statusFilter)) : []),
+    () => (
+      currentCategory
+        ? currentCategory.processes
+            .filter((process) => isProcessVisible(process, normalizedSearch, statusFilter))
+            .map((process) => collapseSingleVisibleProcessChain(process, normalizedSearch, statusFilter))
+        : []
+    ),
     [currentCategory, normalizedSearch, statusFilter]
   );
 
   const visibleProcessChildren = useMemo(
-    () => (currentProcess ? currentProcess.children.filter((process) => isProcessVisible(process, normalizedSearch, statusFilter)) : []),
+    () => (
+      currentProcess
+        ? currentProcess.children
+            .filter((process) => isProcessVisible(process, normalizedSearch, statusFilter))
+            .map((process) => collapseSingleVisibleProcessChain(process, normalizedSearch, statusFilter))
+        : []
+    ),
     [currentProcess, normalizedSearch, statusFilter]
   );
 
@@ -513,12 +587,35 @@ export default function ProcessLibrary() {
   const totalSubcategories = categories.filter((category) => category.parent_id !== null && category.parent_id !== undefined).length;
   const hasRootContent = Object.values(rootCategoriesBySection).some((items) => items.length > 0) || Object.values(rootLooseProcesses).some((items) => items.length > 0);
 
+  const effectiveLeafCategoryLabel = useMemo(() => {
+    if (!currentProcess) {
+      return '';
+    }
+
+    let cursor = currentProcess;
+    while (cursor) {
+      if (cursor.category_name) {
+        return cursor.category_name;
+      }
+      if (cursor.category_id) {
+        const inheritedCategory = categoryTree.byId.get(Number(cursor.category_id));
+        if (inheritedCategory) {
+          return inheritedCategory.path?.join(' > ') || inheritedCategory.name;
+        }
+      }
+      cursor = cursor.parent_id ? hierarchy.byId.get(cursor.parent_id) : null;
+    }
+
+    return '';
+  }, [currentProcess, categoryTree.byId, hierarchy.byId]);
+
   const enterCategory = (category) => {
     setNavigation((current) => [...current, { type: 'category', id: category.id }]);
   };
 
   const enterProcess = (process) => {
-    setNavigation((current) => [...current, { type: 'process', id: process.id }]);
+    const resolvedProcess = collapseSingleVisibleProcessChain(process, normalizedSearch, statusFilter);
+    setNavigation((current) => [...current, { type: 'process', id: resolvedProcess.id }]);
   };
 
   const goBack = () => {
@@ -536,7 +633,10 @@ export default function ProcessLibrary() {
   return (
     <div className="container-fluid py-4">
       <div className="mx-auto d-flex flex-column gap-4" style={{ maxWidth: 1520 }}>
-        <section className="card border-0 shadow-sm" style={{ borderRadius: 28, background: 'radial-gradient(circle at top left,rgba(153,27,27,.08),transparent 32%),linear-gradient(180deg,#fffdfa 0%,#fff 100%)' }}>
+        <section
+          className="card border-0 shadow-sm"
+          style={{ borderRadius: 28, background: 'radial-gradient(circle at top left,rgba(153,27,27,.08),transparent 32%),linear-gradient(180deg,#fffdfa 0%,#fff 100%)' }}
+        >
           <div className="card-body p-4">
             <div className="d-flex flex-column gap-4">
               <div className="d-flex flex-wrap gap-2">
@@ -582,7 +682,8 @@ export default function ProcessLibrary() {
                           <p className="text-muted mb-0">Filtrez, puis avancez niveau par niveau.</p>
                         </div>
                         <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={loadLibrary}>
-                          <i className="bi bi-arrow-clockwise me-2" />Actualiser
+                          <i className="bi bi-arrow-clockwise me-2" />
+                          Actualiser
                         </button>
                       </div>
 
@@ -601,7 +702,8 @@ export default function ProcessLibrary() {
                         {[
                           ['all', 'Tous'],
                           ['approved', 'Approuves'],
-                          ['review', 'En revue'],
+                          ['submitted', 'Soumis'],
+                          ['change_requested', 'Changements demandes'],
                           ['draft', 'Brouillons'],
                           ['archived', 'Archives'],
                         ].map(([value, label]) => (
@@ -644,24 +746,12 @@ export default function ProcessLibrary() {
             </div>
           </div>
         ) : currentCategory ? (
-          <CategoryView
-            category={currentCategory}
-            childCategories={visibleChildCategories}
-            directProcesses={visibleDirectProcesses}
-            onOpenCategory={enterCategory}
-            onOpenProcess={enterProcess}
-            onBack={goBack}
-          />
+          <CategoryView category={currentCategory} childCategories={visibleChildCategories} directProcesses={visibleDirectProcesses} onOpenCategory={enterCategory} onOpenProcess={enterProcess} onBack={goBack} />
         ) : currentProcess ? (
           currentProcess.childCount > 0 ? (
-            <ProcessBranchView
-              process={currentProcess}
-              children={visibleProcessChildren}
-              onOpenProcess={enterProcess}
-              onBack={goBack}
-            />
+            <ProcessBranchView process={currentProcess} children={visibleProcessChildren} onOpenProcess={enterProcess} onBack={goBack} />
           ) : (
-            <ProcessLeafView process={currentProcess} onBack={goBack} />
+            <ProcessLeafView process={currentProcess} effectiveCategoryLabel={effectiveLeafCategoryLabel} onBack={goBack} />
           )
         ) : !hasRootContent ? (
           <div className="card border-0 shadow-sm text-center text-muted" style={{ borderRadius: 28 }}>
@@ -672,27 +762,9 @@ export default function ProcessLibrary() {
           </div>
         ) : (
           <>
-            <RootSection
-              sectionId="pilotage"
-              categories={rootCategoriesBySection.pilotage}
-              looseProcesses={rootLooseProcesses.pilotage}
-              onOpenCategory={enterCategory}
-              onOpenProcess={enterProcess}
-            />
-            <RootSection
-              sectionId="metier"
-              categories={rootCategoriesBySection.metier}
-              looseProcesses={rootLooseProcesses.metier}
-              onOpenCategory={enterCategory}
-              onOpenProcess={enterProcess}
-            />
-            <RootSection
-              sectionId="support"
-              categories={rootCategoriesBySection.support}
-              looseProcesses={rootLooseProcesses.support}
-              onOpenCategory={enterCategory}
-              onOpenProcess={enterProcess}
-            />
+            <RootSection sectionId="pilotage" categories={rootCategoriesBySection.pilotage} looseProcesses={rootLooseProcesses.pilotage} onOpenCategory={enterCategory} onOpenProcess={enterProcess} />
+            <RootSection sectionId="metier" categories={rootCategoriesBySection.metier} looseProcesses={rootLooseProcesses.metier} onOpenCategory={enterCategory} onOpenProcess={enterProcess} />
+            <RootSection sectionId="support" categories={rootCategoriesBySection.support} looseProcesses={rootLooseProcesses.support} onOpenCategory={enterCategory} onOpenProcess={enterProcess} />
           </>
         )}
       </div>

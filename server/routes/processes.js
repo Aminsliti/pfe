@@ -463,6 +463,43 @@ async function getWorkflowComments(processId) {
   return result.rows;
 }
 
+function buildWorkflowPayload(process, comments = []) {
+  const normalizedStatus = normalizeProcessStatus(process.status, 'draft');
+  const latestRequestChange = comments.find((entry) => entry.action === 'request_change') || null;
+  const latestReturnDraft = comments.find((entry) => entry.action === 'return_draft') || null;
+  const latestIgnoreChangeRequest = comments.find((entry) => entry.action === 'ignore_change_request') || null;
+  const latestApprove = comments.find((entry) => entry.action === 'approve') || null;
+  const pendingChangeRequest =
+    normalizedStatus === 'approved' &&
+    Boolean(latestRequestChange) &&
+    new Date(latestRequestChange.created_at).getTime() >
+      Math.max(
+        new Date(latestReturnDraft?.created_at || 0).getTime(),
+        new Date(latestIgnoreChangeRequest?.created_at || 0).getTime(),
+        new Date(latestApprove?.created_at || 0).getTime()
+      );
+
+  return {
+    process_id: process.id,
+    status: normalizedStatus,
+    submitted_at: process.submitted_at || null,
+    approved_at: process.approved_at || null,
+    approved_by: process.approved_by || null,
+    approved_by_name: process.approved_by_name || null,
+    archived_at: process.archived_at || null,
+    pending_change_request: pendingChangeRequest,
+    change_request: latestRequestChange
+      ? {
+          id: latestRequestChange.id,
+          comment: latestRequestChange.comment || null,
+          created_at: latestRequestChange.created_at,
+          created_by_name: latestRequestChange.created_by_name || null,
+        }
+      : null,
+    comments,
+  };
+}
+
 async function getProcessVersion(processId, versionNumber) {
   const result = await pool.query(
     `
@@ -484,11 +521,13 @@ function resolveWorkflowTransition(action, currentStatus) {
 
   switch (action) {
     case 'submit_review':
-      return { nextStatus: 'review', changeDescription: 'Submitted for review' };
+      return { nextStatus: 'submitted', changeDescription: 'Submitted for approval' };
     case 'approve':
       return { nextStatus: 'approved', changeDescription: 'Approved process' };
     case 'request_change':
       return { nextStatus: normalized, changeDescription: 'Requested change to approved process' };
+    case 'ignore_change_request':
+      return { nextStatus: normalized, changeDescription: 'Ignored change request on approved process' };
     case 'return_draft':
       return { nextStatus: 'draft', changeDescription: 'Returned to draft' };
     case 'archive':
@@ -982,16 +1021,8 @@ router.get('/processes/:id/explanation', async (req, res) => {
       return;
     }
 
-    const workflow = {
-      process_id: process.id,
-      status: normalizeProcessStatus(process.status, 'draft'),
-      submitted_at: process.submitted_at,
-      approved_at: process.approved_at,
-      approved_by: process.approved_by,
-      approved_by_name: process.approved_by_name || null,
-      archived_at: process.archived_at,
-      comments: await getWorkflowComments(process.id),
-    };
+    const workflowComments = await getWorkflowComments(process.id);
+    const workflow = buildWorkflowPayload(process, workflowComments);
 
     res.json({
       process: serializeProcessRecord(process),
@@ -1089,16 +1120,7 @@ router.get('/processes/:id/workflow', async (req, res) => {
     }
 
     const comments = await getWorkflowComments(process.id);
-    res.json({
-      process_id: process.id,
-      status: normalizeProcessStatus(process.status, 'draft'),
-      submitted_at: process.submitted_at,
-      approved_at: process.approved_at,
-      approved_by: process.approved_by,
-      approved_by_name: process.approved_by_name || null,
-      archived_at: process.archived_at,
-      comments,
-    });
+    res.json(buildWorkflowPayload(process, comments));
   } catch (error) {
     console.error('Get process workflow error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -1126,26 +1148,32 @@ router.post('/processes/:id/workflow', async (req, res) => {
 
     const action = String(req.body?.action || '');
     const comment = String(req.body?.comment || '').trim() || null;
+    const currentWorkflowComments = await getWorkflowComments(process.id);
+    const currentWorkflow = buildWorkflowPayload(process, currentWorkflowComments);
     const currentStatus = normalizeProcessStatus(process.status, 'draft');
     const { nextStatus, changeDescription } = resolveWorkflowTransition(action, currentStatus);
 
-    if (!['submit_review', 'approve', 'request_change', 'return_draft', 'archive', 'restore'].includes(action)) {
+    if (!['submit_review', 'approve', 'request_change', 'ignore_change_request', 'return_draft', 'archive', 'restore'].includes(action)) {
       return res.status(400).json({ error: 'Unsupported workflow action.' });
     }
 
     if (action === 'submit_review' && !(currentStatus === 'draft' && canSubmitProcessForReview(req.user))) {
-      return res.status(403).json({ error: 'Only admins or designers can submit a draft for review.' });
+      return res.status(403).json({ error: 'Only admins or designers can submit a draft for approval.' });
     }
 
-    if (action === 'approve' && !(currentStatus === 'review' && canApproveProcess(req.user))) {
-      return res.status(403).json({ error: 'Only admins or validators can approve a process in review.' });
+    if (action === 'approve' && !(currentStatus === 'submitted' && canApproveProcess(req.user))) {
+      return res.status(403).json({ error: 'Only admins or validators can approve a submitted process.' });
     }
 
     if (action === 'request_change' && !(currentStatus === 'approved' && canRequestProcessChange(req.user))) {
       return res.status(403).json({ error: 'Only admins or designers can request a change on an approved process.' });
     }
 
-    if (action === 'return_draft' && !(['review', 'approved'].includes(currentStatus) && canApproveProcess(req.user))) {
+    if (action === 'ignore_change_request' && !(currentStatus === 'approved' && currentWorkflow.pending_change_request && canApproveProcess(req.user))) {
+      return res.status(403).json({ error: 'Only admins or validators can ignore a pending change request on an approved process.' });
+    }
+
+    if (action === 'return_draft' && !(['submitted', 'approved', 'change_requested'].includes(currentStatus) && canApproveProcess(req.user))) {
       return res.status(403).json({ error: 'Only admins or validators can reopen this process as a draft.' });
     }
 
@@ -1242,7 +1270,7 @@ router.post('/processes/:id/workflow', async (req, res) => {
         roles: [ROLES.VALIDATOR, ROLES.ADMIN],
         type: 'process_approval_waiting',
         title: 'Process awaiting approval',
-        message: `${process.name} has been submitted for review.`,
+        message: `${process.name} has been submitted for approval.`,
         entityId: process.id,
         severity: 'warning',
       });
@@ -1250,7 +1278,7 @@ router.post('/processes/:id/workflow', async (req, res) => {
         companyId: process.company_id,
         type: 'process_approval_waiting',
         title: 'Process awaiting approval',
-        message: `${process.name} has been submitted for review.`,
+        message: `${process.name} has been submitted for approval.`,
         entityType: 'process',
         entityId: process.id,
         severity: 'warning',
@@ -1282,18 +1310,22 @@ router.post('/processes/:id/workflow', async (req, res) => {
       });
     }
 
+    if (action === 'ignore_change_request') {
+      await createNotification({
+        companyId: process.company_id,
+        type: 'process_change_request_ignored',
+        title: 'Change request ignored',
+        message: `${process.name} remains approved and the pending change request was ignored.`,
+        entityType: 'process',
+        entityId: process.id,
+        severity: 'info',
+      });
+    }
+
+    const refreshedComments = await getWorkflowComments(process.id);
     res.json({
       process: serializeProcessRecord(hydratedProcess),
-      workflow: {
-        process_id: process.id,
-        status: nextStatus,
-        submitted_at: hydratedProcess?.submitted_at || null,
-        approved_at: hydratedProcess?.approved_at || null,
-        approved_by: hydratedProcess?.approved_by || null,
-        approved_by_name: hydratedProcess?.approved_by_name || null,
-        archived_at: hydratedProcess?.archived_at || null,
-        comments: await getWorkflowComments(process.id),
-      },
+      workflow: buildWorkflowPayload(hydratedProcess, refreshedComments),
     });
   } catch (error) {
     console.error('Process workflow error:', error);

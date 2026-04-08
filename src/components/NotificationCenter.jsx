@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge, Button, ListGroup, Offcanvas } from 'react-bootstrap';
 
 const API = 'http://localhost:3001/api';
@@ -20,6 +21,7 @@ function severityVariant(severity) {
 }
 
 export function NotificationCenter() {
+  const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -85,6 +87,38 @@ export function NotificationCenter() {
     }
   };
 
+  const resolveNotificationPath = (notification) => {
+    const entityId = notification?.entity_id;
+    if (!entityId) {
+      return null;
+    }
+
+    if (notification.entity_type === 'process') {
+      return `/processes?processId=${encodeURIComponent(entityId)}`;
+    }
+
+    if (notification.entity_type === 'simulation') {
+      return `/simulations?scenarioId=${encodeURIComponent(entityId)}`;
+    }
+
+    if (notification.entity_type === 'orgchart_node') {
+      return `/orgchart?nodeId=${encodeURIComponent(entityId)}`;
+    }
+
+    return null;
+  };
+
+  const handleNotificationClick = async (notification) => {
+    await markRead(notification);
+    const targetPath = resolveNotificationPath(notification);
+    if (!targetPath) {
+      return;
+    }
+
+    setShow(false);
+    navigate(targetPath);
+  };
+
   return (
     <>
       <Button
@@ -133,7 +167,12 @@ export function NotificationCenter() {
                   style={{ opacity: notification.read_at ? 0.7 : 1 }}
                 >
                   <div className="d-flex justify-content-between gap-3">
-                    <div>
+                    <button
+                      type="button"
+                      onClick={() => handleNotificationClick(notification)}
+                      className="text-start flex-grow-1"
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'inherit' }}
+                    >
                       <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
                         <strong>{notification.title}</strong>
                         <Badge bg={severityVariant(notification.severity)}>{notification.type}</Badge>
@@ -143,9 +182,16 @@ export function NotificationCenter() {
                       <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
                         {formatDate(notification.created_at)}
                       </div>
-                    </div>
+                    </button>
                     {!notification.read_at && (
-                      <Button variant="outline-secondary" size="sm" onClick={() => markRead(notification)}>
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          markRead(notification);
+                        }}
+                      >
                         Read
                       </Button>
                     )}

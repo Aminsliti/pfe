@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown } from 'react-bootstrap';
 
@@ -118,7 +119,185 @@ function flattenCategoryTree(categories = []) {
   return options;
 }
 
+const PROCESS_FAMILY_SECTIONS = {
+  pilotage: {
+    label: 'Processus de Pilotage',
+    description: 'Gouvernance, controle et orientation strategique.',
+  },
+  metier: {
+    label: 'Processus Metiers',
+    description: 'Parcours client et execution des activites metier.',
+  },
+  support: {
+    label: 'Processus Support',
+    description: 'Fonctions transverses et services de support.',
+  },
+};
+
+const CATEGORY_SECTION_MAP = {
+  Compliance: 'pilotage',
+  Finance: 'pilotage',
+  'Retail Banking': 'metier',
+  Credit: 'metier',
+  'Cards & Payments': 'metier',
+  'Customer Service': 'metier',
+  Operations: 'metier',
+  HR: 'support',
+  IT: 'support',
+};
+
+const CATEGORY_SECTION_KEYWORDS = {
+  pilotage: ['pilotage', 'strategie', 'governance', 'conformite', 'compliance', 'risk', 'risque', 'audit', 'controle', 'finance'],
+  metier: ['metier', 'client', 'compte', 'account', 'credit', 'banque', 'monetique', 'operation', 'payment', 'paiement', 'swift', 'virement', 'retail'],
+  support: ['support', 'system', 'it ', 'resource', 'administration', 'procedure', 'communication', 'hr', 'human resources'],
+};
+
+function normalizeCategorySectionText(value = '') {
+  return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function resolveCategorySection(category) {
+  const mappedSection = CATEGORY_SECTION_MAP[category?.name] || CATEGORY_SECTION_MAP[category?.plainName];
+  if (mappedSection) {
+    return mappedSection;
+  }
+
+  const haystack = normalizeCategorySectionText(`${category?.name || ''} ${category?.description || ''}`);
+  if (CATEGORY_SECTION_KEYWORDS.pilotage.some((keyword) => haystack.includes(keyword))) {
+    return 'pilotage';
+  }
+  if (CATEGORY_SECTION_KEYWORDS.metier.some((keyword) => haystack.includes(keyword))) {
+    return 'metier';
+  }
+  return 'support';
+}
+
+const WORKFLOW_STEPS = [
+  { key: 'draft', label: 'Draft' },
+  { key: 'change_requested', label: 'Requested change' },
+  { key: 'submitted', label: 'Submitted' },
+  { key: 'approved', label: 'Approved' },
+];
+
+function getDerivedPendingChangeRequest(workflowInfo, currentStatus) {
+  if (workflowInfo?.pending_change_request) {
+    return true;
+  }
+
+  if ((currentStatus || 'draft') !== 'approved') {
+    return false;
+  }
+
+  const comments = Array.isArray(workflowInfo?.comments) ? workflowInfo.comments : [];
+  const latestRequestChange = comments.find((entry) => entry.action === 'request_change');
+  if (!latestRequestChange) {
+    return false;
+  }
+
+  const latestReturnDraft = comments.find((entry) => entry.action === 'return_draft');
+  const latestIgnoreChangeRequest = comments.find((entry) => entry.action === 'ignore_change_request');
+  const latestApprove = comments.find((entry) => entry.action === 'approve');
+  const requestTime = new Date(latestRequestChange.created_at || 0).getTime();
+  const returnTime = new Date(latestReturnDraft?.created_at || 0).getTime();
+  const ignoreTime = new Date(latestIgnoreChangeRequest?.created_at || 0).getTime();
+  const approveTime = new Date(latestApprove?.created_at || workflowInfo?.approved_at || 0).getTime();
+
+  return requestTime > Math.max(returnTime, ignoreTime, approveTime);
+}
+
+function getDerivedChangeRequest(workflowInfo, currentStatus) {
+  if (workflowInfo?.change_request) {
+    return workflowInfo.change_request;
+  }
+
+  if (!getDerivedPendingChangeRequest(workflowInfo, currentStatus)) {
+    return null;
+  }
+
+  const comments = Array.isArray(workflowInfo?.comments) ? workflowInfo.comments : [];
+  return comments.find((entry) => entry.action === 'request_change') || null;
+}
+
+function getWorkflowStepState(stepKey, currentStatus, workflowInfo) {
+  const normalizedStatus = currentStatus || 'draft';
+  const pendingChangeRequest = getDerivedPendingChangeRequest(workflowInfo, normalizedStatus);
+
+  if (normalizedStatus === 'approved' && pendingChangeRequest) {
+    return stepKey === 'change_requested' || stepKey === 'approved' ? 'active' : 'pending';
+  }
+
+  if (normalizedStatus === stepKey) {
+    return 'active';
+  }
+
+  if (stepKey === 'draft') {
+    return ['change_requested', 'submitted', 'approved', 'archived'].includes(normalizedStatus) ? 'complete' : 'active';
+  }
+
+  if (stepKey === 'change_requested') {
+    return pendingChangeRequest ? 'active' : 'pending';
+  }
+
+  if (stepKey === 'submitted') {
+    return workflowInfo?.submitted_at && ['submitted', 'approved', 'archived'].includes(normalizedStatus) ? 'complete' : 'pending';
+  }
+
+  if (stepKey === 'approved') {
+    return workflowInfo?.approved_at && ['approved', 'archived'].includes(normalizedStatus) ? 'complete' : 'pending';
+  }
+
+  return 'pending';
+}
+
+function WorkflowStepper({ currentStatus, workflowInfo }) {
+  return (
+    <div className="d-flex align-items-start justify-content-between gap-2 mb-4 flex-wrap flex-lg-nowrap">
+      {WORKFLOW_STEPS.map((step, index) => {
+        const state = getWorkflowStepState(step.key, currentStatus, workflowInfo);
+        const isLast = index === WORKFLOW_STEPS.length - 1;
+        const circleStyles = {
+          width: 42,
+          height: 42,
+          borderRadius: '999px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 800,
+          border: state === 'active' ? '2px solid #16a34a' : state === 'complete' ? '2px solid #fecaca' : '2px solid #d1d5db',
+          background: state === 'active' ? '#16a34a' : state === 'complete' ? '#fff1f2' : '#f3f4f6',
+          color: state === 'active' ? '#fff' : state === 'complete' ? '#991b1b' : '#9ca3af',
+          flexShrink: 0,
+        };
+        const lineStyles = {
+          flex: 1,
+          height: 6,
+          borderRadius: 999,
+          marginTop: 18,
+          background: ['complete', 'active'].includes(state) ? 'linear-gradient(90deg, #16a34a 0%, #86efac 100%)' : '#e5e7eb',
+          minWidth: 36,
+        };
+
+        return (
+          <div key={step.key} className="d-flex align-items-start flex-grow-1" style={{ minWidth: 0 }}>
+            <div className="d-flex flex-column align-items-center text-center" style={{ minWidth: 108 }}>
+              <div style={circleStyles}>
+                {state === 'complete' ? <i className="bi bi-check-lg" /> : state === 'active' ? <i className="bi bi-check-lg" /> : <i className="bi bi-dash-lg" />}
+              </div>
+              <div className="mt-2 fw-semibold" style={{ fontSize: 14, color: state === 'pending' ? '#6b7280' : '#111827' }}>
+                {step.label}
+              </div>
+            </div>
+            {!isLast ? <div style={lineStyles} /> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ProcessManagement() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { company, hasPermission, isGlobalAdmin, hasRole, ROLES } = useAuth();
   const globalAdmin = isGlobalAdmin();
   const canViewWorkspace = hasPermission('view_dashboard') || hasPermission('manage_processes');
@@ -164,13 +343,19 @@ export function ProcessManagement() {
   const [templates, setTemplates] = useState([]);
   const [applyingTemplateId, setApplyingTemplateId] = useState(null);
   const fileInputRef = useRef(null);
+  const handledRouteProcessIdRef = useRef(null);
 
   const showMsg = (text, type = 'success') => {
     setMessage({ text, type });
     setTimeout(() => setMessage({ text: '', type: 'success' }), 4000);
   };
 
-  const normalizeGovernedStatus = (status) => (status === 'active' ? 'approved' : status || 'draft');
+  const normalizeGovernedStatus = (status) => {
+    const candidate = String(status || 'draft').toLowerCase();
+    if (candidate === 'active') return 'approved';
+    if (candidate === 'review') return 'submitted';
+    return candidate || 'draft';
+  };
 
   const canCreateDefinitions = isAdmin || isDesigner;
   const canEditProcessDefinition = (process) => {
@@ -185,15 +370,17 @@ export function ProcessManagement() {
   const canSubmitForReview = (status) =>
     normalizeGovernedStatus(status) === 'draft' && (isAdmin || isDesigner);
   const canApproveProcess = (status) =>
-    normalizeGovernedStatus(status) === 'review' && (isAdmin || isValidator);
+    normalizeGovernedStatus(status) === 'submitted' && (isAdmin || isValidator);
   const canReturnToDraft = (status) =>
-    ['review', 'approved'].includes(normalizeGovernedStatus(status)) && (isAdmin || isValidator);
+    ['submitted', 'approved', 'change_requested'].includes(normalizeGovernedStatus(status)) && (isAdmin || isValidator);
   const canArchiveProcess = (status) =>
     normalizeGovernedStatus(status) === 'approved' && (isAdmin || isValidator);
   const canRestoreProcess = (status) =>
     normalizeGovernedStatus(status) === 'archived' && (isAdmin || isValidator);
   const canRequestChange = (status) =>
     normalizeGovernedStatus(status) === 'approved' && (isAdmin || isDesigner);
+  const canIgnoreChangeRequest = (status, hasPendingChangeRequest) =>
+    normalizeGovernedStatus(status) === 'approved' && hasPendingChangeRequest && (isAdmin || isValidator);
 
   const loadProcesses = async () => {
     if (!canViewWorkspace) return;
@@ -255,9 +442,38 @@ export function ProcessManagement() {
       return changed ? next : previous;
     });
   }, [categories]);
+  useEffect(() => {
+    const processId = new URLSearchParams(location.search).get('processId');
+    if (!processId || loading || !canViewWorkspace) {
+      return;
+    }
+
+    if (handledRouteProcessIdRef.current === processId) {
+      return;
+    }
+
+    const matchingProcess = processes.find((process) => String(process.id) === processId);
+    if (!matchingProcess) {
+      return;
+    }
+
+    handledRouteProcessIdRef.current = processId;
+    openEditDetails(matchingProcess);
+
+    const params = new URLSearchParams(location.search);
+    params.delete('processId');
+    navigate(
+      {
+        pathname: location.pathname,
+        search: params.toString() ? `?${params.toString()}` : '',
+      },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate, processes, loading, canViewWorkspace]);
   const statusVariant = (status) => ({
     draft: 'secondary',
-    review: 'info',
+    submitted: 'info',
+    change_requested: 'warning',
     approved: 'success',
     active: 'success',
     archived: 'warning',
@@ -265,7 +481,8 @@ export function ProcessManagement() {
 
   const statusLabel = (status) => ({
     draft: 'Draft',
-    review: 'In Review',
+    submitted: 'Submitted',
+    change_requested: 'Requested change',
     approved: 'Approved',
     active: 'Approved',
     archived: 'Archived',
@@ -785,6 +1002,13 @@ export function ProcessManagement() {
   const categoryTree = useMemo(() => buildCategoryTree(categories), [categories]);
   const categoryOptions = useMemo(() => flattenCategoryTree(categories), [categories]);
   const categoryById = categoryTree.byId;
+  const rootCategoriesBySection = useMemo(() => {
+    const groups = { pilotage: [], metier: [], support: [] };
+    categoryTree.roots.forEach((category) => {
+      groups[resolveCategorySection(category)].push(category);
+    });
+    return groups;
+  }, [categoryTree.roots]);
   const processesByCategory = useMemo(() => {
     const next = new Map();
     processes.forEach((process) => {
@@ -803,6 +1027,8 @@ export function ProcessManagement() {
   const uncategorised = processes.filter((process) => !process.category_id);
   const availableVersions = processDetail?.versions || [];
   const currentWorkflowStatus = normalizeUiStatus(workflowInfo?.status || formData.status);
+  const pendingChangeRequest = getDerivedPendingChangeRequest(workflowInfo, currentWorkflowStatus);
+  const activeChangeRequest = getDerivedChangeRequest(workflowInfo, currentWorkflowStatus);
   const previewBpmnXml = processDetail?.bpmn_xml || editingProcess?.bpmn_xml || formData.bpmn_xml || '';
   const canEditSelectedProcess = editingProcess ? canEditProcessDefinition(editingProcess) : canCreateDefinitions;
 
@@ -987,6 +1213,36 @@ export function ProcessManagement() {
     );
   };
 
+  const CategorySection = ({ sectionKey }) => {
+    const section = PROCESS_FAMILY_SECTIONS[sectionKey];
+    const sectionCategories = rootCategoriesBySection[sectionKey] || [];
+
+    if (!sectionCategories.length) {
+      return null;
+    }
+
+    return (
+      <div style={{ borderBottom: '1px solid #e2e8f0' }}>
+        <div
+          className="d-flex align-items-start gap-2 px-3 py-2"
+          style={{ background: '#fffdfa', borderBottom: '1px solid #f1f5f9' }}
+        >
+          <i className="bi bi-collection text-muted mt-1" />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#7f1d1d' }}>{section.label}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{section.description}</div>
+          </div>
+          <Badge bg="light" text="dark" pill className="ms-auto">
+            {sectionCategories.length}
+          </Badge>
+        </div>
+        {sectionCategories.map((category) => (
+          <CategoryBranch key={category.id} category={category} />
+        ))}
+      </div>
+    );
+  };
+
   return (
     <Container fluid className="py-4">
       <Row className="mb-3">
@@ -1036,7 +1292,8 @@ export function ProcessManagement() {
                 <Form.Select size="sm" style={{ maxWidth: 140 }} value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
                   <option value="">Tous statuts</option>
                   <option value="draft">Draft</option>
-                  <option value="review">In Review</option>
+                  <option value="change_requested">Requested change</option>
+                  <option value="submitted">Submitted</option>
                   <option value="approved">Approved</option>
                   <option value="archived">Archived</option>
                 </Form.Select>
@@ -1057,9 +1314,13 @@ export function ProcessManagement() {
             <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Categories de processus</span>
             <Badge bg="light" text="dark" pill className="ms-auto">{categoryTree.roots.length}</Badge>
           </button>
-          {categoriesExpanded && categoryTree.roots.map((category) => (
-            <CategoryBranch key={category.id} category={category} />
-          ))}
+          {categoriesExpanded && (
+            <>
+              <CategorySection sectionKey="pilotage" />
+              <CategorySection sectionKey="metier" />
+              <CategorySection sectionKey="support" />
+            </>
+          )}
           {categoriesExpanded && uncategorised.length > 0 && (
             <div>
               <button type="button" onClick={() => setUncategorisedExpanded((previous) => !previous)} className="d-flex align-items-center gap-2 py-2 w-100 text-start" style={{ paddingLeft: 24, border: 'none', borderBottom: '1px solid #f1f5f9', background: 'white' }}>
@@ -1230,17 +1491,37 @@ export function ProcessManagement() {
                       <div className="d-flex justify-content-between align-items-center mb-3">
                         <div>
                           <h6 className="mb-1">Approval Workflow</h6>
-                          <div className="text-muted small">Submit, approve, archive, and keep review comments with timestamps.</div>
+                          <div className="text-muted small">Track governance from draft to approval, with change requests and dated comments.</div>
                         </div>
                         {detailLoading && <div className="spinner-border spinner-border-sm text-danger" role="status" />}
                       </div>
 
+                      <WorkflowStepper currentStatus={currentWorkflowStatus} workflowInfo={workflowInfo} />
+
                       <div className="d-flex flex-wrap gap-2 mb-3">
                         <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>
-                        {workflowInfo?.submitted_at && <Badge bg="light" text="dark">Submitted {new Date(workflowInfo.submitted_at).toLocaleDateString()}</Badge>}
+                        {workflowInfo?.submitted_at && <Badge bg="light" text="dark">Submitted on {new Date(workflowInfo.submitted_at).toLocaleDateString()}</Badge>}
+                        {pendingChangeRequest && <Badge bg="warning" text="dark">Change request pending</Badge>}
                         {workflowInfo?.approved_by_name && <Badge bg="success-subtle" text="dark">Approved by {workflowInfo.approved_by_name}</Badge>}
                         {workflowInfo?.archived_at && <Badge bg="warning" text="dark">Archived {new Date(workflowInfo.archived_at).toLocaleDateString()}</Badge>}
                       </div>
+
+                      {pendingChangeRequest && activeChangeRequest ? (
+                        <div className="border rounded-3 p-3 mb-3" style={{ background: '#fff7ed', borderColor: '#fdba74' }}>
+                          <div className="d-flex justify-content-between gap-2 flex-wrap">
+                            <strong style={{ color: '#9a3412' }}>Pending change request</strong>
+                            <span className="text-muted small">{new Date(activeChangeRequest.created_at).toLocaleString()}</span>
+                          </div>
+                          <div className="small text-muted mt-1">
+                            Requested by {activeChangeRequest.created_by_name || 'System'}
+                          </div>
+                          {activeChangeRequest.comment ? (
+                            <div className="mt-2" style={{ fontSize: 14, color: '#7c2d12' }}>
+                              {activeChangeRequest.comment}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       <Form.Group className="mb-3">
                         <Form.Label>Workflow comment</Form.Label>
@@ -1256,7 +1537,7 @@ export function ProcessManagement() {
                       <div className="d-flex flex-wrap gap-2 mb-3">
                         {canSubmitForReview(currentWorkflowStatus) && (
                           <Button variant="info" onClick={() => handleWorkflowAction('submit_review')} disabled={!!workflowBusy}>
-                            {workflowBusy === 'submit_review' ? 'Submitting...' : 'Submit for review'}
+                            {workflowBusy === 'submit_review' ? 'Submitting...' : 'Submit'}
                           </Button>
                         )}
                         {canApproveProcess(currentWorkflowStatus) && (
@@ -1283,6 +1564,11 @@ export function ProcessManagement() {
                         {canRequestChange(currentWorkflowStatus) && (
                           <Button variant="outline-danger" onClick={() => handleWorkflowAction('request_change')} disabled={!!workflowBusy}>
                             {workflowBusy === 'request_change' ? 'Sending...' : 'Request change'}
+                          </Button>
+                        )}
+                        {canIgnoreChangeRequest(currentWorkflowStatus, pendingChangeRequest) && (
+                          <Button variant="outline-dark" onClick={() => handleWorkflowAction('ignore_change_request')} disabled={!!workflowBusy}>
+                            {workflowBusy === 'ignore_change_request' ? 'Ignoring...' : 'Ignore request'}
                           </Button>
                         )}
                         {canRestoreProcess(currentWorkflowStatus) && (
@@ -1453,7 +1739,7 @@ export function ProcessManagement() {
               </div>
               <Row>
                 <Col md={8}><Form.Group className="mb-3"><Form.Label>Process name *</Form.Label><Form.Control value={importForm.name} onChange={(event) => setImportForm((previous) => ({ ...previous, name: event.target.value }))} placeholder="Displayed name in the process list" /></Form.Group></Col>
-                <Col md={4}><Form.Group className="mb-3"><Form.Label>Initial status</Form.Label><Form.Select value={importForm.status} onChange={(event) => setImportForm((previous) => ({ ...previous, status: event.target.value }))}><option value="draft">Draft</option><option value="review">In Review</option><option value="approved">Approved</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
+                <Col md={4}><Form.Group className="mb-3"><Form.Label>Initial status</Form.Label><Form.Select value={importForm.status} onChange={(event) => setImportForm((previous) => ({ ...previous, status: event.target.value }))}><option value="draft">Draft</option><option value="change_requested">Requested change</option><option value="submitted">Submitted</option><option value="approved">Approved</option><option value="archived">Archived</option></Form.Select></Form.Group></Col>
               </Row>
               <Form.Group className="mb-3"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={importForm.description} onChange={(event) => setImportForm((previous) => ({ ...previous, description: event.target.value }))} placeholder="Optional" /></Form.Group>
               <Form.Group className="mb-3"><Form.Label>Category</Form.Label><Form.Select value={importForm.category_id} onChange={(event) => setImportForm((previous) => ({ ...previous, category_id: event.target.value }))}><option value="">No category</option>{categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.pathLabel}</option>)}</Form.Select></Form.Group>

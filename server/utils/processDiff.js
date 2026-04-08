@@ -1,12 +1,16 @@
 import { extractTasksFromDiagram } from './simulationEngine.js';
 
-export const PROCESS_STATUSES = new Set(['draft', 'review', 'approved', 'archived']);
+export const PROCESS_STATUSES = new Set(['draft', 'submitted', 'change_requested', 'approved', 'archived']);
 
 export function normalizeProcessStatus(status, fallback = 'draft') {
   const candidate = String(status || fallback || 'draft').toLowerCase();
 
   if (candidate === 'active') {
     return 'approved';
+  }
+
+  if (candidate === 'review') {
+    return 'submitted';
   }
 
   return PROCESS_STATUSES.has(candidate) ? candidate : fallback;
