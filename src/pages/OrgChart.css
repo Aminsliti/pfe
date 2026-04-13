@@ -269,6 +269,13 @@
   min-height: 0;
 }
 
+.org-board.is-fullscreen .org-canvas.is-fullscreen-fit,
+.org-board:fullscreen .org-canvas.is-fullscreen-fit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .org-canvas__zoom {
   position: relative;
 }

@@ -25,10 +25,10 @@ const CANVAS_PADDING = 40;
 
 const TYPE_META = {
   company: { label: 'Organisation', icon: 'bi-building', color: '#dc2626' },
-  division: { label: 'Division', icon: 'bi-diagram-2', color: '#2563eb' },
+  division: { label: 'Structure', icon: 'bi-diagram-2', color: '#2563eb' },
   department: { label: 'Department', icon: 'bi-kanban', color: '#7c3aed' },
   team: { label: 'Team', icon: 'bi-people', color: '#0891b2' },
-  position: { label: 'Position', icon: 'bi-person-badge', color: '#475569' },
+  position: { label: 'Function', icon: 'bi-person-badge', color: '#475569' },
 };
 
 const EMPTY_FORM = {
@@ -324,6 +324,8 @@ export function OrgChart() {
   const [rootDropActive, setRootDropActive] = useState(false);
   const [boardFullscreen, setBoardFullscreen] = useState(false);
   const boardRef = useRef(null);
+  const canvasRef = useRef(null);
+  const fullscreenZoomRef = useRef(1);
 
   const deferredSearch = useDeferredValue(searchTerm.trim().toLowerCase());
 
@@ -370,6 +372,37 @@ export function OrgChart() {
   const visibleIds = buildVisibleIds(nodes, deferredSearch);
   const visibleNodes = nodes.filter((node) => visibleIds.has(node.id));
   const layout = buildLayout(visibleNodes);
+
+  useEffect(() => {
+    if (!boardFullscreen || loading || !visibleNodes.length || !canvasRef.current) {
+      return undefined;
+    }
+
+    const fitToFullscreen = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        return;
+      }
+
+      const horizontalPadding = 48;
+      const verticalPadding = 48;
+      const widthScale = (canvas.clientWidth - horizontalPadding) / layout.width;
+      const heightScale = (canvas.clientHeight - verticalPadding) / layout.height;
+      const nextZoom = Math.min(widthScale, heightScale);
+
+      if (!Number.isFinite(nextZoom) || nextZoom <= 0) {
+        return;
+      }
+
+      setZoom(Math.max(0.22, Math.min(1.8, Number(nextZoom.toFixed(2)))));
+    };
+
+    const rafId = window.requestAnimationFrame(() => {
+      fitToFullscreen();
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [boardFullscreen, loading, visibleNodes.length, layout.width, layout.height]);
 
   const parentOptions = selectedNode
     ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
@@ -499,7 +532,9 @@ export function OrgChart() {
     try {
       if (document.fullscreenElement === boardRef.current) {
         await document.exitFullscreen();
+        setZoom(fullscreenZoomRef.current || 1);
       } else {
+        fullscreenZoomRef.current = zoom;
         await boardRef.current.requestFullscreen();
       }
     } catch (requestError) {
@@ -514,7 +549,7 @@ export function OrgChart() {
         <div className="org-hero__copy">
           <span className="org-hero__eyebrow">Organisation Builder</span>
           <h1>Interactive Org Chart</h1>
-          <p>Build real organigrams with departments, teams, positions, and assigned people. Drag cards to re-parent them or edit the selected node in the inspector.</p>
+          <p>Build real organigrams with structures, departments, teams, functions, and assigned people. Drag cards to re-parent them or edit the selected node in the inspector.</p>
         </div>
         <div className="org-hero__actions">
           <Button variant="outline-secondary" className="org-hero__refresh" onClick={() => loadOrgChart()}>
@@ -534,8 +569,8 @@ export function OrgChart() {
 
       <Row className="g-3 org-metrics">
         <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>
-        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Filled positions</span><strong>{metrics.filled}</strong><p>Roles already assigned to a person.</p></Card.Body></Card></Col>
-        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open positions</span><strong>{metrics.open}</strong><p>Vacant or unassigned positions.</p></Card.Body></Card></Col>
+        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Filled functions</span><strong>{metrics.filled}</strong><p>Functions already assigned to a person.</p></Card.Body></Card></Col>
+        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open functions</span><strong>{metrics.open}</strong><p>Vacant or unassigned functions.</p></Card.Body></Card></Col>
       </Row>
 
       <div className="org-workspace">
@@ -555,9 +590,9 @@ export function OrgChart() {
                   {boardFullscreen ? 'Exit full screen' : 'Full screen'}
                 </Button>
                 <div className="org-zoom">
-                  <button onClick={() => setZoom((current) => Math.max(0.6, +(current - 0.1).toFixed(1)))}>-</button>
+                  <button onClick={() => setZoom((current) => Math.max(0.2, +(current - 0.1).toFixed(1)))}>-</button>
                   <span>{Math.round(zoom * 100)}%</span>
-                  <button onClick={() => setZoom((current) => Math.min(1.6, +(current + 0.1).toFixed(1)))}>+</button>
+                  <button onClick={() => setZoom((current) => Math.min(1.8, +(current + 0.1).toFixed(1)))}>+</button>
                 </div>
                 <Badge bg="light" text="dark" className="org-badge">{visibleNodes.length} visible</Badge>
               </div>
@@ -591,7 +626,7 @@ export function OrgChart() {
                 {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Create first node</Button>}
               </div>
             ) : (
-              <div className="org-canvas">
+              <div className={`org-canvas${boardFullscreen ? ' is-fullscreen-fit' : ''}`} ref={canvasRef}>
                 <div className="org-canvas__zoom" style={{ width: layout.width * zoom, height: layout.height * zoom }}>
                   <div className="org-canvas__inner" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
                     <svg className="org-canvas__links" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`}>

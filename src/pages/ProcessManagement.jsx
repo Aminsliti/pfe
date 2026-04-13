@@ -282,6 +282,7 @@ export function ProcessManagement() {
   const [applyingTemplateId, setApplyingTemplateId] = useState(null);
   const fileInputRef = useRef(null);
   const openingProcessRef = useRef(null);
+  const syncedProcessParamRef = useRef(null);
 
   const showMsg = (text, type = 'success') => {
     setMessage({ text, type });
@@ -507,6 +508,7 @@ export function ProcessManagement() {
     setShowModal(true);
   };
   const syncProcessSearchParam = (processId = null) => {
+    syncedProcessParamRef.current = processId ? Number(processId) : null;
     const nextSearch = new URLSearchParams(searchParams);
     if (processId) {
       nextSearch.set('processId', String(processId));
@@ -527,8 +529,24 @@ export function ProcessManagement() {
     });
   };
   const openEditDetails = async (process, { syncUrl = true } = {}) => {
-    if (syncUrl && process?.id) {
-      syncProcessSearchParam(process.id);
+    const processId = Number(process?.id);
+    if (!Number.isInteger(processId) || processId <= 0) {
+      return;
+    }
+
+    const activeProcessId = Number(processDetail?.id || editingProcess?.id || 0);
+    if (showModal && activeProcessId === processId) {
+      return;
+    }
+
+    if (openingProcessRef.current === processId) {
+      return;
+    }
+
+    openingProcessRef.current = processId;
+
+    if (syncUrl) {
+      syncProcessSearchParam(processId);
     }
 
     setEditingProcess(process);
@@ -539,16 +557,26 @@ export function ProcessManagement() {
     setProcessDetail(null);
     setShowModal(true);
     try {
-      const detail = await hydrateProcessDetail(process.id);
+      const detail = await hydrateProcessDetail(processId);
       applyProcessForm(detail);
       setEditingProcess(detail);
     } catch {
       showMsg('Failed to load process details', 'danger');
+    } finally {
+      if (openingProcessRef.current === processId) {
+        openingProcessRef.current = null;
+      }
     }
   };
   useEffect(() => {
     const processIdFromUrl = Number(searchParams.get('processId'));
     if (!Number.isInteger(processIdFromUrl) || processIdFromUrl <= 0) {
+      syncedProcessParamRef.current = null;
+      return;
+    }
+
+    if (syncedProcessParamRef.current === processIdFromUrl) {
+      syncedProcessParamRef.current = null;
       return;
     }
 
@@ -556,11 +584,8 @@ export function ProcessManagement() {
       return;
     }
 
-    openingProcessRef.current = processIdFromUrl;
-    openEditDetails({ id: processIdFromUrl }, { syncUrl: false }).finally(() => {
-      openingProcessRef.current = null;
-    });
-  }, [searchParams, editingProcess?.id]);
+    openEditDetails({ id: processIdFromUrl }, { syncUrl: false });
+  }, [searchParams, editingProcess?.id, processDetail?.id, showModal]);
   const toggleCategory = (categoryId) => setCollapsedCategories((previous) => ({ ...previous, [categoryId]: !previous[categoryId] }));
 
   const handleBpmnSave = async (bpmnXml) => {
