@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import pool from '../db.js';
-import { ensureCompanyAccess, isGlobalAdmin } from './access.js';
+import { ensureCompanyAccess } from './access.js';
 import { ensureOrgChartSchema } from '../routes/orgchart.js';
 
 let collaborationSchemaPromise = null;
@@ -218,7 +218,7 @@ export async function createNotification({
       `,
       [
         userId,
-        companyId,
+        null,
         type,
         title,
         message,
@@ -244,63 +244,42 @@ export async function listNotificationsForUser(user) {
   `;
   let paramIndex = 1;
 
-  if (isGlobalAdmin(user)) {
-    query += ` AND (user_id = $${paramIndex} OR user_id IS NULL)`;
-    params.push(user.id);
-    paramIndex += 1;
-  } else {
-    query += ` AND (user_id = $${paramIndex} OR (company_id = $${paramIndex + 1} AND user_id IS NULL))`;
-    params.push(user.id, user.companyId ?? null);
-    paramIndex += 2;
-  }
+  query += ` AND (user_id = $${paramIndex} OR user_id IS NULL)`;
+  params.push(user.id);
+  paramIndex += 1;
 
   query += ' ORDER BY created_at DESC LIMIT 40';
   const result = await pool.query(query, params);
 
   const dynamicNotifications = [];
-  if (user?.companyId || isGlobalAdmin(user)) {
-    try {
-      const draftParams = [];
-      let draftQuery = `
-        SELECT 'process' AS entity_type, p.id, p.name, p.updated_at
-        FROM processes p
-        WHERE p.status = 'draft' AND p.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
-      `;
-      if (!isGlobalAdmin(user)) {
-        draftQuery += ' AND p.company_id = $1';
-        draftParams.push(user.companyId);
-      }
-      draftQuery += `
-        UNION ALL
-        SELECT 'simulation' AS entity_type, s.id, s.name, s.updated_at
-        FROM simulation_scenarios s
-        LEFT JOIN processes p ON p.id = s.process_id
-        WHERE s.status = 'draft' AND s.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
-      `;
-      if (!isGlobalAdmin(user)) {
-        draftQuery += ' AND p.company_id = $2';
-        draftParams.push(user.companyId);
-      }
+  try {
+    const expiredDrafts = await pool.query(`
+      SELECT 'process' AS entity_type, p.id, p.name, p.updated_at
+      FROM processes p
+      WHERE p.status = 'draft' AND p.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
+      UNION ALL
+      SELECT 'simulation' AS entity_type, s.id, s.name, s.updated_at
+      FROM simulation_scenarios s
+      WHERE s.status = 'draft' AND s.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
+    `);
 
-      const expiredDrafts = await pool.query(draftQuery, draftParams);
-      expiredDrafts.rows.forEach((entry) => {
-        dynamicNotifications.push({
-          id: `draft-${entry.entity_type}-${entry.id}`,
-          type: 'expired_draft',
-          title: 'Draft overdue',
-          message: `${entry.name} is still in draft after 14 days.`,
-          entity_type: entry.entity_type,
-          entity_id: String(entry.id),
-          severity: 'warning',
-          created_at: entry.updated_at,
-          read_at: null,
-          dynamic: true,
-        });
+    expiredDrafts.rows.forEach((entry) => {
+      dynamicNotifications.push({
+        id: `draft-${entry.entity_type}-${entry.id}`,
+        type: 'expired_draft',
+        title: 'Draft overdue',
+        message: `${entry.name} is still in draft after 14 days.`,
+        entity_type: entry.entity_type,
+        entity_id: String(entry.id),
+        severity: 'warning',
+        created_at: entry.updated_at,
+        read_at: null,
+        dynamic: true,
       });
-    } catch (error) {
-      if (error?.code !== '42P01') {
-        throw error;
-      }
+    });
+  } catch (error) {
+    if (error?.code !== '42P01') {
+      throw error;
     }
   }
 

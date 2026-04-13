@@ -110,7 +110,6 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route path="companies" element={<Navigate to="/process-library" replace />} />
               <Route
                 path="users"
                 element={

@@ -49,7 +49,6 @@ function diffMetadata(left, right) {
     ['description', 'Description'],
     ['status', 'Statut'],
     ['category_id', 'Categorie'],
-    ['company_id', 'Societe'],
   ];
 
   return fields.reduce((changes, [key, label]) => {

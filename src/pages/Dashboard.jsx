@@ -76,9 +76,6 @@ export function Dashboard() {
                 <ListGroup.Item>
                   <strong>User ID:</strong> {user?.id}
                 </ListGroup.Item>
-                <ListGroup.Item>
-                  <strong>Company:</strong> {user?.company?.name || 'No company assigned'}
-                </ListGroup.Item>
               </ListGroup>
             </Card.Body>
           </Card>

@@ -418,9 +418,9 @@ router.post('/notifications/:id/read', async (req, res) => {
       `
         UPDATE notifications
         SET read_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND (user_id = $2 OR company_id = $3 OR company_id IS NULL)
+        WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
       `,
-      [notificationId, req.user.id, req.user.companyId ?? null]
+      [notificationId, req.user.id]
     );
 
     res.json({ message: 'Notification marked as read.' });
@@ -440,9 +440,9 @@ router.post('/notifications/read-all', async (req, res) => {
       `
         UPDATE notifications
         SET read_at = CURRENT_TIMESTAMP
-        WHERE read_at IS NULL AND (user_id = $1 OR company_id = $2 OR (company_id IS NULL AND user_id IS NULL))
+        WHERE read_at IS NULL AND (user_id = $1 OR user_id IS NULL)
       `,
-      [req.user.id, req.user.companyId ?? null]
+      [req.user.id]
     );
 
     res.json({ message: 'Notifications marked as read.' });

@@ -30,7 +30,6 @@ describe('AuthContext', () => {
       username: 'viewer',
       fullName: 'Viewer User',
       role: 'Viewer',
-      company: { id: 3, name: 'Hopex Aquila' },
     }));
     localStorage.setItem('permissions', JSON.stringify(['view_dashboard']));
 
@@ -39,7 +38,6 @@ describe('AuthContext', () => {
       return (
         <div>
           <span>{auth.loading ? 'loading' : auth.user?.username}</span>
-          <span>{auth.company?.name}</span>
           <span>{auth.permissions.length}</span>
         </div>
       );
@@ -52,7 +50,6 @@ describe('AuthContext', () => {
     );
 
     expect(await screen.findByText('viewer')).toBeInTheDocument();
-    expect(screen.getByText('Hopex Aquila')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
@@ -62,7 +59,6 @@ describe('AuthContext', () => {
       username: 'analyst',
       fullName: 'Analyst',
       role: 'Business Analyst',
-      company: { id: 4, name: 'Finance Department' },
     }));
 
     const fetchMock = jest.fn(() => mockJsonResponse([]));
@@ -88,7 +84,6 @@ describe('AuthContext', () => {
       username: 'viewer',
       fullName: 'Viewer User',
       role: 'Viewer',
-      company: { id: 3, name: 'Hopex Aquila' },
     }));
     localStorage.setItem('permissions', JSON.stringify(['view_dashboard']));
 

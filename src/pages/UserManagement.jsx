@@ -14,22 +14,14 @@ import {
   Table,
 } from 'react-bootstrap';
 
-const API_URL = 'http://localhost:3001/api';
-
 const EMPTY_FORM = {
   username: '',
   password: '',
   email: '',
   fullName: '',
   role: ROLES.PROCESS_OBSERVER,
-  companyId: '',
   additionalRoles: [],
 };
-
-function requiresCompanyAssignment(primaryRole, additionalRoles = []) {
-  const effectiveRoles = [primaryRole, ...additionalRoles.map((item) => item.role)].filter(Boolean);
-  return !effectiveRoles.includes(ROLES.ADMIN);
-}
 
 function formatExpiryLabel(expiresOn) {
   if (!expiresOn) {
@@ -70,15 +62,12 @@ function formatRoleWindowLabel(startsOn, expiresOn) {
 export function UserManagement() {
   const {
     user,
-    company,
     getAllUsers,
     createUser,
     updateUser,
     deleteUser,
-    isGlobalAdmin,
   } = useAuth();
   const [users, setUsers] = useState([]);
-  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -86,7 +75,6 @@ export function UserManagement() {
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
-  const globalAdmin = isGlobalAdmin();
   const roleOptions = useMemo(() => Object.values(ROLES), []);
 
   const loadUsers = async () => {
@@ -96,23 +84,8 @@ export function UserManagement() {
     setLoading(false);
   };
 
-  const loadCompanies = async () => {
-    try {
-      const response = await fetch(`${API_URL}/companies`);
-      if (!response.ok) {
-        return;
-      }
-
-      const data = await response.json();
-      setCompanies(Array.isArray(data) ? data : []);
-    } catch (requestError) {
-      console.error('Error fetching companies:', requestError);
-    }
-  };
-
   useEffect(() => {
     loadUsers();
-    loadCompanies();
   }, []);
 
   const filteredUsers = users.filter((item) => {
@@ -122,7 +95,6 @@ export function UserManagement() {
       item.email,
       item.role,
       ...(item.additionalRoles || []).map((roleItem) => roleItem.role),
-      item.companyName,
     ]
       .filter(Boolean)
       .join(' ')
@@ -136,7 +108,6 @@ export function UserManagement() {
     setFormData({
       ...EMPTY_FORM,
       role: roleOptions[0] || ROLES.PROCESS_OBSERVER,
-      companyId: globalAdmin ? '' : String(company?.id || ''),
       additionalRoles: [],
     });
   };
@@ -155,7 +126,6 @@ export function UserManagement() {
       email: selectedUser.email || '',
       fullName: selectedUser.fullName || '',
       role: selectedUser.role || ROLES.PROCESS_OBSERVER,
-      companyId: selectedUser.companyId ? String(selectedUser.companyId) : '',
       additionalRoles: (selectedUser.additionalRoles || []).map((item) => ({
         role: item.role || '',
         startsOn: item.startsOn || '',
@@ -193,17 +163,11 @@ export function UserManagement() {
       return;
     }
 
-    if (requiresCompanyAssignment(formData.role, formData.additionalRoles) && !formData.companyId) {
-      setError('A company scope is required for non-admin users.');
-      return;
-    }
-
     const payload = {
       username: formData.username.trim(),
       email: formData.email.trim(),
       fullName: formData.fullName.trim(),
       role: formData.role,
-      companyId: formData.companyId ? Number(formData.companyId) : null,
       additionalRoles: formData.additionalRoles
         .filter((item) => item.role)
         .map((item) => ({
@@ -266,8 +230,6 @@ export function UserManagement() {
     }
   };
 
-  const companyRequired = requiresCompanyAssignment(formData.role, formData.additionalRoles);
-
   return (
     <Container fluid className="py-4">
       <Row className="mb-4">
@@ -276,9 +238,7 @@ export function UserManagement() {
             <div>
               <h2 className="mb-1">User Management</h2>
               <p className="text-muted mb-0">
-                {globalAdmin
-                  ? 'Manage workspace accounts, permissions, and temporary role assignments.'
-                  : 'Manage workspace accounts and temporary role assignments.'}
+                Manage workspace accounts, permissions, and temporary role assignments.
               </p>
             </div>
             <Button variant="success" onClick={handleCreate}>
@@ -464,23 +424,6 @@ export function UserManagement() {
                   </Form.Select>
                 </Form.Group>
               </Col>
-              {globalAdmin && (
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Access scope {companyRequired ? '*' : '(optional)'}</Form.Label>
-                    <Form.Select
-                      value={formData.companyId}
-                      onChange={(event) => setFormData((current) => ({ ...current, companyId: event.target.value }))}
-                      required={companyRequired}
-                    >
-                      <option value="">Select organisation</option>
-                      {companies.map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-              )}
             </Row>
 
             <div className="border rounded-3 p-3 mb-3 bg-light">

@@ -2,24 +2,23 @@
 
 ## 1. Overview
 
-V-BPM helps users manage BPMN processes, run process simulations, and maintain an organization chart inside their assigned company scope.
+V-BPM helps users manage BPMN processes, run process simulations, and maintain a shared organization chart for the workspace.
 
 What you can do depends on your role:
 
-- `Administrator`: access all companies and all administration features
-- `Company Administrator`: manage users, processes, simulations, and organigram data for one company
-- other business roles: access only the features and data granted to their role
+- `Admin`: access all administration features and governance actions
+- `Process Manager`, `Process Designer`, and `Viewer`: access the features granted to their active roles
 
 ## 2. Login
 
 1. Open the application.
 2. Enter your username or email and password.
-3. After login, the system automatically applies your company scope.
+3. After login, the system loads your workspace permissions and active roles.
 
 Important:
 
-- non-admin users only see data for their assigned company
-- company administrators manage only their own company
+- only actions allowed by your current role set are enabled
+- `Admin` can work across the whole workspace
 
 ## 3. Main Navigation
 
@@ -220,35 +219,33 @@ You can:
 - drag nodes to change reporting lines
 - attach files and discussion comments to each organigram node
 
-Changes are saved to the backend and scoped to the visible company.
+Changes are saved to the backend for the shared workspace organigram.
 
-## 8. Company and User Administration
+## 8. User Administration
 
 Depending on your permissions, you can:
 
-- create or edit companies
 - create users
-- assign each user to a company
 - assign a primary role
 - grant additional roles at the same time
-- make an additional role temporary by setting its end date
+- make an additional role temporary by setting its start and end dates
 - review the audit log of admin, process, org chart, and simulation changes
 
 Important:
 
-- each user should belong to a company unless they are a global admin
-- company admins should be used as sub-admins for each tenant/company
+- role assignments should match the responsibilities of each user
+- use temporary role windows when a permission should only apply for a limited period
 
 ## 9. Audit Log
 
 Open `Audit Log` from the administration section to review:
 
-- who changed a user, company, process, role, organigram node, or simulation
+- who changed a user, process, role, organigram node, or simulation
 - what action was performed
 - when it happened
 - extra details captured for that event
 
-Company administrators only see audit entries for their own company scope.
+Admins can review the full audit history, while other users only see what their permissions allow.
 
 ## 10. Notifications
 
@@ -282,7 +279,7 @@ You can mark one notification or all notifications as read.
 
 ## 12. Best Practices
 
-- assign users to the correct company before they start working
+- assign the correct roles before users start working
 - use the approval workflow instead of editing approved processes silently
 - keep task durations realistic before comparing scenarios
 - import CSV arrivals only when you need real arrival schedules

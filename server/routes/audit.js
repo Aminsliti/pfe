@@ -3,7 +3,6 @@ import pool from '../db.js';
 import {
   PERMISSIONS,
   ensurePermission,
-  isGlobalAdmin,
 } from '../utils/access.js';
 import { ensureAuditSchema } from '../utils/auditLog.js';
 
@@ -32,18 +31,10 @@ router.get('/audit-logs', async (req, res) => {
     let paramIndex = 1;
     let query = `
       SELECT
-        al.*,
-        c.name AS company_name
+        al.*
       FROM audit_logs al
-      LEFT JOIN companies c ON c.id = al.company_id
       WHERE 1=1
     `;
-
-    if (!isGlobalAdmin(req.user)) {
-      query += ` AND (al.company_id = $${paramIndex} OR (al.company_id IS NULL AND $${paramIndex} IS NULL))`;
-      params.push(req.user.companyId ?? null);
-      paramIndex += 1;
-    }
 
     if (entityType) {
       query += ` AND al.entity_type = $${paramIndex}`;

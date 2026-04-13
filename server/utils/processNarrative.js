@@ -251,8 +251,7 @@ export function buildProcessReportHtml(process = {}, explanation = null) {
         </div>
       </div>
       <div class="hero-meta">
-        Generated at: ${escapeHtml(narrative.generated_at || '-') }<br />
-        Company: ${escapeHtml(process.company_name || '-')}
+        Generated at: ${escapeHtml(narrative.generated_at || '-') }
       </div>
     </div>
 

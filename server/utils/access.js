@@ -100,15 +100,15 @@ export function isAdmin(user) {
 }
 
 export function isGlobalAdmin(user) {
-  return isAdmin(user) && !user?.companyId;
+  return isAdmin(user);
 }
 
 export function isCompanyAdmin(user) {
-  return isAdmin(user) && Boolean(user?.companyId);
+  return false;
 }
 
 export function isCompanyScoped(user) {
-  return Boolean(user?.companyId) && !isGlobalAdmin(user);
+  return false;
 }
 
 export function hasPermission(user, permission) {
@@ -128,7 +128,7 @@ export function canManageProcesses(user) {
 }
 
 export function canManageCompanies(user) {
-  return isAdmin(user);
+  return false;
 }
 
 export function getAccessibleCompanyId(user, requestedCompanyId = null) {
@@ -165,32 +165,11 @@ export function ensureCompanyAccess(req, res, companyId) {
   if (!ensureAuthenticated(req, res)) {
     return false;
   }
-
-  if (companyId === null || companyId === undefined) {
-    if (isGlobalAdmin(req.user)) {
-      return true;
-    }
-
-    res.status(403).json({ error: 'This record is not assigned to your company.' });
-    return false;
-  }
-
-  if (isGlobalAdmin(req.user) || req.user.companyId === Number(companyId)) {
-    return true;
-  }
-
-  res.status(403).json({ error: 'You cannot access data from another company.' });
-  return false;
+  return true;
 }
 
 export function sanitizeUserPayloadForRole(actor, payload = {}) {
-  const nextPayload = { ...payload };
-
-  if (!isGlobalAdmin(actor)) {
-    nextPayload.companyId = actor.companyId;
-  }
-
-  return nextPayload;
+  return { ...payload };
 }
 
 async function loadPermissionsForRoles(roles) {

@@ -23,8 +23,6 @@ describe('database CRUD contracts', () => {
     const app = createApp({
       requestUserMiddleware: createRequestUserMiddleware(
         createUser({
-          companyId: 2,
-          company: { id: 2, name: 'Operations Division' },
           activeRoles: ['Admin', 'Validator'],
         })
       ),
@@ -32,16 +30,14 @@ describe('database CRUD contracts', () => {
 
     pool.query
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'crud@pfe.com', full_name: 'Crud User', role: 'Viewer', company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'crud@pfe.com', full_name: 'Crud User', role: 'Viewer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ name: 'Operations Division' }]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, company_id: 2, role: 'Viewer' }]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'updated@pfe.com', full_name: 'Crud User', role: 'Viewer', company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, company_id: null, role: 'Viewer' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'updated@pfe.com', full_name: 'Crud User', role: 'Viewer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ name: 'Operations Division' }]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, company_id: null }]))
       .mockResolvedValueOnce(makeResult([{ id: 31 }]))
       .mockResolvedValueOnce(makeResult([{ id: 4, name: 'Operations', company_id: 2, assigned_validator_id: 1, section: 'metiers' }]))
       .mockResolvedValueOnce(makeResult([{ id: 1, username: 'admin', full_name: 'System Administrator', role: 'Admin', company_id: 2 }]))
@@ -62,14 +58,12 @@ describe('database CRUD contracts', () => {
       email: 'crud@pfe.com',
       fullName: 'Crud User',
       role: 'Viewer',
-      companyId: 2,
     });
     await request(app).put('/api/users/31').send({
       username: 'crud-user',
       email: 'updated@pfe.com',
       fullName: 'Crud User',
       role: 'Viewer',
-      companyId: 2,
     });
     await request(app).delete('/api/users/31');
 

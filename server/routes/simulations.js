@@ -4,7 +4,6 @@ import {
   PERMISSIONS,
   ensureCompanyAccess,
   ensurePermission,
-  isGlobalAdmin,
 } from '../utils/access.js';
 import { parseArrivalCsv } from '../utils/simulationCsv.js';
 import {
@@ -523,16 +522,6 @@ router.get('/simulations', async (req, res) => {
     if (process_id) {
       query += ` AND s.process_id = $${paramIndex}`;
       params.push(process_id);
-      paramIndex += 1;
-    }
-
-    if (!isGlobalAdmin(req.user)) {
-      if (!req.user.companyId) {
-        return res.json([]);
-      }
-
-      query += ` AND p.company_id = $${paramIndex}`;
-      params.push(req.user.companyId);
       paramIndex += 1;
     }
 

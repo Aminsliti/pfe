@@ -86,7 +86,7 @@ describe('auth routes', () => {
   it('blocks viewers from accessing user management', async () => {
     const app = createApp({
       requestUserMiddleware: createRequestUserMiddleware(
-        createUser({ role: 'Viewer', permissions: ['view_dashboard'], companyId: 2 })
+        createUser({ role: 'Viewer', permissions: ['view_dashboard'] })
       ),
     });
 
@@ -94,7 +94,7 @@ describe('auth routes', () => {
     expect(response.status).toBe(403);
   });
 
-  it('lists users for a company administrator', async () => {
+  it('lists users for an admin', async () => {
     pool.query
       .mockResolvedValueOnce(makeResult([
         {
@@ -123,10 +123,8 @@ describe('auth routes', () => {
     const app = createApp({
       requestUserMiddleware: createRequestUserMiddleware(
         createUser({
-          role: 'Company Administrator',
+          role: 'Admin',
           permissions: ['user_management', 'manage_processes'],
-          companyId: 2,
-          company: { id: 2, name: 'Operations Division' },
         })
       ),
     });
@@ -136,8 +134,6 @@ describe('auth routes', () => {
     expect(response.body).toEqual([
       expect.objectContaining({
         username: 'anas',
-        companyId: 2,
-        companyName: 'Operations Division',
         activeRoles: ['Process Observer', 'Validator'],
         additionalRoles: [
           expect.objectContaining({
@@ -150,21 +146,18 @@ describe('auth routes', () => {
     ]);
   });
 
-  it('creates, updates, and deletes users within company scope', async () => {
+  it('creates, updates, and deletes users', async () => {
     const actor = createUser({
-      role: 'Company Administrator',
+      role: 'Admin',
       permissions: ['user_management', 'manage_processes'],
-      companyId: 2,
-      company: { id: 2, name: 'Operations Division' },
     });
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(actor) });
 
     pool.query
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'new@pfe.com', full_name: 'New User', role: 'Viewer', company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'new@pfe.com', full_name: 'New User', role: 'Viewer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ name: 'Operations Division' }]))
       .mockResolvedValueOnce(makeResult([
         {
           user_id: 11,
@@ -182,19 +175,16 @@ describe('auth routes', () => {
       email: 'new@pfe.com',
       fullName: 'New User',
       role: 'Viewer',
-      companyId: 999,
       additionalRoles: [{ role: 'Risk Manager', expiresOn: '2026-05-20' }],
     });
     expect(created.status).toBe(201);
-    expect(created.body.companyId).toBe(2);
     expect(created.body.activeRoles).toEqual(['Process Observer', 'Validator']);
 
     pool.query
-      .mockResolvedValueOnce(makeResult([{ id: 11, company_id: 2, role: 'Viewer' }]))
-      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'updated@pfe.com', full_name: 'Updated User', role: 'Viewer', company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, company_id: null, role: 'Viewer' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'updated@pfe.com', full_name: 'Updated User', role: 'Viewer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ name: 'Operations Division' }]))
       .mockResolvedValueOnce(makeResult([
         {
           user_id: 11,
@@ -224,7 +214,7 @@ describe('auth routes', () => {
     ]);
 
     pool.query
-      .mockResolvedValueOnce(makeResult([{ id: 11, company_id: 2 }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, company_id: null }]))
       .mockResolvedValueOnce(makeResult([{ id: 11 }]));
     const deleted = await request(app).delete('/api/users/11');
     expect(deleted.status).toBe(200);
@@ -234,9 +224,8 @@ describe('auth routes', () => {
     const companyAdminApp = createApp({
       requestUserMiddleware: createRequestUserMiddleware(
         createUser({
-          role: 'Company Administrator',
+          role: 'Validator',
           permissions: ['user_management'],
-          companyId: 2,
         })
       ),
     });
@@ -272,16 +261,19 @@ describe('auth routes', () => {
       .send({ permissionIds: [1, 2] });
     expect(updatedPermissions.status).toBe(200);
 
+    pool.query.mockReset();
     const created = await request(adminApp).post('/api/roles').send({ name: 'Auditor', description: 'Read-only auditor' });
     expect(created.status).toBe(400);
     expect(created.body.error).toMatch(/role catalog is fixed/i);
 
+    pool.query.mockReset();
     pool.query
       .mockResolvedValueOnce(makeResult([{ id: 8, name: 'Auditor' }]))
       .mockResolvedValueOnce(makeResult([{ id: 8, name: 'Auditor', description: 'Updated' }]));
     const updatedRole = await request(adminApp).put('/api/roles/8').send({ name: 'Auditor', description: 'Updated' });
     expect(updatedRole.status).toBe(200);
 
+    pool.query.mockReset();
     pool.query
       .mockResolvedValueOnce(makeResult([{ id: 8, name: 'Auditor' }]))
       .mockResolvedValueOnce(makeResult([{ count: '0' }]))

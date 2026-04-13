@@ -11,8 +11,6 @@ import {
   ensurePermission,
   hasRole,
   isAdmin,
-  isCompanyAdmin,
-  isGlobalAdmin,
   ROLES,
 } from '../utils/access.js';
 import { logAuditEvent } from '../utils/auditLog.js';
@@ -2298,178 +2296,13 @@ router.delete('/process-categories/:id', async (req, res) => {
   }
 });
 
-router.get('/companies', async (req, res) => {
-  try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
+const respondCompanyFeatureRemoved = (_req, res) => {
+  res.status(404).json({ error: 'Company management has been removed from this workspace.' });
+};
 
-    if (isGlobalAdmin(req.user)) {
-      const result = await pool.query('SELECT * FROM companies ORDER BY name');
-      return res.json(result.rows);
-    }
-
-    if (!req.user.companyId) {
-      return res.json([]);
-    }
-
-    const result = await pool.query('SELECT * FROM companies WHERE id = $1', [req.user.companyId]);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get companies error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.post('/companies', async (req, res) => {
-  try {
-    if (!isGlobalAdmin(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can create companies.' });
-    }
-
-    const { name, description, logo_url } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Company name is required' });
-    }
-
-    const result = await pool.query(
-      'INSERT INTO companies (name, description, logo_url) VALUES ($1, $2, $3) RETURNING *',
-      [name, description || null, logo_url || null]
-    );
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'company',
-      entityId: result.rows[0].id,
-      companyId: result.rows[0].id,
-      action: 'create',
-      summary: `Created company "${result.rows[0].name}"`,
-      details: {
-        description: result.rows[0].description,
-      },
-    });
-
-    await createNotification({
-      companyId: result.rows[0].id,
-      type: 'admin_action',
-      title: 'Company created',
-      message: `${req.user.fullName || req.user.username} created the company ${result.rows[0].name}.`,
-      entityType: 'company',
-      entityId: result.rows[0].id,
-      severity: 'info',
-    });
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('Create company error:', error);
-    if (error.code === '23505') {
-      res.status(400).json({ error: 'Company name already exists' });
-    } else {
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-});
-
-router.put('/companies/:id', async (req, res) => {
-  try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
-
-    if (!isGlobalAdmin(req.user) && !isCompanyAdmin(req.user)) {
-      return res.status(403).json({ error: 'You do not have permission to update companies.' });
-    }
-
-    const companyId = normalizeInteger(req.params.id, null);
-    if (!ensureCompanyAccess(req, res, companyId)) {
-      return;
-    }
-
-    const { name, description, logo_url } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Company name is required' });
-    }
-
-    const result = await pool.query(
-      `
-        UPDATE companies
-        SET name = $1, description = $2, logo_url = $3, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
-        RETURNING *
-      `,
-      [name, description || null, logo_url || null, companyId]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Company not found' });
-    }
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'company',
-      entityId: result.rows[0].id,
-      companyId: result.rows[0].id,
-      action: 'update',
-      summary: `Updated company "${result.rows[0].name}"`,
-      details: {
-        description: result.rows[0].description,
-      },
-    });
-
-    await createNotification({
-      companyId: result.rows[0].id,
-      type: 'admin_action',
-      title: 'Company updated',
-      message: `${req.user.fullName || req.user.username} updated the company ${result.rows[0].name}.`,
-      entityType: 'company',
-      entityId: result.rows[0].id,
-      severity: 'info',
-    });
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update company error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.delete('/companies/:id', async (req, res) => {
-  try {
-    if (!isGlobalAdmin(req.user)) {
-      return res.status(403).json({ error: 'Only global administrators can delete companies.' });
-    }
-
-    const existingCompany = await pool.query('SELECT id, name FROM companies WHERE id = $1', [req.params.id]);
-    const result = await pool.query('DELETE FROM companies WHERE id = $1 RETURNING id', [req.params.id]);
-    if (!result.rowCount) {
-      return res.status(404).json({ error: 'Company not found' });
-    }
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'company',
-      entityId: req.params.id,
-      companyId: req.params.id,
-      action: 'delete',
-      summary: `Deleted company "${existingCompany.rows[0]?.name || req.params.id}"`,
-      details: {},
-    });
-
-    await createNotification({
-      companyId: req.params.id,
-      type: 'admin_action',
-      title: 'Company deleted',
-      message: `${req.user.fullName || req.user.username} deleted company "${existingCompany.rows[0]?.name || req.params.id}".`,
-      entityType: 'company',
-      entityId: req.params.id,
-      severity: 'warning',
-    });
-
-    res.json({ message: 'Company deleted successfully' });
-  } catch (error) {
-    console.error('Delete company error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+router.get('/companies', respondCompanyFeatureRemoved);
+router.post('/companies', respondCompanyFeatureRemoved);
+router.put('/companies/:id', respondCompanyFeatureRemoved);
+router.delete('/companies/:id', respondCompanyFeatureRemoved);
 
 export default router;

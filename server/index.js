@@ -103,7 +103,10 @@ function gracefulShutdown(source) {
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
+
+if (process.platform !== 'win32') {
+  process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
+}
 
 process.on('beforeExit', (code) => {
   console.log(`[lifecycle] beforeExit code=${code}`);

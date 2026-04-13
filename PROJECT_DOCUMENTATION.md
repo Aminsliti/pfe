@@ -1,19 +1,17 @@
-# V-BPM Platform - Full Project Documentation
+# V-BPM Platform - Technical Documentation
 
-## 1. Project Summary
+## 1. Purpose
 
-V-BPM is a full-stack Business Process Management platform built around four major domains:
+V-BPM is a full-stack business process management platform for:
 
-1. Authentication, RBAC, and multi-company access control
-2. BPMN process management, approval workflow, version diffing, and diagram explanation/reporting
-3. Advanced simulation workbench with calendars, SLA, comparison, heatmaps, Monte Carlo, what-if, sensitivity, planning, and narrative reporting
-4. Organization structure management through an interactive org chart
-5. Cross-module collaboration with comments, attachments, notifications, and process templates
-6. Cross-module audit logging
+- governed BPMN process design and review
+- structured process library navigation
+- simulation scenario modeling and analysis
+- organizational chart management
+- user and role administration
+- collaboration, notifications, and auditability
 
-The project uses a React frontend, an Express backend, and PostgreSQL for persistence.
-
-This document is written from the current codebase state in `C:\Users\user\CascadeProjects\pfe-main`.
+This document reflects the current implementation in `C:\Users\msi\Desktop\pfe-anas-v2`.
 
 ## 2. Technology Stack
 
@@ -23,7 +21,7 @@ This document is written from the current codebase state in `C:\Users\user\Casca
 - React Router DOM 7
 - React Bootstrap + Bootstrap 5
 - Bootstrap Icons
-- bpmn-js / bpmn-moddle
+- `bpmn-js` / `bpmn-moddle`
 - Vite
 
 ### Backend
@@ -31,612 +29,287 @@ This document is written from the current codebase state in `C:\Users\user\Casca
 - Node.js
 - Express 5
 - PostgreSQL via `pg`
-- bcryptjs
-- multer
-- cors
-- dotenv
+- `bcryptjs`
+- `multer`
+- `cors`
+- `dotenv`
 
-### Testing and Tooling
+### Test and Build Tooling
 
 - Jest
+- React Testing Library
 - Supertest
-- Testing Library
 - Babel Jest
 - ESLint
 
-## 3. Repository Layout
+## 3. Repository Structure
 
 ```text
-pfe-main/
-|-- src/                       Frontend app
-|   |-- App.jsx                Main router and lazy-loaded pages
-|   |-- main.jsx               React entrypoint
+pfe-anas-v2/
+|-- src/
+|   |-- App.jsx
+|   |-- main.jsx
 |   |-- contexts/
-|   |   `-- AuthContext.jsx    Auth state + fetch header injection
+|   |   `-- AuthContext.jsx
 |   |-- components/
-|   |   |-- Layout.jsx         Main app shell
+|   |   |-- Layout.jsx
 |   |   |-- NotificationCenter.jsx
 |   |   |-- EntityCollaborationPanel.jsx
-|   |   |-- ProtectedRoute.jsx Route guards
-|   |   `-- BpmnEditor/        BPMN editing components
-|   `-- pages/                 Main screens
+|   |   |-- ProtectedRoute.jsx
+|   |   `-- BpmnEditor/
+|   `-- pages/
+|       |-- Login.jsx
+|       |-- ProcessManagement.jsx
+|       |-- ProcessLibrary.jsx
+|       |-- SimulationWorkbench.jsx
+|       |-- OrgChart.jsx
+|       |-- UserManagement.jsx
+|       |-- RoleManagement.jsx
+|       |-- AuditLogs.jsx
+|       `-- Unauthorized.jsx
 |
-|-- server/                    Backend app
-|   |-- app.js                 Express app factory
-|   |-- index.js               Server startup
-|   |-- db.js                  PostgreSQL pool
-|   |-- init-db.js             Development bootstrap script
-|   |-- migrate-simulations.js Simulation migration runner
-|   |-- migrations/
-|   |   `-- simulation_tables.sql
+|-- server/
+|   |-- app.js
+|   |-- index.js
+|   |-- db.js
+|   |-- init-db.js
 |   |-- routes/
 |   |   |-- auth.js
 |   |   |-- audit.js
 |   |   |-- collaboration.js
+|   |   |-- orgchart.js
 |   |   |-- processes.js
-|   |   |-- simulations.js
-|   |   `-- orgchart.js
-|   `-- utils/
-|       |-- access.js
-|       |-- auditLog.js
-|       |-- collaboration.js
-|       |-- processDiff.js
-|       |-- simulationEngine.js
-|       `-- simulationReport.js
+|   |   `-- simulations.js
+|   |-- utils/
+|   |   |-- access.js
+|   |   |-- auditLog.js
+|   |   |-- collaboration.js
+|   |   |-- processDiff.js
+|   |   |-- processNarrative.js
+|   |   |-- simulationEngine.js
+|   |   |-- simulationReport.js
+|   |   `-- simulationSchema.js
+|   `-- migrations/
+|       `-- simulation_tables.sql
 |
-|-- test/                      Jest/Supertest support and route tests
-|-- dist/                      Production frontend build output
+|-- test/
 |-- README.md
-|-- USER_GUIDE.md              End-user operating guide
+|-- USER_GUIDE.md
 `-- PROJECT_DOCUMENTATION.md
 ```
 
-## 4. System Architecture
+## 4. Runtime Architecture
 
-### 4.1 Frontend architecture
+### 4.1 Frontend
 
-The frontend is a single-page React application. The current route tree is defined in [src/App.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/App.jsx).
+The frontend is a React single-page application.
 
 Main characteristics:
 
-- Authentication is managed globally through `AuthContext`
-- Protected routes enforce role access in `ProtectedRoute`
-- The application shell is provided by `Layout`
-- Major pages are lazy loaded with `React.lazy`
-- The BPMN modeler is also lazy loaded only when editing a process
+- route-level lazy loading through `React.lazy`
+- global authentication state in `AuthContext`
+- role-guarded screens via `ProtectedRoute`
+- a single shell component (`Layout`) that filters navigation by permission
+- BPMN viewing/editing and simulation panels loaded only when needed
 
-This means users do not load all admin and modeling code on first paint.
+### 4.2 Backend
 
-### 4.2 Backend architecture
+The backend is a modular Express API.
 
-The backend uses a simple modular Express structure:
+Main characteristics:
 
-- [server/app.js](/C:/Users/user/CascadeProjects/pfe-main/server/app.js) creates the Express app
-- [server/index.js](/C:/Users/user/CascadeProjects/pfe-main/server/index.js) starts the HTTP server
-- routes are grouped by domain in `server/routes`
-- cross-cutting permission and company scoping behavior lives in [server/utils/access.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/access.js)
+- `server/app.js` creates the Express app
+- `server/index.js` starts the HTTP server and handles graceful shutdown
+- routes are grouped by business domain
+- cross-cutting authorization rules live in `server/utils/access.js`
+- schema bootstrap for some modules is lazy and route-driven
 
-### 4.3 Request lifecycle
+### 4.3 Persistence
 
-The most important request flow in the project is the authenticated API flow:
+All business data is stored in PostgreSQL.
 
-1. A user logs in through `POST /api/login`
-2. The backend returns the user profile and resolved permissions
-3. The frontend stores `currentUser` and `permissions` in `localStorage`
-4. `AuthContext` replaces `globalThis.fetch` with an authenticated wrapper
-5. Any request to `/api/*` gets an `x-user-id` header injected automatically
-6. `attachRequestUser` on the backend reads `x-user-id`
-7. The backend resolves the current user, role, company, and permissions
-8. Routes authorize the request through permission checks and company scoping checks
+Important note:
 
-This is not token-based auth. It is user-context-header-based auth inside the current app architecture.
+- legacy `company_id` columns still exist in the database for compatibility
+- active product flows no longer expose company management as a live feature
+- `/api/companies*` is retired and now returns `404`
 
-## 5. Frontend Modules
+## 5. Frontend Design
 
-### 5.1 App shell and routing
+## 5.1 Routing
 
-#### [src/App.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/App.jsx)
+The current route tree is defined in `src/App.jsx`.
 
-Responsibilities:
-
-- defines all application routes
-- lazy loads route modules
-- wraps everything in `AuthProvider`
-- uses `ProtectedRoute` to enforce role access
-
-Current route paths:
+Active routes:
 
 - `/login`
 - `/unauthorized`
 - `/`
-- `/dashboard`
-- `/processes`
+- `/dashboard` -> redirects to the home path
 - `/process-library`
+- `/processes`
 - `/simulations`
 - `/orgchart`
-- `/companies`
 - `/users`
 - `/roles`
+- `/audit-logs`
 
-#### [src/components/Layout.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/Layout.jsx)
+Access is role-based:
 
-Responsibilities:
+- all authenticated roles can open the process library and org chart
+- admins, process designers, and process managers can use process management
+- admins, process designers, and process managers can use simulations
+- admins manage users, roles, and audit logs
 
-- renders the left-side navigation
-- filters visible navigation items by permission
-- provides desktop sidebar + mobile offcanvas behavior
-- shows the current user card and logout control
+## 5.2 Authentication Context
 
-#### [src/components/ProtectedRoute.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/ProtectedRoute.jsx)
-
-Responsibilities:
-
-- blocks unauthenticated access
-- redirects to `/login`
-- redirects unauthorized roles to `/unauthorized`
-
-### 5.2 Authentication context
-
-#### [src/contexts/AuthContext.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/contexts/AuthContext.jsx)
-
-This is one of the most important frontend files.
+`src/contexts/AuthContext.jsx` is the client-side session layer.
 
 Responsibilities:
 
-- stores `user`, `permissions`, `company`, and `loading`
-- performs login
-- clears local session on logout
-- wraps `fetch` so backend requests automatically include `x-user-id`
-- exposes role helpers such as:
-  - `hasPermission`
-  - `hasRole`
-  - `hasAnyRole`
-  - `isGlobalAdmin`
-  - `isCompanyAdmin`
-- exposes admin helper methods for users and roles
+- stores the authenticated user and resolved permission list
+- persists session data in `localStorage`
+- injects `x-user-id` automatically into API requests
+- exposes role helpers such as `hasRole`, `hasAnyRole`, and `hasPermission`
+- exposes CRUD helpers for users and roles
 
-Important implementation detail:
+Implementation detail:
 
-- Only URLs that look like API calls get the user header attached.
-- Public endpoints like login and password reset do not rely on that header.
+- authentication is not token-based
+- the app trusts the backend user-context header model
+- public endpoints such as login and password reset bypass user-header injection
 
-### 5.3 Main pages
+## 5.3 Main UI Modules
 
-#### [src/pages/Login.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/Login.jsx)
+### `Layout.jsx`
 
-- login form
-- password reset flow UI
-- receives the backend login payload and initializes the session
+- left navigation
+- mobile off-canvas navigation
+- current-user summary
+- logout entry point
+- notification center access
 
-#### [src/pages/Dashboard.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/Dashboard.jsx)
+### `Login.jsx`
 
-- welcome/profile dashboard
-- permission summary
-- feature visibility overview
+- username/email login
+- forgot-password flow
+- reset code verification
+- reset-password submission
+- password show/hide interaction
 
-#### [src/pages/ProcessManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/ProcessManagement.jsx)
+### `ProcessManagement.jsx`
 
-This is the main process administration screen.
+Core governance screen for managed processes.
 
-Responsibilities:
+Main capabilities:
 
-- list processes in hierarchy or list mode
-- filter by search, category, and status
-- create, edit, delete, import, and export processes
-- explain BPMN diagrams in readable business language
-- export process explanations as HTML or PDF
-- open the BPMN editor for process modeling
+- browse processes and categories
+- create categories and processes
+- edit BPMN content and metadata
+- assign multiple process designers and process managers
+- submit for review, approve, request reopen, reopen to draft, archive, and restore
+- inspect workflow history and version history
+- import/export BPMN
+- generate explanation and report artifacts
 
-Important implementation details:
+### `ProcessLibrary.jsx`
 
-- the production editing path now uses the BPMN modeler
-- the BPMN modeler is lazy loaded
-- process import uses multipart file upload
+Read-oriented navigation layer built on the same data as process management.
 
-#### [src/pages/ProcessLibrary.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/ProcessLibrary.jsx)
+Main capabilities:
 
-- read-oriented process library view
-- grouped, browsable overview of process families
+- section-based browsing: `pilotage`, `metiers`, `support`
+- breadcrumb navigation
+- category drill-down
+- process discovery
+- archived/live filtering
 
-#### [src/pages/SimulationWorkbench.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/SimulationWorkbench.jsx)
+### `SimulationWorkbench.jsx`
 
-Responsibilities:
+Dedicated workspace for scenario analysis.
 
-- create simulation scenarios
-- edit scenario settings and working calendars
-- import CSV files with exact instance arrival times
-- manage simulation resources and availability windows
-- manage task timings, distributions, and SLA targets
-- manage gateway flow probabilities
-- run simulations and display results
-- visualize cycle times, resource utilisation, bottlenecks, and BPMN heatmaps
-- compare scenarios side by side
-- run Monte Carlo analysis
-- run what-if analysis
-- run sensitivity analysis
-- run resource planning against a target cycle time
-- surface scenario run status and errors
-- export scenario results as CSV, Excel, and PDF
-- explain scenario setup and simulation outcomes in narrative form
-- host scenario comments and attachments through the shared collaboration panel
+Main capabilities:
 
-#### [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
+- create and edit simulation scenarios
+- manage arrivals, resources, tasks, and flow probabilities
+- run simulations
+- compare scenarios
+- inspect results, sensitivity, what-if, and resource planning
+- export reports
 
-Responsibilities:
+### `OrgChart.jsx`
 
-- render a true organigram editor
-- create root nodes and child nodes
-- edit node metadata
-- assign people to positions
-- mark positions as vacant
-- move nodes by drag and drop
-- persist the structure through backend APIs
+- view and edit an organizational tree
+- create, update, move, and delete nodes
+- assign users to positions
 
-#### [src/pages/CompanyManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/CompanyManagement.jsx)
+### `UserManagement.jsx`
 
-- list companies
-- create companies
-- edit company metadata
-- company-scoped editing for company admins
+- create, edit, and delete users
+- assign a primary role
+- assign additional roles with start and end dates
+- manage temporary access windows
 
-#### [src/pages/UserManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/UserManagement.jsx)
+### `RoleManagement.jsx`
 
-- list users
-- create/update/delete users
-- assign users to companies
-- assign a primary role plus multiple additional roles
-- support temporary extra roles with an expiration date
-- company admin sees only their own company users
+- inspect roles
+- inspect permissions
+- create and rename roles
+- attach permissions to roles
 
-#### [src/pages/RoleManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/RoleManagement.jsx)
+### `AuditLogs.jsx`
 
-- global-admin-only role management
-- permission assignment per role
+- filter by entity type and action
+- search entries by summary, actor, or entity id
+- inspect JSON details for operational traceability
 
-#### [src/pages/Unauthorized.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/Unauthorized.jsx)
+## 6. Backend Design
 
-- fallback screen for blocked route access
+## 6.1 Application Boot
 
-### 5.4 BPMN components
-
-#### [src/components/BpmnEditor/BpmnEditorModeler.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/BpmnEditor/BpmnEditorModeler.jsx)
-
-Current production modeler used by process editing.
-
-Responsibilities:
-
-- render BPMN diagrams
-- load BPMN XML
-- normalize older/legacy definitions where needed
-- allow diagram editing and saving
-
-#### [src/components/BpmnEditor/BpmnEditor.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/BpmnEditor/BpmnEditor.jsx)
-
-Legacy custom BPMN-like editor still present in the repository.
-
-Current status:
-
-- still covered by unit tests
-- not the main editing flow used by `ProcessManagement`
-
-#### [src/components/NotificationCenter.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/NotificationCenter.jsx)
-
-- polls in-app notifications
-- shows unread counts
-- supports mark-one and mark-all-as-read actions
-
-#### [src/components/EntityCollaborationPanel.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/EntityCollaborationPanel.jsx)
-
-- reusable comments and attachments panel
-- used by processes, simulations, and org chart nodes
-
-## 6. Backend Modules
-
-### 6.1 App bootstrap
-
-#### [server/app.js](/C:/Users/user/CascadeProjects/pfe-main/server/app.js)
-
-Responsibilities:
-
-- configures CORS and JSON parsing
-- applies request-user middleware
-- mounts all API route groups
-- serves the frontend in production from `dist`
-- provides a central error handler
-
-#### [server/index.js](/C:/Users/user/CascadeProjects/pfe-main/server/index.js)
-
-Responsibilities:
+### `server/index.js`
 
 - loads environment variables
-- starts the server on `PORT`
-- handles shutdown and crash logging
+- starts the HTTP server
+- tracks open sockets
+- performs graceful shutdown on `SIGINT`, `SIGTERM`, and `SIGHUP`
 
-### 6.2 Database connection
+### `server/app.js`
 
-#### [server/db.js](/C:/Users/user/CascadeProjects/pfe-main/server/db.js)
+- enables CORS for the Vite frontend
+- installs JSON parsing
+- serves uploaded files
+- attaches the current request user
+- mounts all route modules under `/api`
 
-Creates a PostgreSQL connection pool using:
+Mounted route modules:
 
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
+- `auth.js`
+- `audit.js`
+- `collaboration.js`
+- `processes.js`
+- `orgchart.js`
+- `simulations.js`
 
-Defaults are provided in code, but `.env` should be treated as the source of truth.
+## 6.2 Authorization Model
 
-### 6.3 Access control and request scoping
+Authorization logic is centralized in `server/utils/access.js`.
 
-#### [server/utils/access.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/access.js)
+Canonical roles:
 
-This file defines the security model of the application.
+- `Admin`
+- `Designer`
+- `Validator`
+- `Process Observer`
 
-Responsibilities:
+Display labels used in the UI:
 
-- declares roles and permissions
-- resolves the current request user from `x-user-id`
-- loads permissions for a role from the database
-- bootstraps the `Company Administrator` role if missing
-- centralizes authorization helpers
-- centralizes company-scope access checks
+- `Admin`
+- `Process Designer`
+- `Process Manager`
+- `Viewer`
 
-Important helpers:
-
-- `ensureAuthenticated`
-- `ensurePermission`
-- `ensureCompanyAccess`
-- `sanitizeUserPayloadForRole`
-- `buildRequestUser`
-- `attachRequestUser`
-
-### 6.4 Route groups
-
-#### [server/routes/auth.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/auth.js)
-
-Responsibilities:
-
-- login
-- password reset flow
-- user CRUD
-- role CRUD
-- permission reads
-
-Important behavior:
-
-- `POST /api/login` accepts username or email
-- password reset codes are stored on the `users` table
-- the reset code is logged server-side rather than actually emailed in the current implementation
-- role management is global-admin-only
-- user CRUD is permission-based and company-scoped
-
-#### [server/routes/processes.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/processes.js)
-
-Responsibilities:
-
-- process CRUD
-- process import/export
-- category CRUD
-- company CRUD
-
-Important behavior:
-
-- `GET /api/processes` supports query filters
-- create/update process actions create version entries
-- BPMN import uses `multer`
-- company writes are constrained by global-admin or company-admin permissions
-
-#### [server/routes/simulations.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/simulations.js)
-
-Responsibilities:
-
-- simulation scenario CRUD
-- arrival time import and management
-- scenario resource CRUD
-- task data CRUD
-- flow probability CRUD
-- running the simulation engine
-
-Important behavior:
-
-- simulation scenarios are tied to a process
-- task data may be auto-generated from BPMN XML or legacy JSON diagrams
-- results are stored on the scenario row as JSON
-- the route lazily ensures simulation storage columns and the arrival-time table exist
-- simulation runs update scenario status through `running`, `completed`, and `failed`
-
-#### [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js)
-
-Responsibilities:
-
-- metadata loading for the org chart editor
-- organigram node CRUD
-- re-parenting nodes
-- lazy schema creation and initial seeding
-
-Important behavior:
-
-- the `org_chart_nodes` table is not created by `init-db.js`
-- it is created on first org chart API access
-- the route can seed an initial structure from existing companies and users
-
-## 7. Database Model
-
-This section describes the effective application model. The schema is initialized through a combination of:
-
-- [server/init-db.js](/C:/Users/user/CascadeProjects/pfe-main/server/init-db.js)
-- [server/migrate-simulations.js](/C:/Users/user/CascadeProjects/pfe-main/server/migrate-simulations.js)
-- lazy org chart schema bootstrap in [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js)
-
-### 7.1 Core business tables
-
-#### companies
-
-Purpose:
-
-- tenant boundary for most business data
-
-Key columns:
-
-- `id`
-- `name`
-- `description`
-- `logo_url`
-- `created_at`
-- `updated_at`
-
-#### users
-
-Purpose:
-
-- user identity, password, role, and company association
-
-Key columns:
-
-- `username`
-- `password`
-- `email`
-- `full_name`
-- `role`
-- `company_id`
-- `reset_code`
-- `reset_code_expires`
-
-#### roles
-
-Purpose:
-
-- named roles for RBAC
-
-#### permissions
-
-Purpose:
-
-- named permissions used by backend authorization helpers
-
-#### role_permissions
-
-Purpose:
-
-- many-to-many mapping from roles to permissions
-
-#### user_role_assignments
-
-Purpose:
-
-- stores additional roles granted to a user on top of their primary `users.role`
-- supports optional expiration dates for temporary access
-
-### 7.2 Process tables
-
-#### process_categories
-
-Purpose:
-
-- process grouping
-
-#### processes
-
-Purpose:
-
-- main process entity
-
-Key columns:
-
-- `name`
-- `description`
-- `bpmn_xml`
-- `category_id`
-- `parent_id`
-- `company_id`
-- `created_by`
-- `version`
-- `status`
-
-Important note:
-
-- `server/init-db.js` contains legacy bootstrap behavior and recreates process tables.
-- Treat it as a development initializer, not a safe production migration tool.
-
-#### process_versions
-
-Purpose:
-
-- immutable version snapshots of BPMN content per process
-
-### 7.3 Simulation tables
-
-Defined in [server/migrations/simulation_tables.sql](/C:/Users/user/CascadeProjects/pfe-main/server/migrations/simulation_tables.sql).
-
-#### simulation_scenarios
-
-- scenario metadata and result JSON
-- includes CSV import and run lifecycle fields such as:
-  - `import_csv_arrivals`
-  - `last_run_started_at`
-  - `last_run_finished_at`
-  - `last_error`
-
-#### simulation_resources
-
-- scenario resources
-
-#### simulation_task_data
-
-- task timing, distribution, cost, and optional resource link
-
-#### simulation_flow_probabilities
-
-- probability configuration for gateway paths
-
-#### simulation_arrival_times
-
-- imported exact arrival timestamps or offsets for a scenario
-- used when CSV arrival import is enabled
-
-### 7.4 Org chart table
-
-#### org_chart_nodes
-
-Created lazily inside [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js).
-
-Key columns:
-
-- `parent_id`
-- `company_id`
-- `user_id`
-- `name`
-- `title`
-- `node_type`
-- `description`
-- `color`
-- `sort_order`
-- `is_vacant`
-
-Supported node types:
-
-- `company`
-- `division`
-- `department`
-- `team`
-- `position`
-
-## 8. Roles, Permissions, and Multi-Company Rules
-
-### 8.1 Roles
-
-Current roles:
-
-- Administrator
-- Company Administrator
-- Business Analyst
-- Process Owner
-- Risk Manager
-- Viewer
-
-### 8.2 Permissions
-
-Current permissions:
+Permissions:
 
 - `user_management`
 - `role_management`
@@ -645,63 +318,38 @@ Current permissions:
 - `manage_processes`
 - `manage_risks`
 
-### 8.3 Effective access rules
+Additional role assignments:
 
-#### Administrator
+- stored in `user_role_assignments`
+- support `starts_on` and `expires_on`
+- active roles are computed dynamically
 
-- global scope
-- can manage roles
-- can manage companies
-- can access all company data
+Current platform behavior:
 
-#### Company Administrator
+- company-based access control has been flattened at the application level
+- admin flows are no longer organized around company scope
+- the compatibility columns remain in storage and some internal joins still read them
 
-- scoped to their own company
-- can manage users inside that company
-- can manage processes and simulations in that company
-- can manage their company org chart
-- cannot manage global roles
+## 6.3 Route Modules
 
-#### Other non-admin roles
+### `server/routes/auth.js`
 
-- access is permission-based and company-scoped
+Main responsibilities:
 
-### 8.4 Company scoping model
+- login and session refresh
+- user CRUD
+- role CRUD
+- permission reads and role-permission updates
+- password reset flow
 
-The backend is the source of truth for scoping.
-
-Rules:
-
-- if the user is a global admin, cross-company access is allowed
-- otherwise, the backend checks the target company against `req.user.companyId`
-- requests for data without a company may be rejected for non-global admins
-
-This is enforced in [server/utils/access.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/access.js), not only in the UI.
-
-## 9. API Reference
-
-All non-public endpoints are mounted under `/api` and expect `x-user-id`.
-
-### 9.1 Public endpoints
-
-#### Authentication and password recovery
+Main endpoints:
 
 - `POST /api/login`
-- `POST /api/forgot-password`
-- `POST /api/verify-reset-code`
-- `POST /api/reset-password`
-
-### 9.2 User and role administration
-
-#### Users
-
+- `GET /api/session`
 - `GET /api/users`
 - `POST /api/users`
 - `PUT /api/users/:id`
 - `DELETE /api/users/:id`
-
-#### Roles and permissions
-
 - `GET /api/roles`
 - `GET /api/permissions`
 - `GET /api/roles/:roleId/permissions`
@@ -710,45 +358,79 @@ All non-public endpoints are mounted under `/api` and expect `x-user-id`.
 - `POST /api/roles`
 - `PUT /api/roles/:id`
 - `DELETE /api/roles/:id`
+- `POST /api/forgot-password`
+- `POST /api/verify-reset-code`
+- `POST /api/reset-password`
 
-### 9.3 Process and company management
+### `server/routes/processes.js`
 
-#### Processes
+Main responsibilities:
+
+- process CRUD
+- governance rules and workflow actions
+- process category CRUD
+- BPMN import/export
+- process explanation/report generation
+- version diff generation
+- governance recipient resolution
+
+Main endpoints:
 
 - `GET /api/processes`
+- `GET /api/process-governance-options`
 - `GET /api/processes/:id`
-- `GET /api/processes/:id/workflow`
-- `POST /api/processes/:id/workflow`
-- `GET /api/processes/:id/diff`
-- `GET /api/processes/:id/explanation`
-- `GET /api/processes/:id/report?format=html|pdf`
 - `POST /api/processes`
 - `PUT /api/processes/:id`
 - `DELETE /api/processes/:id`
 - `POST /api/processes/import`
 - `GET /api/processes/:id/export`
-
-Useful query params for `GET /api/processes`:
-
-- `search`
-- `category`
-- `status`
-- `company`
-- `hierarchical`
-
-#### Process categories
-
+- `GET /api/processes/:id/explanation`
+- `GET /api/processes/:id/report`
+- `POST /api/processes/:id/report`
+- `GET /api/processes/:id/workflow`
+- `POST /api/processes/:id/workflow`
+- `GET /api/processes/:id/diff`
 - `GET /api/process-categories`
 - `POST /api/process-categories`
+- `PUT /api/process-categories/:id`
+- `DELETE /api/process-categories/:id`
+- `GET|POST|PUT|DELETE /api/companies...` -> retired, returns `404`
 
-#### Companies
+### `server/routes/collaboration.js`
 
-- `GET /api/companies`
-- `POST /api/companies`
-- `PUT /api/companies/:id`
-- `DELETE /api/companies/:id`
+Main responsibilities:
 
-### 9.4 Org chart
+- entity comments
+- entity attachments
+- notifications
+- process templates
+- template application into a live process and optional scenario
+
+Main endpoints:
+
+- `GET /api/entities/:entityType/:entityId/comments`
+- `POST /api/entities/:entityType/:entityId/comments`
+- `GET /api/entities/:entityType/:entityId/attachments`
+- `POST /api/entities/:entityType/:entityId/attachments`
+- `DELETE /api/entities/:entityType/:entityId/attachments/:attachmentId`
+- `GET /api/notifications`
+- `POST /api/notifications/:id/read`
+- `POST /api/notifications/read-all`
+- `GET /api/process-templates`
+- `POST /api/process-templates`
+- `PUT /api/process-templates/:id`
+- `DELETE /api/process-templates/:id`
+- `POST /api/process-templates/:id/apply`
+
+### `server/routes/orgchart.js`
+
+Main responsibilities:
+
+- org chart metadata
+- org chart node CRUD
+- node movement between parents
+
+Main endpoints:
 
 - `GET /api/orgchart/meta`
 - `GET /api/orgchart/nodes`
@@ -757,371 +439,265 @@ Useful query params for `GET /api/processes`:
 - `PATCH /api/orgchart/nodes/:id/move`
 - `DELETE /api/orgchart/nodes/:id`
 
-### 9.5 Collaboration and notifications
+### `server/routes/simulations.js`
 
-#### Comments and attachments
+Main responsibilities:
 
-- `GET /api/entities/:entityType/:entityId/comments`
-- `POST /api/entities/:entityType/:entityId/comments`
-- `GET /api/entities/:entityType/:entityId/attachments`
-- `POST /api/entities/:entityType/:entityId/attachments`
-- `DELETE /api/entities/:entityType/:entityId/attachments/:attachmentId`
+- scenario CRUD
+- arrivals import/export
+- resources CRUD
+- task parameter editing
+- flow probability editing
+- simulation execution
+- scenario comparison and reporting
 
-#### Notifications
-
-- `GET /api/notifications`
-- `POST /api/notifications/:id/read`
-- `POST /api/notifications/read-all`
-
-#### Process templates
-
-- `GET /api/process-templates`
-- `POST /api/process-templates`
-- `PUT /api/process-templates/:id`
-- `DELETE /api/process-templates/:id`
-- `POST /api/process-templates/:id/apply`
-
-### 9.6 Audit logs
-
-- `GET /api/audit-logs`
-
-### 9.7 Simulations
-
-#### Scenario CRUD
+Main endpoints:
 
 - `GET /api/simulations`
 - `GET /api/simulations/:id`
-- `GET /api/simulations/:id/compare/:otherId`
 - `POST /api/simulations`
 - `PUT /api/simulations/:id`
 - `DELETE /api/simulations/:id`
-
-#### Arrival imports
-
+- `GET /api/simulations/:id/compare/:otherId`
 - `GET /api/simulations/:id/arrival-times`
 - `POST /api/simulations/:id/arrival-times/import`
 - `DELETE /api/simulations/:id/arrival-times`
-
-#### Result export
-
 - `GET /api/simulations/:id/export`
+- `GET /api/simulations/:id/sensitivity`
+- `POST /api/simulations/:id/what-if`
+- `POST /api/simulations/:id/resource-plan`
+- `GET /api/simulations/:id/report`
 - `GET /api/simulations/:id/explanation`
-- `GET /api/simulations/:id/report?format=html|excel|pdf`
-
-#### Scenario resources
-
 - `GET /api/simulations/:id/resources`
 - `POST /api/simulations/:id/resources`
 - `PUT /api/simulations/:id/resources/:rid`
 - `DELETE /api/simulations/:id/resources/:rid`
-
-#### Task data
-
 - `GET /api/simulations/:id/tasks`
 - `PUT /api/simulations/:id/tasks/:taskId`
-
-#### Flow probabilities
-
 - `GET /api/simulations/:id/flows`
 - `PUT /api/simulations/:id/flows/:flowId`
-
-#### Advanced analysis
-
-- `GET /api/simulations/:id/sensitivity`
-- `POST /api/simulations/:id/what-if`
-- `POST /api/simulations/:id/resource-plan`
-
-#### Run simulation
-
 - `POST /api/simulations/:id/run`
 
-## 10. Simulation Engine
+### `server/routes/audit.js`
 
-#### [server/utils/simulationEngine.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationEngine.js)
+Main responsibilities:
 
-Responsibilities:
+- read-only audit log listing
+- filtering by action and entity type
 
-- detect tasks from legacy JSON diagrams
-- detect tasks from BPMN XML
-- build result histograms
-- run simulation calculations
-- apply working calendars and per-resource availability windows
-- evaluate task SLA targets and late-instance rates
-- run Monte Carlo, what-if, sensitivity, and resource-planning analyses
+Main endpoint:
 
-#### Supported task extraction sources
+- `GET /api/audit-logs`
 
-- legacy custom JSON diagrams
-- BPMN XML
+## 7. Database Model Summary
 
-#### Supported duration models
+Core tables used by the current product:
 
-- `fixed`
-- `normal`
-- `uniform`
-- `exponential`
+### Identity and authorization
 
-#### Result metrics
+- `users`
+- `roles`
+- `permissions`
+- `role_permissions`
+- `user_role_assignments`
 
-- total instances
-- active instances
-- arrival source
-- average duration
-- minimum duration
-- maximum duration
-- P95 duration
-- P99 duration
-- total cost
-- resource utilisation tables
-- bottleneck ranking
-- BPMN heatmap-ready task metrics
-- average cost per instance
-- simulation horizon
-- late-instance counts and SLA summary
-- queue wait vs calendar wait metrics
-- Monte Carlo confidence ranges
-- sensitivity impact ranking
-- staffing recommendations against a target cycle time
-- per-task metrics
-- resource utilisation metrics
-- bottleneck detection
-- histogram
+### Process governance
 
-## 11. Testing and Quality
+- `process_categories`
+- `processes`
+- `process_versions`
+- `process_workflow_comments`
 
-The project now includes an automated test suite.
+### Collaboration
 
-### 11.1 Tooling
+- `entity_comments`
+- `entity_attachments`
+- `notifications`
+- `process_templates`
 
-- Jest
-- Supertest
-- Testing Library
-- jsdom test environment for frontend tests
-- node test environment for backend route tests
+### Org chart
 
-### 11.2 Test files
+- `org_chart_nodes`
 
-#### Frontend tests
+### Simulation
 
-- [src/components/BpmnEditor/BpmnEditor.test.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/BpmnEditor/BpmnEditor.test.jsx)
-- [src/pages/Dashboard.test.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/Dashboard.test.jsx)
-- [src/contexts/AuthContext.test.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/contexts/AuthContext.test.jsx)
+- `simulation_scenarios`
+- `simulation_resources`
+- `simulation_task_data`
+- `simulation_flow_probabilities`
+- `simulation_arrival_times`
 
-#### Backend and integration tests
+### Audit
 
-- [server/utils/simulationEngine.test.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationEngine.test.js)
-- [test/server/auth.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/auth.routes.test.js)
-- [test/server/collaboration.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/collaboration.routes.test.js)
-- [test/server/processes.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/processes.routes.test.js)
-- [test/server/simulations.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/simulations.routes.test.js)
-- [test/server/orgchart.routes.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/orgchart.routes.test.js)
-- [test/server/database-crud.test.js](/C:/Users/user/CascadeProjects/pfe-main/test/server/database-crud.test.js)
+- `audit_logs`
 
-### 11.3 Commands
+Legacy compatibility note:
 
-- `npm test`
-- `npm run test:watch`
-- `npm run test:coverage`
+- `companies` and `company_id` fields are still present in the schema
+- they are not part of the active product surface anymore
 
-### 11.4 Current verification baseline
+## 8. Key Business Workflows
 
-Latest verification completed during development:
+## 8.1 Login and session resolution
 
-- 11/11 Jest suites passing
-- 39/39 Jest tests passing
-- production build passing
+1. User submits credentials to `POST /api/login`.
+2. Backend validates the password with `bcryptjs`.
+3. Backend resolves the request user through `buildRequestUser`.
+4. Frontend stores `currentUser` and `permissions` in `localStorage`.
+5. Future API requests automatically receive the `x-user-id` header.
 
-## 12. Build, Performance, and Bundling
+## 8.2 Process lifecycle
 
-The frontend was optimized to reduce initial load size.
+Supported primary states:
 
-### 12.1 Current optimization approach
+- `draft`
+- `review`
+- `approved`
+- `archived`
 
-#### Route-level lazy loading
+Workflow actions:
 
-Implemented in [src/App.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/App.jsx).
+- submit for review
+- approve
+- request reopen
+- reopen/return to draft
+- archive
+- restore
 
-Effect:
+Important rules:
 
-- heavy pages load only when visited
-- startup payload is smaller
+- only assigned process managers or admins can approve, reopen, archive, or restore
+- only assigned process designers or admins can request reopen on approved processes
+- version snapshots are created on approval, not on every save
+- workflow comments store governance notes and timestamps
 
-#### BPMN modeler lazy loading
+## 8.3 Additional role windows
 
-Implemented in [src/pages/ProcessManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/ProcessManagement.jsx).
+Each user may have:
 
-Effect:
+- one primary role in `users.role`
+- zero or more additional roles in `user_role_assignments`
 
-- the BPMN modeling stack is loaded only when editing a process
+Each additional role may include:
 
-#### Manual chunk splitting
+- `starts_on`
+- `expires_on`
 
-Implemented in [vite.config.js](/C:/Users/user/CascadeProjects/pfe-main/vite.config.js).
+This allows temporary elevations or parallel responsibilities.
 
-Current vendor chunk strategy separates:
+## 8.4 Collaboration and alerts
 
-- router-related code
-- bootstrap-related code
-- BPMN-related code
-- generic vendor code
+The platform supports:
 
-### 12.2 Operational interpretation
+- comments on processes, simulations, and org chart nodes
+- attachments on supported entities
+- notification delivery with deep links to the related item
+- read / read-all state transitions
 
-The build still contains a large BPMN chunk, but that is now isolated from the initial app load. This is acceptable for a feature-heavy editor because most users do not need the modeler immediately on the first route render.
+## 8.5 Simulation lifecycle
 
-## 13. Local Setup and Developer Workflow
+1. A scenario is linked to a process.
+2. The user configures arrivals, resources, tasks, and flow probabilities.
+3. The scenario is executed through `POST /api/simulations/:id/run`.
+4. Results are stored as JSON on the scenario row.
+5. Analysis endpoints expose reporting, comparison, explanation, what-if, sensitivity, and resource planning views.
 
-### 13.1 Prerequisites
+## 9. Setup and Local Run
 
-- Node.js 18+
+## 9.1 Prerequisites
+
+- Node.js
 - PostgreSQL
+- npm
 
-### 13.2 Environment variables
+## 9.2 Environment variables
 
-The project expects `.env` in the repository root.
-
-Supported keys:
+The backend reads:
 
 ```env
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=maintest
-DB_USER=postgres
+DB_USER=vitalis
 DB_PASSWORD=vitalis
 PORT=3001
+HOST=0.0.0.0
 ```
 
-### 13.3 Install
+## 9.3 Install
 
 ```bash
 npm install
 ```
 
-### 13.4 Database bootstrap
-
-#### Base schema and seed
-
-```bash
-npm run init:db
-```
-
-Important:
-
-- this is a development bootstrap script
-- it recreates process tables
-- it also seeds roles, permissions, companies, demo users, and demo processes
-
-#### Simulation tables
-
-```bash
-node server/migrate-simulations.js
-```
-
-#### Org chart table
-
-No separate migration is required in the current implementation.
-
-The table is created automatically on the first successful call to the org chart endpoints.
-
-### 13.5 Run locally
-
-#### Backend
+## 9.4 Start the backend
 
 ```bash
 npm run dev:server
 ```
 
-#### Frontend
+## 9.5 Start the frontend
 
 ```bash
 npm run dev
 ```
 
-### 13.6 Production frontend build
+Default local URLs:
+
+- frontend: `http://localhost:5174` in the current local setup
+- backend: `http://localhost:3001`
+
+## 9.6 Important bootstrap notes
+
+- `server/init-db.js` is a development bootstrap script
+- it is not safe for production data because it recreates some process tables
+- additional seed scripts in the repository are for demo data preparation
+
+## 10. Scripts
+
+Available npm scripts from `package.json`:
+
+- `npm run dev`
+- `npm run dev:server`
+- `npm run init:db`
+- `npm run seed:tunisian-bank`
+- `npm run build`
+- `npm run lint`
+- `npm test`
+- `npm run test:watch`
+- `npm run test:coverage`
+- `npm run preview`
+- `npm run start`
+
+## 11. Testing and Verification
+
+Automated coverage currently exists for:
+
+- auth context behavior
+- dashboard rendering
+- backend route behavior
+- process workflow behavior
+
+Recommended local verification after changes:
 
 ```bash
+npm test -- --runInBand
 npm run build
 ```
 
-## 14. Seed Data and Demo Utilities
+## 12. Technical Notes and Hotspots
 
-#### [server/init-db.js](/C:/Users/user/CascadeProjects/pfe-main/server/init-db.js)
+- `AuthContext` replaces global `fetch`, so API behavior is tightly coupled to the frontend session model.
+- The backend relies on `x-user-id`; there is no JWT or cookie session layer.
+- `server/routes/processes.js` is a large, central module and is the highest-complexity route file in the project.
+- Simulation storage is partly structured relational data and partly JSON results payloads.
+- Some schema setup is lazy, especially for collaboration, audit, org chart, and simulation support tables.
+- Legacy company columns remain in the schema and in some joins for backward compatibility, even though company management is retired from the active product.
 
-Seeds:
+## 13. Documentation Inventory
 
-- base roles
-- base permissions
-- process categories
-- sample companies
-- demo users
-- demo processes
+Project documentation files:
 
-#### [seed-demo-order-fulfillment.js](/C:/Users/user/CascadeProjects/pfe-main/seed-demo-order-fulfillment.js)
-
-Adds a realistic demo process and simulation data for testing the simulation feature set.
-
-## 15. Known Limitations and Technical Notes
-
-### 15.1 Authentication model
-
-The current auth model is based on local storage and a user ID request header. This is sufficient for local development and internal tooling, but it is not equivalent to a production-grade token/session security model.
-
-### 15.2 Password reset
-
-Password reset codes are generated and stored, but the code is logged server-side instead of being sent through a real email provider.
-
-### 15.3 Database bootstrap script
-
-`server/init-db.js` contains legacy bootstrap behavior and is not a formal migration system. A future improvement would be to replace it with versioned migrations for all tables.
-
-### 15.4 Mixed legacy/editor support
-
-The repository still contains both the legacy custom BPMN editor and the current BPMN modeler. The modeler is the primary production editing path.
-
-### 15.5 CSS size
-
-The build is now code-split, but CSS remains relatively large because Bootstrap and BPMN styles are global. Additional CSS optimization is possible later if needed.
-
-## 16. Recommended Next Improvements
-
-Recommended future improvements:
-
-1. Replace the bootstrap script with a real migration system for all tables
-2. Introduce token- or session-based authentication
-3. Add request validation middleware for route payloads
-4. Add coverage thresholds and CI automation
-5. Split or trim global CSS further
-6. Add real email delivery for password reset
-7. Add formal API request/response examples for external integrators
-
-## 17. File Reference Index
-
-Core files worth knowing first:
-
-- [src/App.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/App.jsx)
-- [src/contexts/AuthContext.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/contexts/AuthContext.jsx)
-- [src/components/Layout.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/Layout.jsx)
-- [src/components/NotificationCenter.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/NotificationCenter.jsx)
-- [src/components/EntityCollaborationPanel.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/components/EntityCollaborationPanel.jsx)
-- [src/pages/ProcessManagement.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/ProcessManagement.jsx)
-- [src/pages/SimulationWorkbench.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/SimulationWorkbench.jsx)
-- [src/pages/OrgChart.jsx](/C:/Users/user/CascadeProjects/pfe-main/src/pages/OrgChart.jsx)
-- [server/app.js](/C:/Users/user/CascadeProjects/pfe-main/server/app.js)
-- [server/index.js](/C:/Users/user/CascadeProjects/pfe-main/server/index.js)
-- [server/utils/access.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/access.js)
-- [server/routes/auth.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/auth.js)
-- [server/routes/collaboration.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/collaboration.js)
-- [server/routes/processes.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/processes.js)
-- [server/routes/simulations.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/simulations.js)
-- [server/routes/orgchart.js](/C:/Users/user/CascadeProjects/pfe-main/server/routes/orgchart.js)
-- [server/utils/collaboration.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/collaboration.js)
-- [server/utils/simulationEngine.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationEngine.js)
-- [server/utils/simulationReport.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationReport.js)
-- [server/utils/simulationCsv.js](/C:/Users/user/CascadeProjects/pfe-main/server/utils/simulationCsv.js)
-- [server/init-db.js](/C:/Users/user/CascadeProjects/pfe-main/server/init-db.js)
-- [server/migrations/simulation_tables.sql](/C:/Users/user/CascadeProjects/pfe-main/server/migrations/simulation_tables.sql)
-- [USER_GUIDE.md](/C:/Users/user/CascadeProjects/pfe-main/USER_GUIDE.md)
-
----
-
-Last updated: 2026-04-01
+- `README.md` -> project overview and quick start
+- `USER_GUIDE.md` -> end-user guidance
+- `PROJECT_DOCUMENTATION.md` -> technical architecture and implementation reference

@@ -159,7 +159,6 @@ async function parseResponse(response, fallbackError = 'Request failed') {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
-  const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -177,7 +176,6 @@ export function AuthProvider({ children }) {
 
     if (savedUser) {
       setUser(savedUser);
-      setCompany(savedUser.company || null);
       localStorage.setItem('currentUser', JSON.stringify(savedUser));
       if (savedPermissions) {
         try {
@@ -207,7 +205,6 @@ export function AuthProvider({ children }) {
 
       setUser(normalizedUser);
       setPermissions(nextPermissions);
-      setCompany(normalizedUser?.company || null);
       localStorage.setItem('currentUser', JSON.stringify(normalizedUser));
       localStorage.setItem('permissions', JSON.stringify(nextPermissions));
 
@@ -231,7 +228,6 @@ export function AuthProvider({ children }) {
 
       setUser(normalizedUser);
       setPermissions(nextPermissions);
-      setCompany(normalizedUser?.company || null);
       localStorage.setItem('currentUser', JSON.stringify(normalizedUser));
       localStorage.setItem('permissions', JSON.stringify(nextPermissions));
 
@@ -245,10 +241,8 @@ export function AuthProvider({ children }) {
   const logout = () => {
     localStorage.removeItem('currentUser');
     localStorage.removeItem('permissions');
-    localStorage.removeItem('company');
     setUser(null);
     setPermissions([]);
-    setCompany(null);
     setLoading(false);
   };
 
@@ -259,8 +253,8 @@ export function AuthProvider({ children }) {
 
   const hasRole = (role) => getActiveRoleNames(user).includes(role);
   const hasAnyRole = (roles) => getActiveRoleNames(user).some((role) => roles.includes(role));
-  const isGlobalAdmin = () => hasRole(ROLES.ADMIN) && !user?.companyId;
-  const isCompanyAdmin = () => hasRole(ROLES.ADMIN) && !!user?.companyId;
+  const isGlobalAdmin = () => hasRole(ROLES.ADMIN);
+  const isCompanyAdmin = () => false;
 
   const getAllUsers = async () => {
     try {
@@ -426,7 +420,6 @@ export function AuthProvider({ children }) {
   const value = {
     user,
     permissions,
-    company,
     loading,
     login,
     refreshCurrentUser,

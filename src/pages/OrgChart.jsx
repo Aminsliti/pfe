@@ -35,7 +35,6 @@ const EMPTY_FORM = {
   name: '',
   title: '',
   nodeType: 'department',
-  companyId: '',
   parentId: '',
   userId: '',
   description: '',
@@ -52,7 +51,6 @@ function toForm(node = null, overrides = {}) {
     name: node?.name || '',
     title: node?.title || '',
     nodeType: node?.nodeType || 'department',
-    companyId: node?.companyId ? String(node.companyId) : '',
     parentId: node?.parentId ? String(node.parentId) : '',
     userId: node?.userId ? String(node.userId) : '',
     description: node?.description || '',
@@ -222,8 +220,6 @@ async function parseApiPayload(response, fallbackMessage) {
 }
 
 function OrgNodeFields({ form, setForm, users, parentOptions }) {
-  const availableUsers = users.filter((user) => !form.companyId || String(user.companyId) === form.companyId);
-
   return (
     <div className="org-form-grid">
       <Form.Group>
@@ -269,13 +265,12 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
               isVacant: false,
               name: current.name || selectedUser?.fullName || current.name,
               title: current.title || selectedUser?.role || current.title,
-              companyId: current.companyId || (selectedUser?.companyId ? String(selectedUser.companyId) : ''),
             }));
           }}
         >
           <option value="">Unassigned</option>
-          {availableUsers.map((user) => (
-            <option key={user.id} value={user.id}>{user.fullName} · {user.role}</option>
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>{user.fullName} - {user.role}</option>
           ))}
         </Form.Select>
       </Form.Group>
@@ -402,7 +397,6 @@ export function OrgChart() {
     setCreateForm(
       toForm(null, {
         parentId: parentNode?.id ? String(parentNode.id) : '',
-        companyId: parentNode?.companyId ? String(parentNode.companyId) : '',
         nodeType: suggestedType,
         color: nodeMeta(suggestedType).color,
       })
@@ -426,7 +420,6 @@ export function OrgChart() {
     try {
       const data = await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'PUT', {
         ...inspectorForm,
-        companyId: inspectorForm.companyId || null,
         parentId: inspectorForm.parentId || null,
         userId: inspectorForm.userId || null,
       });
@@ -447,7 +440,6 @@ export function OrgChart() {
     try {
       const data = await persistNode(`${API}/orgchart/nodes`, 'POST', {
         ...createForm,
-        companyId: createForm.companyId || null,
         parentId: createForm.parentId || null,
         userId: createForm.userId || null,
       });

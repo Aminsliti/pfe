@@ -1,15 +1,14 @@
 # V-BPM Platform
 
-V-BPM is a business process management platform built with React, Express, and PostgreSQL. It supports BPMN-based process modeling, simulation scenarios, role-based access control, multi-company data isolation, and an interactive organigram editor.
+V-BPM is a business process management platform built with React, Express, and PostgreSQL. It supports BPMN-based process modeling, governed review workflows, simulation scenarios, role-based access control, and an interactive organigram editor.
 
 ## Main Capabilities
 
 - BPMN process management with import/export, versioning, approval workflow, version diffing, human-readable diagram explanations, and PDF/HTML explanation reports
-- Multi-company access control with global admins and company admins
 - Process simulation workbench with working calendars, resource availability windows, task SLA rules, CSV arrival imports, Monte Carlo analysis, what-if analysis, sensitivity analysis, resource planning, status tracking, BPMN heatmaps, scenario explanations, and CSV/Excel/PDF reporting
 - Cross-module collaboration with comments, attachments, in-app notifications, and reusable process templates
 - Interactive organization chart editor with drag-and-drop re-parenting
-- User, role, and company administration with audit logging
+- User and role administration with audit logging
 - Jest + Supertest test suite for frontend and backend flows
 
 ## Documentation
@@ -22,7 +21,7 @@ That document covers:
 - architecture and request flow
 - frontend modules and pages
 - backend modules and API endpoints
-- RBAC and company scoping rules
+- RBAC and additional role windows
 - temporary additional user roles with expiration dates
 - process approval, version diff, and audit-log workflows
 - process and simulation explanation/report generation
@@ -134,3 +133,4 @@ Current local verification:
 - All non-public backend routes require an `x-user-id` header.
 - The frontend injects that automatically after login through `AuthContext`.
 - The org chart schema is created lazily the first time the org chart API is used.
+- Legacy company columns still exist in the schema for compatibility, but company management is no longer part of the active product surface.

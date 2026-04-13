@@ -6,7 +6,6 @@ import {
   canManageRoles,
   canonicalizeRoleName,
   ensurePermission,
-  ensureCompanyAccess,
   ensureUserRoleAssignmentsTable,
   isGlobalAdmin,
   sanitizeUserPayloadForRole,
@@ -17,12 +16,6 @@ import { logAuditEvent } from '../utils/auditLog.js';
 import { createNotification } from '../utils/collaboration.js';
 
 const router = express.Router();
-
-function normalizeCompanyId(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : null;
-}
 
 function normalizeExpiresOn(value) {
   if (value === undefined || value === null || value === '') {
@@ -87,20 +80,6 @@ function normalizeAdditionalRoles(rawRoles, primaryRole, actor) {
   }
 
   return normalized;
-}
-
-function requiresCompanyAssignment(primaryRole, additionalRoles = []) {
-  const effectiveRoles = [primaryRole, ...additionalRoles.map((item) => item.role)];
-  return !effectiveRoles.includes(ROLES.ADMIN);
-}
-
-function validateScopedUserCompany(res, role, companyId, additionalRoles = []) {
-  if (requiresCompanyAssignment(role, additionalRoles) && !companyId) {
-    res.status(400).json({ error: 'Non-admin users must be assigned to a company.' });
-    return false;
-  }
-
-  return true;
 }
 
 function mapRoleAssignmentRow(row) {
@@ -171,8 +150,6 @@ function buildUserResponse(row, additionalRoles = []) {
     primaryRole,
     activeRoles,
     additionalRoles,
-    companyId: row.company_id,
-    companyName: row.company_name || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -270,18 +247,10 @@ router.get('/users', async (req, res) => {
         u.email,
         u.full_name,
         u.role,
-        u.company_id,
         u.created_at,
-        u.updated_at,
-        c.name AS company_name
+        u.updated_at
       FROM users u
-      LEFT JOIN companies c ON c.id = u.company_id
     `;
-
-    if (!isGlobalAdmin(req.user)) {
-      query += ' WHERE u.company_id = $1';
-      params.push(req.user.companyId);
-    }
 
     query += ' ORDER BY u.id';
 
@@ -308,7 +277,7 @@ router.post('/users', async (req, res) => {
     }
 
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
-    const { username, password, email, fullName, role, companyId } = scopedPayload;
+    const { username, password, email, fullName, role } = scopedPayload;
     const primaryRole = canonicalizeRoleName(role);
     if (!Object.values(ROLES).includes(primaryRole)) {
       return res.status(400).json({ error: 'Invalid role selection.' });
@@ -319,16 +288,6 @@ router.post('/users', async (req, res) => {
     } catch (validationError) {
       return res.status(400).json({ error: validationError.message });
     }
-    const nextCompanyId = isGlobalAdmin(req.user) ? normalizeCompanyId(companyId) : req.user.companyId;
-
-    if (!nextCompanyId && !isGlobalAdmin(req.user)) {
-      return res.status(400).json({ error: 'A scoped admin must belong to a company.' });
-    }
-
-    if (!validateScopedUserCompany(res, primaryRole, nextCompanyId, additionalRoles)) {
-      return;
-    }
-    
     // Check if username already exists
     const existingUser = await pool.query(
       'SELECT id FROM users WHERE username = $1',
@@ -348,21 +307,15 @@ router.post('/users', async (req, res) => {
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id, username, email, full_name, role, company_id
       `,
-      [username, hashedPassword, email, fullName, primaryRole, nextCompanyId]
+      [username, hashedPassword, email, fullName, primaryRole, null]
     );
     
     const user = result.rows[0];
     await syncAdditionalRoles(user.id, user.role, additionalRoles, req.user.id);
-    const companyResult = user.company_id
-      ? await pool.query('SELECT name FROM companies WHERE id = $1', [user.company_id])
-      : { rows: [] };
     const assignmentsByUser = await loadAdditionalRolesForUsers([user.id]);
     res.status(201).json(
       buildUserResponse(
-        {
-          ...user,
-          company_name: companyResult.rows[0]?.name || null,
-        },
+        user,
         assignmentsByUser.get(user.id) || []
       )
     );
@@ -405,7 +358,7 @@ router.put('/users/:id', async (req, res) => {
 
     const { id } = req.params;
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
-    const { username, password, email, fullName, role, companyId } = scopedPayload;
+    const { username, password, email, fullName, role } = scopedPayload;
     const primaryRole = canonicalizeRoleName(role);
     if (!Object.values(ROLES).includes(primaryRole)) {
       return res.status(400).json({ error: 'Invalid role selection.' });
@@ -425,18 +378,6 @@ router.put('/users/:id', async (req, res) => {
     if (!existingUser.rows.length) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    if (!ensureCompanyAccess(req, res, existingUser.rows[0].company_id)) {
-      return;
-    }
-
-    const nextCompanyId = isGlobalAdmin(req.user)
-      ? normalizeCompanyId(companyId)
-      : existingUser.rows[0].company_id;
-
-    if (!validateScopedUserCompany(res, primaryRole, nextCompanyId, additionalRoles)) {
-      return;
-    }
     
     let query = `
       UPDATE users
@@ -444,10 +385,9 @@ router.put('/users/:id', async (req, res) => {
           email = $2,
           full_name = $3,
           role = $4,
-          company_id = $5,
           updated_at = CURRENT_TIMESTAMP
     `;
-    let params = [username, email, fullName, primaryRole, nextCompanyId, id];
+    let params = [username, email, fullName, primaryRole, id];
     
     // If password is provided, hash and update it
     if (password) {
@@ -459,10 +399,9 @@ router.put('/users/:id', async (req, res) => {
             email = $3,
             full_name = $4,
             role = $5,
-            company_id = $6,
             updated_at = CURRENT_TIMESTAMP
       `;
-      params = [username, hashedPassword, email, fullName, primaryRole, nextCompanyId, id];
+      params = [username, hashedPassword, email, fullName, primaryRole, id];
     }
     
     query += ' WHERE id = $' + params.length + ' RETURNING id, username, email, full_name, role, company_id';
@@ -475,16 +414,10 @@ router.put('/users/:id', async (req, res) => {
     
     const user = result.rows[0];
     await syncAdditionalRoles(user.id, user.role, additionalRoles, req.user.id);
-    const companyResult = user.company_id
-      ? await pool.query('SELECT name FROM companies WHERE id = $1', [user.company_id])
-      : { rows: [] };
     const assignmentsByUser = await loadAdditionalRolesForUsers([user.id]);
     res.json(
       buildUserResponse(
-        {
-          ...user,
-          company_name: companyResult.rows[0]?.name || null,
-        },
+        user,
         assignmentsByUser.get(user.id) || []
       )
     );
@@ -530,10 +463,6 @@ router.delete('/users/:id', async (req, res) => {
     const existingUser = await pool.query('SELECT id, company_id FROM users WHERE id = $1', [id]);
     if (!existingUser.rows.length) {
       return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (!ensureCompanyAccess(req, res, existingUser.rows[0].company_id)) {
-      return;
     }
     
     const result = await pool.query(

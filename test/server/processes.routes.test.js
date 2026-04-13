@@ -485,38 +485,23 @@ describe('process routes', () => {
     expect(diff.body.task_changes.added).toHaveLength(1);
   });
 
-  it('manages companies with correct scoping rules', async () => {
-    const companyAdmin = createUser({
-      role: 'Company Administrator',
-      companyId: 2,
-      company: { id: 2, name: 'Operations Division' },
-      permissions: ['user_management', 'manage_processes'],
-    });
+  it('returns 404 for retired company endpoints', async () => {
+    const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser()) });
 
-    const companyAdminApp = createApp({ requestUserMiddleware: createRequestUserMiddleware(companyAdmin) });
+    const companyList = await request(app).get('/api/companies');
+    expect(companyList.status).toBe(404);
+    expect(companyList.body.error).toMatch(/removed from this workspace/i);
 
-    pool.query.mockResolvedValueOnce(makeResult([{ id: 2, name: 'Operations Division', description: 'Ops' }]));
-    const companyList = await request(companyAdminApp).get('/api/companies');
-    expect(companyList.status).toBe(200);
-    expect(companyList.body).toHaveLength(1);
-
-    pool.query.mockResolvedValueOnce(makeResult([{ id: 2, name: 'Operations Division', description: 'Updated', logo_url: null }]));
-    const companyUpdate = await request(companyAdminApp).put('/api/companies/2').send({
+    const companyUpdate = await request(app).put('/api/companies/2').send({
       name: 'Operations Division',
       description: 'Updated',
-      logo_url: '',
     });
-    expect(companyUpdate.status).toBe(200);
+    expect(companyUpdate.status).toBe(404);
 
-    const adminApp = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser()) });
-    pool.query.mockResolvedValueOnce(makeResult([{ id: 12, name: 'New Company', description: 'New', logo_url: null }]));
-    const createdCompany = await request(adminApp).post('/api/companies').send({ name: 'New Company', description: 'New' });
-    expect(createdCompany.status).toBe(201);
+    const createdCompany = await request(app).post('/api/companies').send({ name: 'New Company', description: 'New' });
+    expect(createdCompany.status).toBe(404);
 
-    pool.query
-      .mockResolvedValueOnce(makeResult([{ id: 12, name: 'New Company' }]))
-      .mockResolvedValueOnce(makeResult([{ id: 12 }], { rowCount: 1 }));
-    const deletedCompany = await request(adminApp).delete('/api/companies/12');
-    expect(deletedCompany.status).toBe(200);
+    const deletedCompany = await request(app).delete('/api/companies/12');
+    expect(deletedCompany.status).toBe(404);
   });
 });

@@ -5,7 +5,6 @@ const API = 'http://localhost:3001/api';
 
 const entityLabels = {
   user: 'Utilisateur',
-  company: 'Societe',
   process: 'Processus',
   role: 'Role',
   orgchart_node: 'Organigramme',
@@ -81,7 +80,7 @@ export default function AuditLogs() {
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
               <h3 className="mb-1">Audit Log</h3>
-              <div className="text-muted">Trace des changements sur les utilisateurs, societes, processus, roles, organigrammes et simulations.</div>
+              <div className="text-muted">Trace des changements sur les utilisateurs, processus, roles, organigrammes et simulations.</div>
             </div>
             <Badge bg="dark">{filteredLogs.length} entree(s)</Badge>
           </div>
@@ -150,7 +149,6 @@ export default function AuditLogs() {
                   <th>Type</th>
                   <th>Action</th>
                   <th>Resume</th>
-                  <th>Societe</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,7 +175,6 @@ export default function AuditLogs() {
                         </details>
                       )}
                     </td>
-                    <td>{log.company_name || '-'}</td>
                   </tr>
                 ))}
               </tbody>

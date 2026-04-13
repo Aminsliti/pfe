@@ -17,7 +17,6 @@ describe('Dashboard', () => {
         fullName: 'Anas Ksiksi',
         email: 'anas@example.com',
         role: 'Company Administrator',
-        company: { id: 2, name: 'Operations Division' },
         createdAt: '2026-03-01T10:00:00.000Z',
         updatedAt: '2026-03-02T10:00:00.000Z',
       },
@@ -44,7 +43,6 @@ describe('Dashboard', () => {
 
     expect(screen.getByText(/welcome, anas ksiksi/i)).toBeInTheDocument();
     expect(screen.getAllByText('Company Administrator')[0]).toBeInTheDocument();
-    expect(screen.getByText(/operations division/i)).toBeInTheDocument();
     expect(screen.getByText(/manage user accounts \(crud operations\)/i)).toBeInTheDocument();
     expect(screen.getByText(/create and manage processes/i)).toBeInTheDocument();
   });
