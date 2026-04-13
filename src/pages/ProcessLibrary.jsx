@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 const API = 'http://localhost:3001/api';
 const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
@@ -399,6 +399,7 @@ export default function ProcessLibrary() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [navigation, setNavigation] = useState([]);
+  const lastProcessNavigationRef = useRef({ id: null, at: 0 });
   const deferredSearch = useDeferredValue(search);
 
   const loadLibrary = useCallback(async () => {
@@ -508,7 +509,29 @@ export default function ProcessLibrary() {
   };
 
   const enterProcess = (process) => {
-    setNavigation((current) => [...current, { type: 'process', id: process.id }]);
+    const processId = Number(process?.id);
+    if (!Number.isInteger(processId) || processId <= 0) {
+      return;
+    }
+
+    setNavigation((current) => {
+      const lastEntry = current[current.length - 1] || null;
+      const now = Date.now();
+
+      if (lastEntry?.type === 'process' && Number(lastEntry.id) === processId) {
+        return current;
+      }
+
+      if (
+        Number(lastProcessNavigationRef.current.id) === processId &&
+        now - Number(lastProcessNavigationRef.current.at || 0) < 400
+      ) {
+        return current;
+      }
+
+      lastProcessNavigationRef.current = { id: processId, at: now };
+      return [...current, { type: 'process', id: processId }];
+    });
   };
 
   const goBack = () => {

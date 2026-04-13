@@ -1,4 +1,5 @@
 import pool from './db.js';
+import { replaceProcessCatalogFromWorkbook } from './utils/processWorkbookImport.js';
 
 const initDatabase = async () => {
   try {
@@ -72,7 +73,7 @@ const initDatabase = async () => {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS process_categories (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(100) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
         description TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -229,24 +230,6 @@ const seedData = async () => {
     }
     console.log('Permissions seeded');
 
-    // Insert process categories
-    const categories = [
-      { name: 'Finance', description: 'Financial processes and workflows' },
-      { name: 'HR', description: 'Human resources processes' },
-      { name: 'IT', description: 'Information technology processes' },
-      { name: 'Operations', description: 'Operational processes' },
-      { name: 'Customer Service', description: 'Customer service workflows' },
-      { name: 'Compliance', description: 'Regulatory compliance processes' },
-    ];
-
-    for (const category of categories) {
-      await pool.query(
-        'INSERT INTO process_categories (name, description) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING',
-        [category.name, category.description]
-      );
-    }
-    console.log('Process categories seeded');
-
     // Insert sample companies
     const companies = [
       { name: 'Hopex Aquila', description: 'Main corporate entity for process management' },
@@ -299,74 +282,10 @@ const seedData = async () => {
     }
     console.log('Demo users seeded');
 
-    // Insert hierarchical processes
-    const processes = [
-      // Main categories (parent processes)
-      { name: 'Business Processes', description: 'Core business operations and workflows', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'IT Processes', description: 'Information technology management processes', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Financial Processes', description: 'Financial management and accounting processes', parent_id: null, company_id: 1, created_by: 1 },
-      
-      // Sub-processes (initially with null parent_id)
-      { name: 'Customer Onboarding', description: 'New customer registration and setup process', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Order Management', description: 'Order processing and fulfillment workflow', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Invoice Processing', description: 'Invoice creation and payment processing', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'IT Support', description: 'IT helpdesk and support workflows', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Software Deployment', description: 'Application deployment and release management', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'System Monitoring', description: 'Infrastructure and application monitoring', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Budget Planning', description: 'Annual budget planning and allocation', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Expense Management', description: 'Expense reporting and approval workflow', parent_id: null, company_id: 1, created_by: 1 },
-      { name: 'Financial Reporting', description: 'Monthly and quarterly financial reporting', parent_id: null, company_id: 1, created_by: 1 },
-    ];
-
-    // Clear existing processes and versions
-    await pool.query('DELETE FROM process_versions');
-    await pool.query('DELETE FROM processes');
-    console.log('Cleared existing processes');
-
-    // Insert all processes
-    const insertedProcesses = [];
-    for (const process of processes) {
-      const result = await pool.query(
-        'INSERT INTO processes (name, description, parent_id, company_id, created_by) VALUES ($1, $2, $3, $4, $5)',
-        [process.name, process.description, process.parent_id, process.company_id, process.created_by]
-      );
-      
-      const processId = result.rows[0]?.id;
-      if (processId) {
-        insertedProcesses.push({ ...process, id: processId });
-        
-        // Create initial version for each process
-        await pool.query(
-          'INSERT INTO process_versions (process_id, version_number, bpmn_xml, created_by, change_description) VALUES ($1, 1, $2, $3, $4)',
-          [processId, '<?xml version="1.0" encoding="UTF-8"?><bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><bpmn:process id="' + processId + '" name="' + process.name + '"></bpmn:process></bpmn:definitions>', process.created_by, 'Initial version']
-        );
-      }
-    }
-
-    // Update parent relationships for sub-processes
-    const businessProcessId = insertedProcesses.find(p => p.name === 'Business Processes')?.id;
-    const itProcessId = insertedProcesses.find(p => p.name === 'IT Processes')?.id;
-    const financialProcessId = insertedProcesses.find(p => p.name === 'Financial Processes')?.id;
-
-    if (businessProcessId) {
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [businessProcessId, 'Customer Onboarding']);
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [businessProcessId, 'Order Management']);
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [businessProcessId, 'Invoice Processing']);
-    }
-
-    if (itProcessId) {
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [itProcessId, 'IT Support']);
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [itProcessId, 'Software Deployment']);
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [itProcessId, 'System Monitoring']);
-    }
-
-    if (financialProcessId) {
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [financialProcessId, 'Budget Planning']);
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [financialProcessId, 'Expense Management']);
-      await pool.query('UPDATE processes SET parent_id = $1 WHERE name = $2', [financialProcessId, 'Financial Reporting']);
-    }
-    
-    console.log('Hierarchical processes seeded');
+    const importSummary = await replaceProcessCatalogFromWorkbook();
+    console.log(
+      `Bank process workbook imported (${importSummary.rootCategoryCount} root categories, ${importSummary.subcategoryCount} subcategories, ${importSummary.processCount} processes)`
+    );
 
     // Assign permissions to roles
     const rolePermissions = [

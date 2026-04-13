@@ -283,6 +283,8 @@ export function ProcessManagement() {
   const fileInputRef = useRef(null);
   const openingProcessRef = useRef(null);
   const syncedProcessParamRef = useRef(null);
+  const closingProcessRef = useRef(null);
+  const lastOpenedProcessRef = useRef({ id: null, at: 0 });
 
   const showMsg = (text, type = 'success') => {
     setMessage({ text, type });
@@ -533,9 +535,19 @@ export function ProcessManagement() {
     if (!Number.isInteger(processId) || processId <= 0) {
       return;
     }
+    closingProcessRef.current = null;
+
+    const openAttemptTime = Date.now();
+    if (
+      Number(lastOpenedProcessRef.current.id) === processId &&
+      openAttemptTime - Number(lastOpenedProcessRef.current.at || 0) < 400
+    ) {
+      return;
+    }
 
     const activeProcessId = Number(processDetail?.id || editingProcess?.id || 0);
     if (showModal && activeProcessId === processId) {
+      lastOpenedProcessRef.current = { id: processId, at: openAttemptTime };
       return;
     }
 
@@ -543,6 +555,7 @@ export function ProcessManagement() {
       return;
     }
 
+    lastOpenedProcessRef.current = { id: processId, at: openAttemptTime };
     openingProcessRef.current = processId;
 
     if (syncUrl) {
@@ -572,11 +585,16 @@ export function ProcessManagement() {
     const processIdFromUrl = Number(searchParams.get('processId'));
     if (!Number.isInteger(processIdFromUrl) || processIdFromUrl <= 0) {
       syncedProcessParamRef.current = null;
+      closingProcessRef.current = null;
       return;
     }
 
     if (syncedProcessParamRef.current === processIdFromUrl) {
       syncedProcessParamRef.current = null;
+      return;
+    }
+
+    if (closingProcessRef.current === processIdFromUrl) {
       return;
     }
 
@@ -748,6 +766,8 @@ export function ProcessManagement() {
   };
 
   const closeProcessModal = () => {
+    const closingProcessId = Number(processDetail?.id || editingProcess?.id || searchParams.get('processId') || 0);
+    closingProcessRef.current = Number.isInteger(closingProcessId) && closingProcessId > 0 ? closingProcessId : null;
     setShowModal(false);
     setEditingProcess(null);
     setProcessDetail(null);

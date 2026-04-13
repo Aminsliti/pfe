@@ -266,6 +266,25 @@ async function ensureProcessEnhancements() {
       `);
 
       await pool.query(`
+        ALTER TABLE process_categories
+        DROP CONSTRAINT IF EXISTS process_categories_name_key
+      `);
+
+      await pool.query(`
+        DROP INDEX IF EXISTS process_categories_name_key
+      `);
+
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_process_categories_scope_name
+        ON process_categories (
+          COALESCE(company_id, 0),
+          COALESCE(parent_id, 0),
+          LOWER(name),
+          COALESCE(section, '${DEFAULT_PROCESS_SECTION}')
+        )
+      `);
+
+      await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_process_categories_parent
         ON process_categories(parent_id, name)
       `);

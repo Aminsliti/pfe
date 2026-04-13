@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:server": "node server/index.js",
     "init:db": "node server/init-db.js",
+    "import:process-workbook": "node server/import-process-workbook.js",
     "seed:tunisian-bank": "node seed-tunisian-bank-demo.js",
     "build": "vite build",
     "lint": "eslint .",
