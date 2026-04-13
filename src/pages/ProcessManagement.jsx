@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown } from 'react-bootstrap';
+import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 const API = 'http://localhost:3001/api';
 const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditorModeler'));
@@ -125,6 +126,19 @@ function flattenCategoryTree(categories = []) {
   return options;
 }
 
+function collectCategoryDescendantIds(category, bucket = new Set()) {
+  if (!category) {
+    return bucket;
+  }
+
+  category.children.forEach((child) => {
+    bucket.add(Number(child.id));
+    collectCategoryDescendantIds(child, bucket);
+  });
+
+  return bucket;
+}
+
 function toFormId(value) {
   return value === null || value === undefined ? '' : String(value);
 }
@@ -238,6 +252,7 @@ export function ProcessManagement() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingProcess, setEditingProcess] = useState(null);
+  const [editingCategory, setEditingCategory] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCat, setFilterCat] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -280,6 +295,7 @@ export function ProcessManagement() {
   const [processReportBusy, setProcessReportBusy] = useState('');
   const [templates, setTemplates] = useState([]);
   const [applyingTemplateId, setApplyingTemplateId] = useState(null);
+  const [previewRootElementId, setPreviewRootElementId] = useState(null);
   const fileInputRef = useRef(null);
   const openingProcessRef = useRef(null);
   const syncedProcessParamRef = useRef(null);
@@ -481,7 +497,10 @@ export function ProcessManagement() {
     }
   };
 
-  const openBpmnEditor = (process) => setBpmnTarget(process);
+  const openBpmnEditor = (process, initialSubprocessId = null) => setBpmnTarget({
+    ...process,
+    initialSubprocessId,
+  });
   const openCreate = (defaultCategoryId = '') => {
     if (categoryOptions.length === 0) {
       showMsg('Create a category first. Every process must belong to a category.', 'danger');
@@ -643,14 +662,34 @@ export function ProcessManagement() {
     setShowImport(true);
   };
 
+  const dismissCategoryModal = () => {
+    setShowCategoryModal(false);
+    setEditingCategory(null);
+    setCategoryError('');
+  };
+
   const openCategoryModal = (parentId = '', preferredSection = DEFAULT_PROCESS_SECTION) => {
     const parentCategory = parentId ? categoryById.get(Number(parentId)) : null;
+    setEditingCategory(null);
     setCategoryError('');
     setCategoryForm({
       name: '',
       description: '',
       parent_id: parentId ? String(parentId) : '',
       section: normalizeCategorySection(parentCategory?.section, normalizeCategorySection(preferredSection)),
+    });
+    setShowCategoryModal(true);
+  };
+
+  const openEditCategoryModal = (category) => {
+    const parentCategory = category?.parent_id ? categoryById.get(Number(category.parent_id)) : null;
+    setEditingCategory(category);
+    setCategoryError('');
+    setCategoryForm({
+      name: category?.name || '',
+      description: category?.description || '',
+      parent_id: toFormId(category?.parent_id || ''),
+      section: normalizeCategorySection(parentCategory?.section, category?.section),
     });
     setShowCategoryModal(true);
   };
@@ -687,8 +726,8 @@ export function ProcessManagement() {
 
     setCategoryBusy(true);
     try {
-      const response = await fetch(`${API}/process-categories`, {
-        method: 'POST',
+      const response = await fetch(editingCategory ? `${API}/process-categories/${editingCategory.id}` : `${API}/process-categories`, {
+        method: editingCategory ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: categoryForm.name.trim(),
@@ -697,12 +736,12 @@ export function ProcessManagement() {
           section: categoryForm.section,
         }),
       });
-      const payload = await readApiPayload(response, 'Failed to create category.');
-      await loadCategories();
-      showMsg(`Category "${payload.name}" created.`);
-      setShowCategoryModal(false);
+      const payload = await readApiPayload(response, editingCategory ? 'Failed to update category.' : 'Failed to create category.');
+      await Promise.all([loadCategories(), loadProcesses()]);
+      showMsg(`Category "${payload.name}" ${editingCategory ? 'updated' : 'created'}.`);
+      dismissCategoryModal();
     } catch (error) {
-      setCategoryError(error.message || 'Failed to create category.');
+      setCategoryError(error.message || (editingCategory ? 'Failed to update category.' : 'Failed to create category.'));
     } finally {
       setCategoryBusy(false);
     }
@@ -1082,6 +1121,21 @@ export function ProcessManagement() {
   const categoryTree = useMemo(() => buildCategoryTree(categories), [categories]);
   const categoryOptions = useMemo(() => flattenCategoryTree(categories), [categories]);
   const categoryById = categoryTree.byId;
+  const editingCategoryDescendantIds = useMemo(
+    () => collectCategoryDescendantIds(categoryById.get(Number(editingCategory?.id || 0)) || null),
+    [categoryById, editingCategory?.id]
+  );
+  const categoryParentOptions = useMemo(
+    () => categoryOptions.filter((categoryOption) => {
+      if (!editingCategory) {
+        return true;
+      }
+
+      const categoryId = Number(categoryOption.id);
+      return categoryId !== Number(editingCategory.id) && !editingCategoryDescendantIds.has(categoryId);
+    }),
+    [categoryOptions, editingCategory, editingCategoryDescendantIds]
+  );
   const categoryRootsBySection = useMemo(() => {
     const grouped = Object.fromEntries(PROCESS_SECTION_CONFIG.map((section) => [section.key, []]));
     categoryTree.roots.forEach((category) => {
@@ -1115,7 +1169,25 @@ export function ProcessManagement() {
   const workflowFlags = getWorkflowFlags(workflowInfo, currentWorkflowStatus);
   const workflowJourney = buildWorkflowJourney(workflowInfo, currentWorkflowStatus);
   const previewBpmnXml = processDetail?.bpmn_xml || editingProcess?.bpmn_xml || formData.bpmn_xml || '';
+  const previewSubprocesses = useMemo(() => getBpmnSubprocesses(previewBpmnXml), [previewBpmnXml]);
+  const previewSubprocessTrail = useMemo(
+    () => buildBpmnSubprocessTrail(previewSubprocesses, previewRootElementId),
+    [previewSubprocesses, previewRootElementId]
+  );
+  const activePreviewSubprocess = previewSubprocessTrail.length
+    ? previewSubprocessTrail[previewSubprocessTrail.length - 1]
+    : null;
   const canEditSelectedProcess = editingProcess ? canEditProcessDefinition(selectedProcessRecord) : canCreateDefinitions;
+
+  useEffect(() => {
+    setPreviewRootElementId(null);
+  }, [editingProcess?.id, processDetail?.id, previewBpmnXml]);
+
+  useEffect(() => {
+    if (previewRootElementId && !previewSubprocesses.some((subprocess) => subprocess.id === previewRootElementId)) {
+      setPreviewRootElementId(null);
+    }
+  }, [previewRootElementId, previewSubprocesses]);
 
   if (bpmnTarget) {
     return (
@@ -1127,6 +1199,7 @@ export function ProcessManagement() {
             loadProcesses();
           }}
           onSave={handleBpmnSave}
+          initialSubprocessId={bpmnTarget.initialSubprocessId}
         />
       </Suspense>
     );
@@ -1272,6 +1345,15 @@ export function ProcessManagement() {
               <div className="me-1">
                 <CreateMenu defaultCategoryId={String(category.id)} compact />
               </div>
+              <button
+                type="button"
+                className="me-1"
+                title="Edit category"
+                onClick={() => openEditCategoryModal(category)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 15, padding: '0 4px' }}
+              >
+                <i className="bi bi-pencil" />
+              </button>
               {canDeleteCategoryDefinition(category) ? (
                 <button
                   type="button"
@@ -1552,8 +1634,75 @@ export function ProcessManagement() {
                         </div>
                       </div>
                       <Suspense fallback={<div className="text-muted small">Loading BPMN preview...</div>}>
-                        <BpmnProcessPreview xml={previewBpmnXml} />
+                        <BpmnProcessPreview xml={previewBpmnXml} rootElementId={previewRootElementId} />
                       </Suspense>
+                      {previewSubprocesses.length ? (
+                        <div className="border rounded-4 p-3 mt-3" style={{ background: '#fffdfa' }}>
+                          <div className="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
+                            <div>
+                              <h6 className="mb-1">Embedded sous-processes</h6>
+                              <div className="text-muted small">Open the same internal BPMN level that the drilldown arrow opens inside the editor.</div>
+                            </div>
+                            {canEditSelectedProcess ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline-danger"
+                                onClick={() => openBpmnEditor(editingProcess, previewRootElementId)}
+                              >
+                                {activePreviewSubprocess ? 'Edit this sous-process' : 'Edit main diagram'}
+                              </Button>
+                            ) : null}
+                          </div>
+
+                          <div className="d-flex flex-wrap gap-2 mb-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={previewRootElementId ? 'outline-secondary' : 'danger'}
+                              onClick={() => setPreviewRootElementId(null)}
+                            >
+                              Main diagram
+                            </Button>
+                            {previewSubprocessTrail.map((subprocess) => (
+                              <Button
+                                key={subprocess.id}
+                                type="button"
+                                size="sm"
+                                variant={previewRootElementId === subprocess.id ? 'danger' : 'outline-secondary'}
+                                onClick={() => setPreviewRootElementId(subprocess.id)}
+                              >
+                                {subprocess.name}
+                              </Button>
+                            ))}
+                          </div>
+
+                          <div className="d-flex flex-column gap-2">
+                            {previewSubprocesses.map((subprocess) => (
+                              <button
+                                key={subprocess.id}
+                                type="button"
+                                onClick={() => setPreviewRootElementId(subprocess.id)}
+                                className="text-start border rounded-3 px-3 py-2 bg-white"
+                                style={{
+                                  borderColor: previewRootElementId === subprocess.id ? '#ef4444' : '#e2e8f0',
+                                  boxShadow: previewRootElementId === subprocess.id ? 'inset 3px 0 0 #ef4444' : 'none',
+                                }}
+                              >
+                                <div className="d-flex justify-content-between gap-3 align-items-start">
+                                  <div>
+                                    <div className="fw-semibold text-dark">{subprocess.name}</div>
+                                    <div className="text-muted small">{subprocess.pathLabel}</div>
+                                  </div>
+                                  <span className="text-muted small">
+                                    {subprocess.childCount > 0 ? `${subprocess.childCount} child view(s)` : 'Final view'}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </Card.Body>
                   </Card>
                 </Col>
@@ -1897,9 +2046,9 @@ export function ProcessManagement() {
         </Modal.Body>
       </Modal>
 
-      <Modal show={showCategoryModal} onHide={() => !categoryBusy && setShowCategoryModal(false)} size="lg">
+      <Modal show={showCategoryModal} onHide={() => !categoryBusy && dismissCategoryModal()} size="lg">
         <Modal.Header closeButton={!categoryBusy}>
-          <Modal.Title><i className="bi bi-diagram-2 me-2 text-danger" />New category</Modal.Title>
+          <Modal.Title><i className="bi bi-diagram-2 me-2 text-danger" />{editingCategory ? 'Edit category' : 'New category'}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {categoryError ? <Alert variant="danger" dismissible onClose={() => setCategoryError('')}>{categoryError}</Alert> : null}
@@ -1924,7 +2073,7 @@ export function ProcessManagement() {
                     onChange={(event) => handleCategoryParentChange(event.target.value)}
                   >
                     <option value="">Root category</option>
-                    {categoryOptions.map((category) => (
+                    {categoryParentOptions.map((category) => (
                       <option key={category.id} value={category.id}>{category.pathLabel}</option>
                     ))}
                   </Form.Select>
@@ -1964,8 +2113,10 @@ export function ProcessManagement() {
               />
             </Form.Group>
             <div className="d-flex justify-content-end gap-2 mt-4">
-              <Button variant="secondary" onClick={() => setShowCategoryModal(false)} disabled={categoryBusy}>Cancel</Button>
-              <Button type="submit" variant="danger" disabled={categoryBusy}>{categoryBusy ? 'Creating...' : 'Create category'}</Button>
+              <Button variant="secondary" onClick={dismissCategoryModal} disabled={categoryBusy}>Cancel</Button>
+              <Button type="submit" variant="danger" disabled={categoryBusy}>
+                {categoryBusy ? (editingCategory ? 'Saving...' : 'Creating...') : (editingCategory ? 'Save category' : 'Create category')}
+              </Button>
             </div>
           </Form>
         </Modal.Body>

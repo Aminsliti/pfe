@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { toSubprocessPlaneId } from '../../utils/bpmnSubprocesses';
 
-export default function BpmnProcessPreview({ xml }) {
+export default function BpmnProcessPreview({ xml, rootElementId = null }) {
   const containerRef = useRef(null);
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState('');
@@ -29,7 +30,14 @@ export default function BpmnProcessPreview({ xml }) {
 
         await viewer.importXML(xml);
         if (!cancelled) {
-          viewer.get('canvas').zoom('fit-viewport');
+          const canvas = viewer.get('canvas');
+          const targetRoot = rootElementId ? canvas.findRoot(toSubprocessPlaneId(rootElementId)) : null;
+
+          if (targetRoot) {
+            canvas.setRootElement(targetRoot);
+          }
+
+          canvas.zoom('fit-viewport');
           const { svg } = await viewer.saveSVG();
           nextImageUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
           setImageUrl(nextImageUrl);
@@ -54,7 +62,7 @@ export default function BpmnProcessPreview({ xml }) {
         URL.revokeObjectURL(nextImageUrl);
       }
     };
-  }, [xml]);
+  }, [xml, rootElementId]);
 
   if (!xml) {
     return (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { getRoleDisplayName, useAuth, PERMISSIONS } from '../contexts/AuthContext';
 import { Button, Dropdown, Badge, Offcanvas, Nav } from 'react-bootstrap';
@@ -22,6 +22,14 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarShow, setSidebarShow] = useState(false);
+  const [desktopSidebarVisible, setDesktopSidebarVisible] = useState(() => {
+    try {
+      const savedValue = window.localStorage.getItem('vbpm.desktopSidebarVisible');
+      return savedValue === null ? true : savedValue === 'true';
+    } catch {
+      return true;
+    }
+  });
   const homePath = useMemo(() => getHomePath(user, permissions), [user, permissions]);
 
   const handleLogout = () => {
@@ -48,6 +56,12 @@ export function Layout() {
   const adminNavItems = isAdmin ? visibleNavItems.filter((item) => adminPaths.has(item.path)) : [];
   const isActive = (path) => location.pathname === path;
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('vbpm.desktopSidebarVisible', String(desktopSidebarVisible));
+    } catch {}
+  }, [desktopSidebarVisible]);
+
   const getRoleBadgeVariant = (role) => {
     const map = {
       Admin: 'danger',
@@ -69,7 +83,7 @@ export function Layout() {
           className={`vbpm-side-link${isActive(item.path) ? ' is-active' : ''}`}
         >
           <i className={`bi ${item.icon}`}></i>
-          <span>{item.label}</span>
+          <span className="vbpm-side-label">{item.label}</span>
           {!compact && isActive(item.path) && <span className="vbpm-side-dot" />}
         </Nav.Link>
       ))}
@@ -82,6 +96,7 @@ export function Layout() {
         .vbpm-shell {
           min-height: 100vh;
           display: flex;
+          position: relative;
           background: linear-gradient(180deg, #fffdf8 0%, #f8fafc 100%);
         }
         .vbpm-sidebar {
@@ -97,6 +112,23 @@ export function Layout() {
           top: 0;
           height: 100vh;
           overflow: hidden;
+          opacity: 1;
+          transition: width 0.22s ease, padding 0.22s ease, opacity 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .vbpm-sidebar.is-hidden {
+          width: 0;
+          padding-left: 0;
+          padding-right: 0;
+          border-right-color: transparent;
+          box-shadow: none;
+          opacity: 0;
+          pointer-events: none;
+        }
+        .vbpm-sidebar-head {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          margin-bottom: 4px;
         }
         .vbpm-sidebar-body {
           flex: 1;
@@ -117,9 +149,11 @@ export function Layout() {
           display: flex;
           align-items: center;
           gap: 12px;
+          flex: 1;
           padding: 10px 10px 18px;
           text-decoration: none;
           color: #0f172a;
+          min-width: 0;
         }
         .vbpm-sidebar-brand:hover {
           color: #0f172a;
@@ -139,6 +173,42 @@ export function Layout() {
           display: flex;
           flex-direction: column;
           min-width: 0;
+        }
+        .vbpm-sidebar-toggle {
+          width: 38px;
+          height: 38px;
+          border-radius: 14px;
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
+          color: #475569;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          transition: all 0.16s ease;
+        }
+        .vbpm-sidebar-toggle:hover,
+        .vbpm-sidebar-toggle:focus {
+          border-color: #fecdd3;
+          background: #fff1f2;
+          color: #b91c1c;
+        }
+        .vbpm-sidebar-peek {
+          position: fixed;
+          left: 14px;
+          top: 16px;
+          z-index: 1031;
+          width: 44px;
+          height: 44px;
+          border-radius: 16px;
+          border: 1px solid #fecdd3;
+          background: rgba(255, 255, 255, 0.96);
+          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+          color: #b91c1c;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          backdrop-filter: blur(10px);
         }
         .vbpm-sidebar-brandcopy strong {
           font-size: 1.12rem;
@@ -188,6 +258,11 @@ export function Layout() {
         }
         .vbpm-side-link span {
           min-width: 0;
+        }
+        .vbpm-side-label {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .vbpm-side-dot {
           margin-left: auto;
@@ -256,6 +331,13 @@ export function Layout() {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+        .vbpm-user-actions {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-top: 12px;
         }
         .vbpm-main {
           min-width: 0;
@@ -349,16 +431,27 @@ export function Layout() {
       `}</style>
 
       <div className="vbpm-shell">
-        <aside className="vbpm-sidebar d-none d-lg-flex">
-          <Link to={homePath} className="vbpm-sidebar-brand">
-            <span className="vbpm-sidebar-brandmark">
-              <VBPMLogo size={40} />
-            </span>
-            <span className="vbpm-sidebar-brandcopy">
-              <strong>V-BPM</strong>
-              <span>Process workspace</span>
-            </span>
-          </Link>
+        <aside className={`vbpm-sidebar d-none d-lg-flex${desktopSidebarVisible ? '' : ' is-hidden'}`}>
+          <div className="vbpm-sidebar-head">
+            <Link to={homePath} className="vbpm-sidebar-brand">
+              <span className="vbpm-sidebar-brandmark">
+                <VBPMLogo size={40} />
+              </span>
+              <span className="vbpm-sidebar-brandcopy">
+                <strong>V-BPM</strong>
+                <span>Process workspace</span>
+              </span>
+            </Link>
+            <button
+              type="button"
+              className="vbpm-sidebar-toggle"
+              onClick={() => setDesktopSidebarVisible(false)}
+              title="Hide navbar"
+              aria-label="Hide navbar"
+            >
+              <i className="bi bi-layout-sidebar-inset"></i>
+            </button>
+          </div>
 
           <div className="vbpm-sidebar-body">
             <Nav className="vbpm-sidebar-nav flex-column">
@@ -389,7 +482,7 @@ export function Layout() {
                   <small>{user?.email}</small>
                 </span>
               </div>
-              <div className="d-flex align-items-center justify-content-between mt-3 gap-2">
+              <div className="vbpm-user-actions">
                 <Badge bg={getRoleBadgeVariant(user?.role)}>{displayRole(user?.role)}</Badge>
                 <Button variant="outline-danger" size="sm" onClick={handleLogout}>
                   <i className="bi bi-box-arrow-right me-2"></i>
@@ -399,6 +492,18 @@ export function Layout() {
             </div>
           </div>
         </aside>
+
+        {!desktopSidebarVisible ? (
+          <button
+            type="button"
+            className="vbpm-sidebar-peek d-none d-lg-inline-flex"
+            onClick={() => setDesktopSidebarVisible(true)}
+            title="Show navbar"
+            aria-label="Show navbar"
+          >
+            <i className="bi bi-layout-sidebar"></i>
+          </button>
+        ) : null}
 
         <div className="vbpm-main">
           <header className="vbpm-mobile-top d-lg-none">

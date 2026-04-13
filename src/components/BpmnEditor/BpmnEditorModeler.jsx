@@ -1,8 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css';
 import './BpmnEditorModeler.css';
+import {
+  buildBpmnSubprocessTrail,
+  getBpmnSubprocesses,
+  getSubprocessIdFromPlaneId,
+  toSubprocessPlaneId,
+} from '../../utils/bpmnSubprocesses';
 
 const escapeXml = (value = '') => String(value)
   .replace(/&/g, '&amp;')
@@ -347,10 +353,12 @@ const BpmnEditorModeler = ({
   reviewActionLabel = 'Approve',
   onReviewAction = null,
   reviewActionBusy = false,
+  initialSubprocessId = null,
 }) => {
   const containerRef = useRef(null);
   const modelerRef = useRef(null);
   const mainContainerRef = useRef(null);
+  const mainRootIdRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [xml, setXml] = useState(() => normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
@@ -359,10 +367,10 @@ const BpmnEditorModeler = ({
   const [saving, setSaving] = useState(false);
   const [navigationStack, setNavigationStack] = useState([]);
   const [currentSubprocess, setCurrentSubprocess] = useState(null);
-  const currentSubprocessRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredElements, setFilteredElements] = useState([]);
+  const editorSubprocesses = useMemo(() => getBpmnSubprocesses(xml), [xml]);
 
   // BPMN elements database
   const bpmnElements = [
@@ -389,10 +397,6 @@ const BpmnEditorModeler = ({
     setXml(normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
   }, [process]);
 
-  useEffect(() => {
-    currentSubprocessRef.current = currentSubprocess;
-  }, [currentSubprocess]);
-
   // Filter elements based on search
   useEffect(() => {
     if (!searchTerm) {
@@ -414,6 +418,32 @@ const BpmnEditorModeler = ({
     groups[element.category].push(element);
     return groups;
   }, {});
+
+  const syncNavigationFromRoot = (rootElement) => {
+    const activeSubprocessId = getSubprocessIdFromPlaneId(rootElement?.id);
+    const trail = buildBpmnSubprocessTrail(editorSubprocesses, activeSubprocessId);
+    setNavigationStack(trail);
+    setCurrentSubprocess(trail.length ? trail[trail.length - 1] : null);
+  };
+
+  const openDiagramLevel = (subprocessId = null) => {
+    const canvas = modelerRef.current?.get('canvas');
+    if (!canvas) {
+      return;
+    }
+
+    const targetRoot = subprocessId
+      ? canvas.findRoot(toSubprocessPlaneId(subprocessId))
+      : mainRootIdRef.current
+        ? canvas.findRoot(mainRootIdRef.current)
+        : null;
+
+    if (targetRoot) {
+      canvas.setRootElement(targetRoot);
+    }
+
+    canvas.zoom('fit-viewport');
+  };
 
   // Initialize modeler
   useEffect(() => {
@@ -467,12 +497,16 @@ const BpmnEditorModeler = ({
           return;
         }
 
-        setLoading(false);
         const canvas = modeler.get('canvas');
-        if (canvas) canvas.zoom('fit-viewport');
+        const eventBus = modeler.get('eventBus');
+
+        if (canvas) {
+          mainRootIdRef.current = canvas.getRootElement()?.id || null;
+        }
+
+        setLoading(false);
 
         // Listen for selection changes
-        const eventBus = modeler.get('eventBus');
         eventBus.on('selection.changed', (event) => {
           const selection = event.newSelection;
           if (selection.length === 1) {
@@ -484,32 +518,25 @@ const BpmnEditorModeler = ({
               type: el.type,
               documentation: el.businessObject?.documentation?.[0]?.text || ''
             });
-
-            // Handle sub-process navigation
-            if (el.type === 'bpmn:SubProcess') {
-              const nestedFlowElements = Array.isArray(el.businessObject?.flowElements)
-                ? el.businessObject.flowElements.filter((item) => item && item.$type !== 'bpmn:SequenceFlow')
-                : [];
-
-              if (!nestedFlowElements.length || currentSubprocessRef.current?.id === el.id) {
-                return;
-              }
-
-              const subprocessId = el.id;
-              const subprocessName = el.businessObject?.name || el.id;
-              
-              const currentLevel = currentSubprocess || { id: 'root', name: process?.name || 'Main Process' };
-              setNavigationStack(prev => [...prev, currentLevel]);
-              setCurrentSubprocess({ id: subprocessId, name: subprocessName });
-              
-              const canvas = modeler.get('canvas');
-              if (canvas) canvas.zoom('fit-viewport', { element: el });
-            }
           } else {
             setSelectedElement(null);
             setProperties({});
           }
         });
+
+        eventBus.on('root.set', (event) => {
+          syncNavigationFromRoot(event.element);
+        });
+
+        if (initialSubprocessId && canvas) {
+          const initialRoot = canvas.findRoot(toSubprocessPlaneId(initialSubprocessId));
+          if (initialRoot) {
+            canvas.setRootElement(initialRoot);
+          }
+        }
+
+        canvas?.zoom('fit-viewport');
+        syncNavigationFromRoot(canvas?.getRootElement());
 
       } catch (initErr) {
         if (!disposed) {
@@ -528,7 +555,7 @@ const BpmnEditorModeler = ({
         modelerRef.current = null;
       }
     };
-  }, [xml, process?.name, readOnly]);
+  }, [xml, process?.name, readOnly, initialSubprocessId, editorSubprocesses]);
 
   const handlePropertyChange = (key, value) => {
     if (readOnly || !selectedElement || !modelerRef.current) return;
@@ -549,46 +576,16 @@ const BpmnEditorModeler = ({
 
   const navigateBack = () => {
     if (navigationStack.length === 0) return;
-    
-    const newStack = [...navigationStack];
-    const previousLevel = newStack.pop();
-    
-    setNavigationStack(newStack);
-    setCurrentSubprocess(previousLevel.id === 'root' ? null : previousLevel);
-    
-    const canvas = modelerRef.current?.get('canvas');
-    if (previousLevel.id === 'root') {
-      canvas?.zoom('fit-viewport');
-    } else {
-      const elementRegistry = modelerRef.current?.get('elementRegistry');
-      const subprocessElement = elementRegistry?.get(previousLevel.id);
-      if (subprocessElement) {
-        canvas?.zoom('fit-viewport', { element: subprocessElement });
-      }
-    }
+    openDiagramLevel(currentSubprocess?.parentId || null);
   };
 
   const navigateToBreadcrumb = (index) => {
     if (index === 0) {
-      setNavigationStack([]);
-      setCurrentSubprocess(null);
-      modelerRef.current?.get('canvas')?.zoom('fit-viewport');
+      openDiagramLevel(null);
       return;
     }
-    
-    const targetLevel = navigationStack[index - 1];
-    const newStack = navigationStack.slice(0, index);
-    
-    setNavigationStack(newStack);
-    setCurrentSubprocess(targetLevel);
-    
-    const canvas = modelerRef.current?.get('canvas');
-    const elementRegistry = modelerRef.current?.get('elementRegistry');
-    const subprocessElement = elementRegistry?.get(targetLevel.id);
-    
-    if (subprocessElement) {
-      canvas?.zoom('fit-viewport', { element: subprocessElement });
-    }
+
+    openDiagramLevel(navigationStack[index - 1]?.id || null);
   };
 
   const handleSave = async () => {

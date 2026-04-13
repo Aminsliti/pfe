@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 const API = 'http://localhost:3001/api';
 const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
@@ -161,9 +162,9 @@ function isCategoryVisible(category, searchValue, statusFilter) {
 
 function HeroStat({ label, value }) {
   return (
-    <div className="border rounded-4 bg-white px-3 py-3 shadow-sm">
-      <div className="small text-uppercase text-muted fw-bold">{label}</div>
-      <div className="fs-4 fw-bold text-dark">{value}</div>
+    <div className="border rounded-4 bg-white px-3 py-2 shadow-sm h-100">
+      <div className="small text-uppercase text-muted fw-bold mb-1" style={{ fontSize: 10.5 }}>{label}</div>
+      <div className="fw-bold text-dark lh-1" style={{ fontSize: '1.55rem' }}>{value}</div>
     </div>
   );
 }
@@ -347,6 +348,22 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack }) {
 
 function ProcessLeafView({ process, onBack }) {
   const status = getStatusMeta(process.status);
+  const [previewRootElementId, setPreviewRootElementId] = useState(null);
+  const subprocesses = useMemo(() => getBpmnSubprocesses(process.bpmn_xml), [process.bpmn_xml]);
+  const previewTrail = useMemo(
+    () => buildBpmnSubprocessTrail(subprocesses, previewRootElementId),
+    [subprocesses, previewRootElementId]
+  );
+
+  useEffect(() => {
+    setPreviewRootElementId(null);
+  }, [process.id, process.bpmn_xml]);
+
+  useEffect(() => {
+    if (previewRootElementId && !subprocesses.some((subprocess) => subprocess.id === previewRootElementId)) {
+      setPreviewRootElementId(null);
+    }
+  }, [previewRootElementId, subprocesses]);
 
   return (
     <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
@@ -370,19 +387,73 @@ function ProcessLeafView({ process, onBack }) {
           <div className="col-xl-8">
             <div className="border rounded-4 bg-white p-3 shadow-sm">
               <Suspense fallback={<div className="text-center py-5 text-muted">Rendu du diagramme BPMN...</div>}>
-                <BpmnProcessPreview xml={process.bpmn_xml} />
+                <BpmnProcessPreview xml={process.bpmn_xml} rootElementId={previewRootElementId} />
               </Suspense>
             </div>
           </div>
           <div className="col-xl-4">
-            <div className="card border-0 shadow-sm h-100" style={{ background: '#fffdfa', borderRadius: 24 }}>
-              <div className="card-body d-flex flex-column gap-3">
-                <h3 className="h5 mb-0">Informations</h3>
-                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Categorie</span><strong className="text-end">{process.category_name || 'Sans categorie'}</strong></div>
-                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Responsable</span><strong className="text-end">{process.created_by_name || 'Equipe BPM'}</strong></div>
-                <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Creation</span><strong className="text-end">{formatDate(process.created_at)}</strong></div>
-                <div className="d-flex justify-content-between gap-3"><span className="text-muted">Mise a jour</span><strong className="text-end">{formatDate(process.updated_at)}</strong></div>
+            <div className="d-flex flex-column gap-3 h-100">
+              <div className="card border-0 shadow-sm" style={{ background: '#fffdfa', borderRadius: 24 }}>
+                <div className="card-body d-flex flex-column gap-3">
+                  <h3 className="h5 mb-0">Informations</h3>
+                  <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Categorie</span><strong className="text-end">{process.category_name || 'Sans categorie'}</strong></div>
+                  <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Responsable</span><strong className="text-end">{process.created_by_name || 'Equipe BPM'}</strong></div>
+                  <div className="d-flex justify-content-between gap-3 border-bottom pb-2"><span className="text-muted">Creation</span><strong className="text-end">{formatDate(process.created_at)}</strong></div>
+                  <div className="d-flex justify-content-between gap-3"><span className="text-muted">Mise a jour</span><strong className="text-end">{formatDate(process.updated_at)}</strong></div>
+                </div>
               </div>
+
+              {subprocesses.length ? (
+                <div className="card border-0 shadow-sm" style={{ background: '#fffdfa', borderRadius: 24 }}>
+                  <div className="card-body d-flex flex-column gap-3">
+                    <div>
+                      <h3 className="h5 mb-1">Sous-processus integres</h3>
+                      <p className="text-muted small mb-0">Ouvrez depuis la bibliotheque le meme niveau interne que la fleche BPMN ouvre dans l editeur.</p>
+                    </div>
+
+                    <div className="d-flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={`btn btn-sm rounded-pill ${previewRootElementId ? 'btn-outline-secondary' : 'btn-danger'}`}
+                        onClick={() => setPreviewRootElementId(null)}
+                      >
+                        Diagramme principal
+                      </button>
+                      {previewTrail.map((subprocess) => (
+                        <button
+                          key={subprocess.id}
+                          type="button"
+                          className={`btn btn-sm rounded-pill ${previewRootElementId === subprocess.id ? 'btn-danger' : 'btn-outline-secondary'}`}
+                          onClick={() => setPreviewRootElementId(subprocess.id)}
+                        >
+                          {subprocess.name}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="d-flex flex-column gap-2">
+                      {subprocesses.map((subprocess) => (
+                        <button
+                          key={subprocess.id}
+                          type="button"
+                          onClick={() => setPreviewRootElementId(subprocess.id)}
+                          className="text-start border rounded-4 px-3 py-3 bg-white"
+                          style={{
+                            borderColor: previewRootElementId === subprocess.id ? '#991b1b' : '#e2e8f0',
+                            boxShadow: previewRootElementId === subprocess.id ? 'inset 4px 0 0 #991b1b' : 'none',
+                          }}
+                        >
+                          <div className="fw-semibold text-dark">{subprocess.name}</div>
+                          <div className="small text-muted mt-1">{subprocess.pathLabel}</div>
+                          <div className="small text-muted mt-2">
+                            {subprocess.childCount > 0 ? `${subprocess.childCount} vue(s) imbriquee(s)` : 'Derniere vue du sous-processus'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -550,7 +621,7 @@ export default function ProcessLibrary() {
   return (
     <div className="container-fluid py-4">
       <div className="mx-auto d-flex flex-column gap-4" style={{ maxWidth: 1520 }}>
-        <div className="d-flex flex-wrap align-items-center gap-2">
+        <div className="d-flex flex-wrap align-items-center gap-2" style={{ paddingLeft: 12 }}>
           <button type="button" className="btn btn-sm rounded-pill btn-danger" onClick={() => jumpTo(-1)}>
             Bibliotheque
           </button>
@@ -569,26 +640,26 @@ export default function ProcessLibrary() {
         </div>
 
         {showLibraryOverview ? (
-          <section className="card border-0 shadow-sm" style={{ borderRadius: 28, background: 'radial-gradient(circle at top left,rgba(153,27,27,.08),transparent 32%),linear-gradient(180deg,#fffdfa 0%,#fff 100%)' }}>
-            <div className="card-body p-4">
-              <div className="d-flex flex-column gap-4">
-                <div className="row g-4 align-items-start">
+          <section className="card border-0 shadow-sm" style={{ borderRadius: 20, background: 'radial-gradient(circle at top left,rgba(153,27,27,.08),transparent 32%),linear-gradient(180deg,#fffdfa 0%,#fff 100%)' }}>
+            <div className="card-body p-2 p-xl-3">
+              <div className="d-flex flex-column gap-2">
+                <div className="row g-2 align-items-start">
                   <div className="col-xl-7">
-                    <h1 className="display-4 fw-bold mb-3 text-danger-emphasis">
+                    <h1 className="fw-bold mb-2 text-danger-emphasis" style={{ fontSize: 'clamp(1.55rem, 2.35vw, 2.25rem)', lineHeight: 1.04, letterSpacing: '-0.03em', maxWidth: 560 }}>
                       Naviguez de categorie en sous-categorie jusqu au diagramme
                     </h1>
-                    <p className="lead text-muted mb-0">
+                    <p className="text-muted mb-0" style={{ fontSize: '0.92rem', maxWidth: 520, lineHeight: 1.4 }}>
                       Le Process Library devient une vraie porte d entree visuelle vers Process Management: categories, sous-categories, macro-processus, puis diagramme.
                     </p>
                   </div>
 
                   <div className="col-xl-5">
-                    <div className="card border-0 shadow-sm h-100" style={{ borderRadius: 24, background: '#fffdfa' }}>
-                      <div className="card-body d-flex flex-column gap-3">
+                    <div className="card border-0 shadow-sm h-100" style={{ borderRadius: 18, background: '#fffdfa' }}>
+                      <div className="card-body d-flex flex-column gap-2 p-2">
                         <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                           <div>
-                            <h2 className="h4 mb-1">Exploration</h2>
-                            <p className="text-muted mb-0">Filtrez, puis avancez niveau par niveau.</p>
+                            <h2 className="h6 mb-1">Exploration</h2>
+                            <p className="text-muted mb-0 small">Filtrez, puis avancez niveau par niveau.</p>
                           </div>
                           <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={loadLibrary}>
                             <i className="bi bi-arrow-clockwise me-2" />Actualiser
@@ -625,10 +696,10 @@ export default function ProcessLibrary() {
                           ))}
                         </div>
 
-                        <div className="row g-3">
-                          <div className="col-md-4"><HeroStat label="Categories racines" value={totalRootCategories} /></div>
-                          <div className="col-md-4"><HeroStat label="Sous-categories" value={totalSubcategories} /></div>
-                          <div className="col-md-4"><HeroStat label="Processus visibles" value={rootVisibleProcessCount} /></div>
+                        <div className="row g-2">
+                          <div className="col-4"><HeroStat label="Categories racines" value={totalRootCategories} /></div>
+                          <div className="col-4"><HeroStat label="Sous-categories" value={totalSubcategories} /></div>
+                          <div className="col-4"><HeroStat label="Processus visibles" value={rootVisibleProcessCount} /></div>
                         </div>
                       </div>
                     </div>
