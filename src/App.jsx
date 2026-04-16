@@ -12,6 +12,7 @@ const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const ProcessManagement = lazy(() => import('./pages/ProcessManagement'));
 const OrgChart = lazy(() => import('./pages/OrgChart'));
 const ProcessLibrary = lazy(() => import('./pages/ProcessLibrary'));
+const PublicPortal = lazy(() => import('./pages/PublicPortal'));
 const Unauthorized = lazy(() => import('./pages/Unauthorized'));
 const Layout = lazy(() => import('./components/Layout'));
 const SimulationWorkbench = lazy(() => import('./pages/SimulationWorkbench'));
@@ -52,6 +53,7 @@ function App() {
         <Suspense fallback={<AppRouteFallback />}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/portal" element={<PublicPortal />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
 
             <Route

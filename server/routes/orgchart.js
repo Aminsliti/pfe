@@ -377,11 +377,18 @@ async function getAssignableUser(client, userId) {
 
 router.get('/orgchart/meta', async (req, res) => {
   try {
+    await ensureOrgChartSchema();
+
+    if (!req.user) {
+      return res.json({
+        users: [],
+        nodeTypes: Array.from(NODE_TYPES),
+      });
+    }
+
     if (!ensureAuthenticated(req, res)) {
       return;
     }
-
-    await ensureOrgChartSchema();
 
     const usersResult = await pool.query(`
       SELECT
@@ -410,10 +417,6 @@ router.get('/orgchart/meta', async (req, res) => {
 
 router.get('/orgchart/nodes', async (req, res) => {
   try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
-
     await ensureOrgChartSchema();
     const nodes = await getNodes(pool);
     res.json(nodes);

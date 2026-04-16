@@ -329,6 +329,20 @@ export function Login() {
                   </Button>
                 </Form>
 
+                <Button
+                  variant="outline-secondary"
+                  className="w-100 mb-3"
+                  onClick={() => navigate('/portal')}
+                  style={{
+                    borderRadius: '6px',
+                    fontWeight: 500,
+                    padding: '12px',
+                  }}
+                >
+                  <i className="bi bi-globe2 me-2"></i>
+                  Acceder au portail public
+                </Button>
+
                 <div className="d-flex justify-content-start align-items-center mb-2">
                   <Button 
                     variant="link" 

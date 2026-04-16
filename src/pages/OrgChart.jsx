@@ -303,9 +303,9 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
   );
 }
 
-export function OrgChart() {
+export function OrgChart({ publicView = false }) {
   const { hasAnyRole } = useAuth();
-  const canEdit = hasAnyRole([ROLES.ADMIN]);
+  const canEdit = !publicView && hasAnyRole([ROLES.ADMIN]);
 
   const [nodes, setNodes] = useState([]);
   const [users, setUsers] = useState([]);
@@ -333,12 +333,14 @@ export function OrgChart() {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const [nodesResponse, metaResponse] = await Promise.all([
-        fetch(`${API}/orgchart/nodes`),
-        fetch(`${API}/orgchart/meta`),
-      ]);
+      const requests = publicView
+        ? [fetch(`${API}/orgchart/nodes`)]
+        : [fetch(`${API}/orgchart/nodes`), fetch(`${API}/orgchart/meta`)];
+      const [nodesResponse, metaResponse] = await Promise.all(requests);
       const nextNodes = await parseApiPayload(nodesResponse, 'Failed to load organigram nodes.');
-      const meta = await parseApiPayload(metaResponse, 'Failed to load organigram metadata.');
+      const meta = metaResponse
+        ? await parseApiPayload(metaResponse, 'Failed to load organigram metadata.')
+        : { users: [] };
       setNodes(nextNodes);
       setUsers(meta.users || []);
       setSelectedId((current) => (current && nextNodes.some((node) => node.id === current) ? current : nextNodes[0]?.id || null));
@@ -352,7 +354,7 @@ export function OrgChart() {
 
   useEffect(() => {
     loadOrgChart();
-  }, []);
+  }, [publicView]);
 
   useEffect(() => {
     const selected = nodes.find((node) => node.id === selectedId);
@@ -565,7 +567,11 @@ export function OrgChart() {
 
       {feedback.text && <Alert variant={feedback.variant} dismissible onClose={() => setFeedback({ text: '', variant: 'success' })} className="org-feedback">{feedback.text}</Alert>}
       {error && <Alert variant="danger">{error}</Alert>}
-      {!canEdit && <Alert variant="info" className="org-readonly-banner">You are viewing the organigram in read-only mode.</Alert>}
+      {!canEdit && (
+        <Alert variant="info" className="org-readonly-banner">
+          {publicView ? 'Public portal: the organigram is available in read-only mode.' : 'You are viewing the organigram in read-only mode.'}
+        </Alert>
+      )}
 
       <Row className="g-3 org-metrics">
         <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>

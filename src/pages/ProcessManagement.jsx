@@ -238,12 +238,12 @@ function buildWorkflowJourney(workflowInfo, currentStatus) {
   ];
 }
 
-export function ProcessManagement() {
+export function ProcessManagement({ publicView = false }) {
   const { user, hasPermission, hasRole, ROLES } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const canViewWorkspace = hasPermission('view_dashboard') || hasPermission('manage_processes');
-  const isAdmin = hasRole(ROLES.ADMIN);
-  const isValidator = hasRole(ROLES.VALIDATOR);
+  const canViewWorkspace = publicView || hasPermission('view_dashboard') || hasPermission('manage_processes');
+  const isAdmin = !publicView && hasRole(ROLES.ADMIN);
+  const isValidator = !publicView && hasRole(ROLES.VALIDATOR);
   const [processes, setProcesses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -321,6 +321,10 @@ export function ProcessManagement() {
   const isAssignedDesigner = (record) => getAssignedDesignerIds(record).some((assignedId) => Number(assignedId) === Number(user?.id || 0));
   const canCreateDefinitions = isAdmin || isValidator;
   const canEditProcessDefinition = (process) => {
+    if (publicView) {
+      return false;
+    }
+
     if (!process) {
       return canCreateDefinitions;
     }
@@ -332,24 +336,27 @@ export function ProcessManagement() {
     return isAssignedDesigner(process) && normalizeGovernedStatus(process.status) === 'draft';
   };
   const canDeleteProcessDefinition = (process) =>
-    Boolean(process) && (isAdmin || isAssignedValidator(process) || (isAssignedDesigner(process) && normalizeGovernedStatus(process.status) === 'draft'));
+    !publicView && Boolean(process) && (isAdmin || isAssignedValidator(process) || (isAssignedDesigner(process) && normalizeGovernedStatus(process.status) === 'draft'));
   const canSubmitForReview = (process) =>
-    process && normalizeGovernedStatus(process.status) === 'draft' && (isAdmin || isAssignedValidator(process) || isAssignedDesigner(process));
+    !publicView && process && normalizeGovernedStatus(process.status) === 'draft' && (isAdmin || isAssignedValidator(process) || isAssignedDesigner(process));
   const canApproveProcess = (process) =>
-    process && normalizeGovernedStatus(process.status) === 'review' && (isAdmin || isAssignedValidator(process));
+    !publicView && process && normalizeGovernedStatus(process.status) === 'review' && (isAdmin || isAssignedValidator(process));
   const canReturnToDraft = (process) =>
-    process && ['review', 'approved'].includes(normalizeGovernedStatus(process.status)) && (isAdmin || isAssignedValidator(process));
+    !publicView && process && ['review', 'approved'].includes(normalizeGovernedStatus(process.status)) && (isAdmin || isAssignedValidator(process));
   const canArchiveProcess = (process) =>
-    process && normalizeGovernedStatus(process.status) === 'approved' && (isAdmin || isAssignedValidator(process));
+    !publicView && process && normalizeGovernedStatus(process.status) === 'approved' && (isAdmin || isAssignedValidator(process));
   const canRestoreProcess = (process) =>
-    process && normalizeGovernedStatus(process.status) === 'archived' && (isAdmin || isAssignedValidator(process));
+    !publicView && process && normalizeGovernedStatus(process.status) === 'archived' && (isAdmin || isAssignedValidator(process));
   const canRequestChange = (process, workflowState = null) =>
+    !publicView &&
     process &&
     normalizeGovernedStatus(process.status) === 'approved' &&
     !workflowState?.pendingReopenRequest &&
     (isAdmin || isAssignedDesigner(process));
-  const canDeleteCategoryDefinition = (category) => Boolean(category) && (isAdmin || isValidator);
-  const canManageProcessAssignments = editingProcess ? (isAdmin || isAssignedValidator(processDetail || editingProcess)) : canCreateDefinitions;
+  const canDeleteCategoryDefinition = (category) => !publicView && Boolean(category) && (isAdmin || isValidator);
+  const canManageProcessAssignments = publicView
+    ? false
+    : (editingProcess ? (isAdmin || isAssignedValidator(processDetail || editingProcess)) : canCreateDefinitions);
 
   const renderGovernanceChecklist = ({ options, selectedIds, disabled, onToggle, emptyLabel, inputPrefix }) => (
     <div className="border rounded-3 px-3 py-2 bg-white" style={{ maxHeight: 220, overflowY: 'auto' }}>
@@ -428,12 +435,22 @@ export function ProcessManagement() {
   };
 
   useEffect(() => {
-    if (canViewWorkspace) {
-      loadCategories();
-      loadTemplates();
-      loadGovernanceOptions();
+    if (!canViewWorkspace) {
+      return;
     }
-  }, [canViewWorkspace]);
+
+    loadCategories();
+
+    if (!publicView) {
+      loadTemplates();
+    }
+
+    if (canCreateDefinitions) {
+      loadGovernanceOptions();
+    } else {
+      setGovernanceOptions({ designers: [], validators: [] });
+    }
+  }, [canCreateDefinitions, canViewWorkspace, publicView]);
   useEffect(() => { if (canViewWorkspace) loadProcesses(); }, [canViewWorkspace, searchTerm, filterCat, filterStatus]);
   useEffect(() => {
     setCollapsedCategories((previous) => {
@@ -497,10 +514,16 @@ export function ProcessManagement() {
     }
   };
 
-  const openBpmnEditor = (process, initialSubprocessId = null) => setBpmnTarget({
-    ...process,
-    initialSubprocessId,
-  });
+  const openBpmnEditor = (process, initialSubprocessId = null) => {
+    if (publicView) {
+      return;
+    }
+
+    setBpmnTarget({
+      ...process,
+      initialSubprocessId,
+    });
+  };
   const openCreate = (defaultCategoryId = '') => {
     if (categoryOptions.length === 0) {
       showMsg('Create a category first. Every process must belong to a category.', 'danger');
@@ -1281,7 +1304,12 @@ export function ProcessManagement() {
     </div>
   );
 
-  const ExportMenu = ({ process, version = null, compact = false }) => (
+  const ExportMenu = ({ process, version = null, compact = false }) => {
+    if (publicView) {
+      return null;
+    }
+
+    return (
     <Dropdown align="end" onClick={(event) => event.stopPropagation()}>
       <Dropdown.Toggle
         variant="outline-secondary"
@@ -1310,7 +1338,8 @@ export function ProcessManagement() {
         ) : null}
       </Dropdown.Menu>
     </Dropdown>
-  );
+    );
+  };
 
   const CategoryBranch = ({ category, level = 0 }) => {
     const isCollapsed = !!collapsedCategories[category.id];
@@ -1391,7 +1420,10 @@ export function ProcessManagement() {
       <Row className="mb-3">
         <Col>
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h4 className="mb-0 fw-bold">Processus</h4>
+            <div>
+              <h4 className="mb-0 fw-bold">{publicView ? 'Cartographie des processus' : 'Processus'}</h4>
+              {publicView ? <div className="text-muted small mt-1">Mode consultation publique</div> : null}
+            </div>
             <div className="d-flex gap-2">
               <Button
                 variant={filterStatus === 'archived' ? 'dark' : 'outline-secondary'}
@@ -1413,7 +1445,7 @@ export function ProcessManagement() {
                   <CreateMenu />
                 </>
               ) : (
-                <Badge bg="light" text="dark" className="align-self-center">Read only</Badge>
+                <Badge bg="light" text="dark" className="align-self-center">{publicView ? 'Portail public' : 'Read only'}</Badge>
               )}
             </div>
           </div>
@@ -1604,28 +1636,32 @@ export function ProcessManagement() {
                               {workflowBusy === 'approve' ? 'Approving...' : 'Approve diagram'}
                             </Button>
                           ) : null}
-                          <Button size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess.id)}>
-                            PNG
-                          </Button>
-                          <Button size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess.id)}>
-                            BPMN
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline-dark"
-                            onClick={() => handleProcessReportDownload(editingProcess.id, 'html')}
-                            disabled={processReportBusy === 'html'}
-                          >
-                            {processReportBusy === 'html' ? 'Exporting...' : 'HTML'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline-secondary"
-                            onClick={() => handleProcessReportDownload(editingProcess.id, 'pdf')}
-                            disabled={processReportBusy === 'pdf'}
-                          >
-                            {processReportBusy === 'pdf' ? 'Exporting...' : 'PDF'}
-                          </Button>
+                          {!publicView ? (
+                            <>
+                              <Button size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess.id)}>
+                                PNG
+                              </Button>
+                              <Button size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess.id)}>
+                                BPMN
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline-dark"
+                                onClick={() => handleProcessReportDownload(editingProcess.id, 'html')}
+                                disabled={processReportBusy === 'html'}
+                              >
+                                {processReportBusy === 'html' ? 'Exporting...' : 'HTML'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline-secondary"
+                                onClick={() => handleProcessReportDownload(editingProcess.id, 'pdf')}
+                                disabled={processReportBusy === 'pdf'}
+                              >
+                                {processReportBusy === 'pdf' ? 'Exporting...' : 'PDF'}
+                              </Button>
+                            </>
+                          ) : null}
                           {canEditSelectedProcess ? (
                             <Button size="sm" variant="danger" onClick={() => openBpmnEditor(editingProcess)}>
                               Edit diagram
@@ -1818,19 +1854,21 @@ export function ProcessManagement() {
                         </div>
                       </div>
 
-                      <Form.Group className="mb-3">
-                        <Form.Label>Workflow comment</Form.Label>
-                        <Form.Control
-                          as="textarea"
-                          rows={3}
-                          placeholder="Add the governance note that accompanies this workflow action."
-                          value={workflowComment}
-                          onChange={(event) => setWorkflowComment(event.target.value)}
-                        />
-                        <div className="text-muted small mt-1">
-                          Required when requesting a reopen or reopening the process to draft.
-                        </div>
-                      </Form.Group>
+                      {!publicView ? (
+                        <Form.Group className="mb-3">
+                          <Form.Label>Workflow comment</Form.Label>
+                          <Form.Control
+                            as="textarea"
+                            rows={3}
+                            placeholder="Add the governance note that accompanies this workflow action."
+                            value={workflowComment}
+                            onChange={(event) => setWorkflowComment(event.target.value)}
+                          />
+                          <div className="text-muted small mt-1">
+                            Required when requesting a reopen or reopening the process to draft.
+                          </div>
+                        </Form.Group>
+                      ) : null}
 
                       <div className="d-flex flex-wrap gap-2 mb-3">
                         {canSubmitForReview(selectedProcessRecord) && (

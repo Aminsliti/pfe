@@ -458,6 +458,14 @@ function ensureProcessWorkspaceAccess(req, res, _companyId = null) {
   return ensureAuthenticated(req, res);
 }
 
+function ensureProcessReadAccess(req, res, companyId = null) {
+  if (!req.user) {
+    return true;
+  }
+
+  return ensureProcessWorkspaceAccess(req, res, companyId);
+}
+
 function getAssignedDesignerIds(record) {
   return normalizeIntegerArray(
     record?.assigned_designer_ids,
@@ -967,10 +975,6 @@ router.use(async (req, res, next) => {
 
 router.get('/processes', async (req, res) => {
   try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
-
     const { search, category, status, hierarchical = 'false' } = req.query;
 
     let query = `
@@ -1048,16 +1052,12 @@ router.get('/process-governance-options', async (req, res) => {
 
 router.get('/processes/:id', async (req, res) => {
   try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
-
     const process = await getProcessById(req.params.id);
     if (!process) {
       return res.status(404).json({ error: 'Process not found' });
     }
 
-    if (!ensureProcessWorkspaceAccess(req, res, process.company_id)) {
+    if (!ensureProcessReadAccess(req, res, process.company_id)) {
       return;
     }
 
@@ -1724,16 +1724,12 @@ router.post('/processes/:id/report', async (req, res) => {
 
 router.get('/processes/:id/workflow', async (req, res) => {
   try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
-
     const process = await getProcessById(req.params.id);
     if (!process) {
       return res.status(404).json({ error: 'Process not found' });
     }
 
-    if (!ensureProcessWorkspaceAccess(req, res, process.company_id)) {
+    if (!ensureProcessReadAccess(req, res, process.company_id)) {
       return;
     }
 
@@ -2022,10 +2018,6 @@ router.get('/processes/:id/diff', async (req, res) => {
 
 router.get('/process-categories', async (req, res) => {
   try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
-
     let query = `
       SELECT
         pc.*,
