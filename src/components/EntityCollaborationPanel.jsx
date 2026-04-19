@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Card, Form, ListGroup } from 'react-bootstrap';
+import { useSnackbar } from './SnackbarProvider';
 
 const API = 'http://localhost:3001/api';
 
@@ -13,15 +14,14 @@ export function EntityCollaborationPanel({
   entityId,
   title = 'Commentaires',
 }) {
+  const { showSnackbar } = useSnackbar();
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [commentBody, setCommentBody] = useState('');
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState('');
 
-  const resetFlash = (nextMessage = '', nextError = '') => {
-    setMessage(nextMessage);
+  const resetFlash = (nextError = '') => {
     setError(nextError);
   };
 
@@ -73,9 +73,10 @@ export function EntityCollaborationPanel({
 
       setCommentBody('');
       setComments((current) => [payload, ...current]);
-      setMessage('Commentaire ajoute.');
+      showSnackbar('Commentaire ajoute.');
     } catch (submitError) {
       setError(submitError.message || 'Impossible d ajouter le commentaire.');
+      showSnackbar(submitError.message || 'Impossible d ajouter le commentaire.', 'danger');
     } finally {
       setBusy('');
     }
@@ -99,7 +100,6 @@ export function EntityCollaborationPanel({
         ) : (
           <>
             {error && <Alert variant="danger">{error}</Alert>}
-            {message && <Alert variant="success">{message}</Alert>}
 
             <div>
               <Form.Group className="mb-3">

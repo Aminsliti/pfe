@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, ROLES, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { SnackbarProvider } from './components/SnackbarProvider';
 import { getHomePath } from './utils/navigation';
 import './App.css';
 
@@ -49,97 +50,99 @@ function HomeRedirect() {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Suspense fallback={<AppRouteFallback />}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/portal" element={<PublicPortal />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
-
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute allowedRoles={Object.values(ROLES)}>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<HomeRedirect />} />
-              <Route path="dashboard" element={<HomeRedirect />} />
+      <SnackbarProvider>
+        <Router>
+          <Suspense fallback={<AppRouteFallback />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/portal" element={<PublicPortal />} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
 
               <Route
-                path="processes"
-                element={
-                  <ProtectedRoute
-                    allowedRoles={[
-                      ROLES.ADMIN,
-                      ROLES.DESIGNER,
-                      ROLES.VALIDATOR,
-                      ROLES.PROCESS_OBSERVER,
-                    ]}
-                  >
-                    <ProcessManagement />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="process-library"
+                path="/"
                 element={
                   <ProtectedRoute allowedRoles={Object.values(ROLES)}>
-                    <ProcessLibrary />
+                    <Layout />
                   </ProtectedRoute>
                 }
-              />
-              <Route
-                path="simulations"
-                element={
-                  <ProtectedRoute
-                    allowedRoles={[
-                      ROLES.ADMIN,
-                      ROLES.DESIGNER,
-                      ROLES.VALIDATOR,
-                    ]}
-                  >
-                    <SimulationWorkbench />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="orgchart"
-                element={
-                  <ProtectedRoute allowedRoles={Object.values(ROLES)}>
-                    <OrgChart />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="users"
-                element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
-                    <UserManagement />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="audit-logs"
-                element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
-                    <AuditLogs />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="roles"
-                element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
-                    <RoleManagement />
-                  </ProtectedRoute>
-                }
-              />
-            </Route>
-          </Routes>
-        </Suspense>
-      </Router>
+              >
+                <Route index element={<HomeRedirect />} />
+                <Route path="dashboard" element={<HomeRedirect />} />
+
+                <Route
+                  path="processes"
+                  element={
+                    <ProtectedRoute
+                      allowedRoles={[
+                        ROLES.ADMIN,
+                        ROLES.DESIGNER,
+                        ROLES.VALIDATOR,
+                        ROLES.PROCESS_OBSERVER,
+                      ]}
+                    >
+                      <ProcessManagement />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="process-library"
+                  element={
+                    <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                      <ProcessLibrary />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="simulations"
+                  element={
+                    <ProtectedRoute
+                      allowedRoles={[
+                        ROLES.ADMIN,
+                        ROLES.DESIGNER,
+                        ROLES.VALIDATOR,
+                      ]}
+                    >
+                      <SimulationWorkbench />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="orgchart"
+                  element={
+                    <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                      <OrgChart />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="users"
+                  element={
+                    <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
+                      <UserManagement />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="audit-logs"
+                  element={
+                    <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
+                      <AuditLogs />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="roles"
+                  element={
+                    <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
+                      <RoleManagement />
+                    </ProtectedRoute>
+                  }
+                />
+              </Route>
+            </Routes>
+          </Suspense>
+        </Router>
+      </SnackbarProvider>
     </AuthProvider>
   );
 }

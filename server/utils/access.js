@@ -35,6 +35,13 @@ const PUBLIC_API_PREFIXES = [
   '/api/reset-password',
 ];
 
+const PUBLIC_READ_API_PREFIXES = [
+  '/api/processes',
+  '/api/process-categories',
+  '/api/orgchart/nodes',
+  '/api/orgchart/meta',
+];
+
 const FALLBACK_PERMISSIONS_BY_ROLE = {
   [ROLES.ADMIN]: [
     PERMISSIONS.USER_MANAGEMENT,
@@ -554,6 +561,10 @@ export async function attachRequestUser(req, res, next) {
     }
 
     if (PUBLIC_API_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
+      return next();
+    }
+
+    if (req.method === 'GET' && PUBLIC_READ_API_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
 

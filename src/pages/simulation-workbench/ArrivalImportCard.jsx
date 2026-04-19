@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Card, Form } from 'react-bootstrap';
+import { useSnackbar } from '../../components/SnackbarProvider';
 import { API, fmt, readApiPayload } from './utils';
 
 export default function ArrivalImportCard({ scenario, onScenarioUpdated }) {
+  const { showSnackbar } = useSnackbar();
   const [csvText, setCsvText] = useState('');
   const [arrivals, setArrivals] = useState([]);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -30,12 +31,12 @@ export default function ArrivalImportCard({ scenario, onScenarioUpdated }) {
   const importCsv = async () => {
     if (!csvText.trim()) {
       setError('Paste or upload CSV content first.');
+      showSnackbar('Paste or upload CSV content first.', 'danger');
       return;
     }
 
     setBusy(true);
     setError('');
-    setMessage('');
 
     try {
       const response = await fetch(`${API}/simulations/${scenario.id}/arrival-times/import`, {
@@ -45,7 +46,7 @@ export default function ArrivalImportCard({ scenario, onScenarioUpdated }) {
       });
       const payload = await readApiPayload(response, 'Failed to import arrival times.');
       setArrivals(payload.arrivals || []);
-      setMessage(`${payload.count} arrival time(s) imported.`);
+      showSnackbar(`${payload.count} arrival time(s) imported.`);
       onScenarioUpdated((current) => ({
         ...current,
         import_csv_arrivals: true,
@@ -53,6 +54,7 @@ export default function ArrivalImportCard({ scenario, onScenarioUpdated }) {
       }));
     } catch (importError) {
       setError(importError.message || 'Failed to import arrival times.');
+      showSnackbar(importError.message || 'Failed to import arrival times.', 'danger');
     } finally {
       setBusy(false);
     }
@@ -61,19 +63,19 @@ export default function ArrivalImportCard({ scenario, onScenarioUpdated }) {
   const clearImport = async () => {
     setBusy(true);
     setError('');
-    setMessage('');
 
     try {
       const response = await fetch(`${API}/simulations/${scenario.id}/arrival-times`, { method: 'DELETE' });
       await readApiPayload(response, 'Failed to clear arrival times.');
       setArrivals([]);
-      setMessage('Imported arrival times cleared.');
+      showSnackbar('Imported arrival times cleared.');
       onScenarioUpdated((current) => ({
         ...current,
         import_csv_arrivals: false,
       }));
     } catch (clearError) {
       setError(clearError.message || 'Failed to clear arrival times.');
+      showSnackbar(clearError.message || 'Failed to clear arrival times.', 'danger');
     } finally {
       setBusy(false);
     }
@@ -93,8 +95,6 @@ export default function ArrivalImportCard({ scenario, onScenarioUpdated }) {
         </div>
 
         {error && <Alert variant="danger">{error}</Alert>}
-        {message && <Alert variant="success">{message}</Alert>}
-
         <Form.Group className="mb-3">
           <Form.Label>CSV content</Form.Label>
           <Form.Control

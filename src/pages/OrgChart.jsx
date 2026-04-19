@@ -13,6 +13,7 @@ import {
   Spinner,
 } from 'react-bootstrap';
 import { ROLES, useAuth } from '../contexts/AuthContext';
+import { useSnackbar } from '../components/SnackbarProvider';
 import EntityCollaborationPanel from '../components/EntityCollaborationPanel';
 import './OrgChart.css';
 
@@ -305,6 +306,7 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
 
 export function OrgChart({ publicView = false }) {
   const { hasAnyRole } = useAuth();
+  const { showSnackbar, confirmAction } = useSnackbar();
   const canEdit = !publicView && hasAnyRole([ROLES.ADMIN]);
 
   const [nodes, setNodes] = useState([]);
@@ -312,7 +314,6 @@ export function OrgChart({ publicView = false }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [feedback, setFeedback] = useState({ text: '', variant: 'success' });
   const [selectedId, setSelectedId] = useState(null);
   const [inspectorForm, setInspectorForm] = useState(EMPTY_FORM);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -416,7 +417,7 @@ export function OrgChart({ publicView = false }) {
     open: nodes.filter((node) => node.nodeType === 'position' && (node.isVacant || !node.userId)).length,
   };
 
-  const showMessage = (text, variant = 'success') => setFeedback({ text, variant });
+  const showMessage = (text, variant = 'success') => showSnackbar(text, variant);
 
   const openCreateModal = (parentNode = null) => {
     const suggestedType = parentNode
@@ -492,7 +493,13 @@ export function OrgChart({ publicView = false }) {
 
   const deleteSelectedNode = async () => {
     if (!selectedNode) return;
-    if (!window.confirm(`Delete "${selectedNode.name}"? Children will move to the deleted node's parent.`)) return;
+    const confirmed = await confirmAction({
+      title: 'Delete node',
+      message: `Delete "${selectedNode.name}"? Children will move to the deleted node's parent.`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
     setSaving(true);
     try {
       await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'DELETE', {});
@@ -565,7 +572,6 @@ export function OrgChart({ publicView = false }) {
         </div>
       </section>
 
-      {feedback.text && <Alert variant={feedback.variant} dismissible onClose={() => setFeedback({ text: '', variant: 'success' })} className="org-feedback">{feedback.text}</Alert>}
       {error && <Alert variant="danger">{error}</Alert>}
       {!canEdit && (
         <Alert variant="info" className="org-readonly-banner">

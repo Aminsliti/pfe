@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import {
   Container, Row, Col, Card, Button, Modal, Form,
   Alert, Badge, Table, ProgressBar,
 } from 'react-bootstrap';
+import { useSnackbar } from '../components/SnackbarProvider';
 import './SimulationScenarios.css';
 import BpmnHeatmapViewer from '../components/BpmnEditor/BpmnHeatmapViewer';
 
@@ -22,7 +23,7 @@ const statusVariant = s => ({ draft:'secondary', running:'warning', completed:'s
 const statusLabel   = s => ({ draft:'Brouillon', running:'En cours', completed:'Termine', failed:'Echec', error:'Echec' }[s] || s);
 const fmt = (n, dec = 1) => n == null ? '—' : Number(n).toFixed(dec);
 
-// ─── Histogram ───────────────────────────────────────────────────────────────
+// --- Histogram ---------------------------------------------------------------
 function Histogram({ data }) {
   if (!data?.length) return <p className="text-muted small">Aucune donnée.</p>;
   const max = Math.max(...data.map(d => d.count));
@@ -40,7 +41,7 @@ function Histogram({ data }) {
   );
 }
 
-// ── Modal création ────────────────────────────────────────────────────────────
+// -- Modal création ------------------------------------------------------------
 function ScenarioModal({ show, onHide, processes, onCreated }) {
   const [form, setForm] = useState({
     name: '', description: '', process_id: '', status: 'draft',
@@ -124,7 +125,7 @@ function ScenarioModal({ show, onHide, processes, onCreated }) {
             checked={form.simulate_all_levels} onChange={e => set('simulate_all_levels', e.target.checked)} className="mt-1" />
           <div className="d-flex justify-content-end gap-2 mt-4">
             <Button variant="secondary" onClick={onHide}>Annuler</Button>
-            <Button type="submit" variant="primary" disabled={saving}>{saving ? '⏳ Création…' : '+ Créer'}</Button>
+            <Button type="submit" variant="primary" disabled={saving}>{saving ? '? Création…' : '+ Créer'}</Button>
           </div>
         </Form>
       </Modal.Body>
@@ -132,7 +133,7 @@ function ScenarioModal({ show, onHide, processes, onCreated }) {
   );
 }
 
-// ── Onglet Caractéristiques ───────────────────────────────────────────────────
+// -- Onglet Caractéristiques ---------------------------------------------------
 function TabCaracteristiques({ scenario, processes, onSaved }) {
   const [form, setForm]     = useState({ ...scenario });
   const [saving, setSaving] = useState(false);
@@ -148,17 +149,17 @@ function TabCaracteristiques({ scenario, processes, onSaved }) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       onSaved(await res.json());
-      setMsg('✓ Enregistré');
+      setMsg('? Enregistré');
       setTimeout(() => setMsg(''), 2500);
-    } catch (e) { setMsg('✗ ' + e.message); }
+    } catch (e) { setMsg('? ' + e.message); }
     setSaving(false);
   };
 
   return (
     <div>
       <div className="d-flex justify-content-end gap-2 mb-4">
-        <Button variant="outline-secondary" size="sm" onClick={save} disabled={saving}>🔄 Mettre à jour</Button>
-        {msg && <span className={`align-self-center small ${msg.startsWith('✓') ? 'text-success' : 'text-danger'}`}>{msg}</span>}
+        <Button variant="outline-secondary" size="sm" onClick={save} disabled={saving}>?? Mettre à jour</Button>
+        {msg && <span className={`align-self-center small ${msg.startsWith('?') ? 'text-success' : 'text-danger'}`}>{msg}</span>}
       </div>
 
       <div className="sim-section">
@@ -345,8 +346,9 @@ function ArrivalTimesCard({ scenarioId, enabled, onImported, onCleared }) {
   );
 }
 
-// ── Onglet Ressources ─────────────────────────────────────────────────────────
+// -- Onglet Ressources ---------------------------------------------------------
 function TabRessources({ scenarioId }) {
+  const { confirmAction } = useSnackbar();
   const [resources, setResources] = useState([]);
   const [showForm,  setShowForm]  = useState(false);
   const [editing,   setEditing]   = useState(null);
@@ -372,7 +374,14 @@ function TabRessources({ scenarioId }) {
   };
 
   const del = async id => {
-    if (!window.confirm('Supprimer cette ressource ?')) return;
+    const confirmed = await confirmAction({
+      title: 'Supprimer la ressource',
+      message: 'Supprimer cette ressource ?',
+      confirmLabel: 'Supprimer',
+      confirmVariant: 'danger',
+      cancelLabel: 'Annuler',
+    });
+    if (!confirmed) return;
     await fetch(`${API}/simulations/${scenarioId}/resources/${id}`, { method:'DELETE' });
     load();
   };
@@ -404,8 +413,8 @@ function TabRessources({ scenarioId }) {
                     </div>
                   </td>
                   <td className="text-end">
-                    <Button variant="link" size="sm" className="p-0 me-2" onClick={() => openEdit(r)}>✏️</Button>
-                    <Button variant="link" size="sm" className="p-0 text-danger" onClick={() => del(r.id)}>🗑</Button>
+                    <Button variant="link" size="sm" className="p-0 me-2" onClick={() => openEdit(r)}>??</Button>
+                    <Button variant="link" size="sm" className="p-0 text-danger" onClick={() => del(r.id)}>??</Button>
                   </td>
                 </tr>
               ))}
@@ -440,7 +449,7 @@ function TabRessources({ scenarioId }) {
   );
 }
 
-// ── Onglet Données des tâches ─────────────────────────────────────────────────
+// -- Onglet Données des tâches -------------------------------------------------
 function TabTaches({ scenarioId, bpmnElements }) {
   const [tasks,     setTasks]     = useState([]);
   const [resources, setResources] = useState([]);
@@ -476,7 +485,7 @@ function TabTaches({ scenarioId, bpmnElements }) {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ ...form, resource_id: form.resource_id||null }),
     });
-    if (res.ok) { await load(); setEditing(null); setMsg('✓ Enregistré'); setTimeout(()=>setMsg(''),2000); }
+    if (res.ok) { await load(); setEditing(null); setMsg('? Enregistré'); setTimeout(()=>setMsg(''),2000); }
     setSaving(false);
   };
 
@@ -508,7 +517,7 @@ function TabTaches({ scenarioId, bpmnElements }) {
                               onChange={e=>setForm(f=>({...f,duration_min:+e.target.value}))} />
                             {form.duration_type==='normal' && (
                               <Form.Control size="sm" type="number" min={0} value={form.duration_std} style={{width:60}}
-                                placeholder="σ" onChange={e=>setForm(f=>({...f,duration_std:+e.target.value}))} />
+                                placeholder="s" onChange={e=>setForm(f=>({...f,duration_std:+e.target.value}))} />
                             )}
                           </div>
                         </td>
@@ -533,8 +542,8 @@ function TabTaches({ scenarioId, bpmnElements }) {
                             onChange={e=>setForm(f=>({...f,cost:+e.target.value}))} />
                         </td>
                         <td className="text-end">
-                          <Button size="sm" variant="success" onClick={save} disabled={saving} className="me-1">✓</Button>
-                          <Button size="sm" variant="secondary" onClick={()=>setEditing(null)}>✕</Button>
+                          <Button size="sm" variant="success" onClick={save} disabled={saving} className="me-1">?</Button>
+                          <Button size="sm" variant="secondary" onClick={()=>setEditing(null)}>?</Button>
                         </td>
                       </>
                     ) : (
@@ -544,7 +553,7 @@ function TabTaches({ scenarioId, bpmnElements }) {
                         <td>{td?.resource_name || <span className="text-muted">—</span>}</td>
                         <td>{td ? `${fmt(td.cost,2)} €` : <span className="text-muted">—</span>}</td>
                         <td className="text-end">
-                          <Button variant="link" size="sm" className="p-0" onClick={()=>openEdit(el)}>✏️</Button>
+                          <Button variant="link" size="sm" className="p-0" onClick={()=>openEdit(el)}>??</Button>
                         </td>
                       </>
                     )}
@@ -559,7 +568,7 @@ function TabTaches({ scenarioId, bpmnElements }) {
   );
 }
 
-// ── Onglet Probabilités enchainements ─────────────────────────────────────────
+// -- Onglet Probabilités enchainements -----------------------------------------
 // FIX: useState inside .map() was forbidden — replaced with a controlled state object
 function TabFlows({ scenarioId, bpmnElements, bpmnConnections }) {
   const [flows,   setFlows]   = useState([]);
@@ -603,7 +612,7 @@ function TabFlows({ scenarioId, bpmnElements, bpmnConnections }) {
     });
     await load();
     setSaving(s => ({ ...s, [conn.id]: false }));
-    setMsg('✓ Enregistré'); setTimeout(()=>setMsg(''), 2000);
+    setMsg('? Enregistré'); setTimeout(()=>setMsg(''), 2000);
   };
 
   return (
@@ -632,7 +641,7 @@ function TabFlows({ scenarioId, bpmnElements, bpmnConnections }) {
                       <ProgressBar now={probs[conn.id] ?? 50} style={{flex:1, height:6}} />
                       <Button size="sm" variant="outline-primary" disabled={saving[conn.id]}
                         onClick={() => saveFlow(conn)}>
-                        {saving[conn.id] ? '…' : '✓'}
+                        {saving[conn.id] ? '…' : '?'}
                       </Button>
                     </div>
                   </td>
@@ -646,7 +655,7 @@ function TabFlows({ scenarioId, bpmnElements, bpmnConnections }) {
   );
 }
 
-// ── Onglet Résultats ──────────────────────────────────────────────────────────
+// -- Onglet Résultats ----------------------------------------------------------
 function TabResultats({ scenario, onRun }) {
   const [running, setRunning] = useState(false);
   const [err,     setErr]     = useState('');
@@ -749,7 +758,7 @@ function TabResultats({ scenario, onRun }) {
   );
 }
 
-// ── Page principale ───────────────────────────────────────────────────────────
+// -- Page principale -----------------------------------------------------------
 function SimulationArrivalTimesCard({ scenarioId, enabled, onImported, onCleared }) {
   const [arrivals, setArrivals] = useState([]);
   const [file, setFile] = useState(null);
@@ -1365,6 +1374,7 @@ function SimulationResultsPanel({ scenario, scenarios, onRun }) {
 }
 
 export default function SimulationScenarios() {
+  const { confirmAction } = useSnackbar();
   const [scenarios,       setScenarios]       = useState([]);
   const [processes,       setProcesses]       = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -1397,7 +1407,14 @@ export default function SimulationScenarios() {
   };
 
   const deleteScenario = async id => {
-    if (!window.confirm('Supprimer ce scénario ?')) return;
+    const confirmed = await confirmAction({
+      title: 'Supprimer le scénario',
+      message: 'Supprimer ce scénario ?',
+      confirmLabel: 'Supprimer',
+      confirmVariant: 'danger',
+      cancelLabel: 'Annuler',
+    });
+    if (!confirmed) return;
     const r = await fetch(`${API}/simulations/${id}`, { method:'DELETE' });
     if (r.ok) {
       showToast('Scénario supprimé');
@@ -1472,7 +1489,7 @@ export default function SimulationScenarios() {
     }
   })();
 
-  // ── Liste ──
+  // -- Liste --
   if (!activeScenario) {
     return (
       <Container fluid className="py-4">
@@ -1565,7 +1582,7 @@ export default function SimulationScenarios() {
     );
   }
 
-  // ── Détail scénario ──
+  // -- Détail scénario --
   return (
     <Container fluid className="py-4">
       <Row className="mb-3">
@@ -1657,3 +1674,4 @@ export default function SimulationScenarios() {
     </Container>
   );
 }
+

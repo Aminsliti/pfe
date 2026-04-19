@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Row } from 'react-bootstrap';
+import { useSnackbar } from '../../components/SnackbarProvider';
 import ArrivalImportCard from './ArrivalImportCard';
 import {
   API,
@@ -18,11 +19,11 @@ function CollaborationFallback() {
 }
 
 export default function OverviewTab({ scenario, processes, onScenarioChange, onReload }) {
+  const { showSnackbar } = useSnackbar();
   const [form, setForm] = useState(scenario);
   const [holidayText, setHolidayText] = useState('');
   const [shiftText, setShiftText] = useState('');
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -50,7 +51,6 @@ export default function OverviewTab({ scenario, processes, onScenarioChange, onR
   const save = async () => {
     setSaving(true);
     setError('');
-    setMessage('');
 
     try {
       const payload = {
@@ -68,10 +68,11 @@ export default function OverviewTab({ scenario, processes, onScenarioChange, onR
       });
       const saved = await readApiPayload(response, 'Failed to update scenario.');
       onScenarioChange((current) => ({ ...current, ...saved }));
-      setMessage('Scenario updated.');
+      showSnackbar('Scenario updated.');
       onReload?.();
     } catch (saveError) {
       setError(saveError.message || 'Failed to update scenario.');
+      showSnackbar(saveError.message || 'Failed to update scenario.', 'danger');
     } finally {
       setSaving(false);
     }
@@ -80,7 +81,6 @@ export default function OverviewTab({ scenario, processes, onScenarioChange, onR
   return (
     <div className="d-flex flex-column gap-4">
       {error && <Alert variant="danger">{error}</Alert>}
-      {message && <Alert variant="success">{message}</Alert>}
 
       <Card className="border-0 shadow-sm">
         <Card.Body>

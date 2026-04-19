@@ -13,6 +13,7 @@ import {
   Row,
   Table,
 } from 'react-bootstrap';
+import { useSnackbar } from '../components/SnackbarProvider';
 
 const EMPTY_FORM = {
   username: '',
@@ -60,6 +61,7 @@ function formatRoleWindowLabel(startsOn, expiresOn) {
 }
 
 export function UserManagement() {
+  const { confirmAction } = useSnackbar();
   const {
     user,
     getAllUsers,
@@ -137,7 +139,13 @@ export function UserManagement() {
   };
 
   const handleDelete = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) {
+    const confirmed = await confirmAction({
+      title: 'Delete user',
+      message: 'Are you sure you want to delete this user?',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
 

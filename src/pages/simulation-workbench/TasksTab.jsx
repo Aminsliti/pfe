@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
+import { useSnackbar } from '../../components/SnackbarProvider';
 import { API, readApiPayload } from './utils';
 
 export default function TasksTab({ scenario, graph, resources, onScenarioReload }) {
+  const { showSnackbar } = useSnackbar();
   const [taskRows, setTaskRows] = useState([]);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const mergedTasks = useMemo(() => {
@@ -40,17 +41,17 @@ export default function TasksTab({ scenario, graph, resources, onScenarioReload 
         }),
       });
       await readApiPayload(response, 'Failed to save task.');
-      setMessage(`Task "${task.task_name}" saved.`);
+      showSnackbar(`Task "${task.task_name}" saved.`);
       onScenarioReload?.();
     } catch (saveError) {
       setError(saveError.message || 'Failed to save task.');
+      showSnackbar(saveError.message || 'Failed to save task.', 'danger');
     }
   };
 
   return (
     <div className="d-flex flex-column gap-4">
       {error && <Alert variant="danger">{error}</Alert>}
-      {message && <Alert variant="success">{message}</Alert>}
 
       <Card className="border-0 shadow-sm">
         <Card.Body className="p-0">

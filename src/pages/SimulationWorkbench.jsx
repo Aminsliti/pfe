@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Button, Card, Col, Container, Form, Row } from 'react-bootstrap';
+import { useSnackbar } from '../components/SnackbarProvider';
 import './SimulationScenarios.css';
 import { API, fmt, parseBpmnGraph, readApiPayload, statusLabel, statusVariant } from './simulation-workbench/utils';
 
@@ -144,6 +145,7 @@ function ActiveScenarioView({
 }
 
 export default function SimulationWorkbench() {
+  const { confirmAction } = useSnackbar();
   const [scenarios, setScenarios] = useState([]);
   const [processes, setProcesses] = useState([]);
   const [activeScenario, setActiveScenario] = useState(null);
@@ -243,7 +245,13 @@ export default function SimulationWorkbench() {
   };
 
   const deleteScenario = async (scenarioId) => {
-    if (!window.confirm('Delete this simulation scenario?')) {
+    const confirmed = await confirmAction({
+      title: 'Delete scenario',
+      message: 'Delete this simulation scenario?',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
 

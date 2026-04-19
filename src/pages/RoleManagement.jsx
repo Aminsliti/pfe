@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getRoleDisplayName, useAuth, PERMISSIONS, ROLES } from '../contexts/AuthContext';
+import { useSnackbar } from '../components/SnackbarProvider';
 import { 
   Container, 
   Row, 
@@ -8,7 +9,6 @@ import {
   Button, 
   Modal, 
   Form, 
-  Alert,
   Badge,
   InputGroup,
   FormControl
@@ -24,6 +24,7 @@ export function RoleManagement() {
     deleteRole,
     PERMISSIONS 
   } = useAuth();
+  const { showSnackbar, confirmAction } = useSnackbar();
   const [roles, setRoles] = useState([]);
   const [allPermissions, setAllPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,8 +33,6 @@ export function RoleManagement() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingRole, setEditingRole] = useState(null);
   const [selectedPermissions, setSelectedPermissions] = useState([]);
-  const [message, setMessage] = useState('');
-
   const loadData = async () => {
     setLoading(true);
     const rolesData = await getRolesWithPermissions();
@@ -52,7 +51,7 @@ export function RoleManagement() {
 
   const handleSaveRole = async () => {
     if (!editingRole.name.trim()) {
-      setMessage('Role name is required');
+      showSnackbar('Role name is required', 'danger');
       return;
     }
 
@@ -66,30 +65,36 @@ export function RoleManagement() {
     if (result.success) {
       const role = result.role;
       await updateRolePermissions(role.id, selectedPermissions);
-      setMessage(`Role ${isCreating ? 'created' : 'updated'} successfully`);
+      showSnackbar(`Role ${isCreating ? 'created' : 'updated'} successfully`);
       setIsEditing(false);
       setEditingRole(null);
       setSelectedPermissions([]);
       loadData();
     } else {
-      setMessage(result.error);
+      showSnackbar(result.error, 'danger');
     }
   };
 
   const handleDeleteRole = async (role) => {
-    if (!window.confirm(`Are you sure you want to delete the role "${role.name}"?`)) {
+    const confirmed = await confirmAction({
+      title: 'Delete role',
+      message: `Are you sure you want to delete the role "${role.name}"?`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
 
     const result = await deleteRole(role.id);
     if (result.success) {
-      setMessage('Role deleted successfully');
+      showSnackbar('Role deleted successfully');
       if (selectedRole?.id === role.id) {
         setSelectedRole(null);
       }
       loadData();
     } else {
-      setMessage(result.error);
+      showSnackbar(result.error, 'danger');
     }
   };
 
@@ -97,7 +102,6 @@ export function RoleManagement() {
     setIsEditing(false);
     setEditingRole(null);
     setSelectedPermissions([]);
-    setMessage('');
   };
 
   const togglePermission = (permissionId) => {
@@ -179,16 +183,6 @@ export function RoleManagement() {
           </div>
         </Col>
       </Row>
-
-      {message && (
-        <Row className="mb-4">
-          <Col>
-            <Alert variant={message.includes('success') ? 'success' : 'danger'} dismissible onClose={() => setMessage('')}>
-              {message}
-            </Alert>
-          </Col>
-        </Row>
-      )}
 
       <Row className="mb-4">
         {roles.map(role => (

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
+import { useSnackbar } from '../../components/SnackbarProvider';
 import { API, readApiPayload } from './utils';
 
 export default function FlowsTab({ scenario, graph, onScenarioReload }) {
+  const { showSnackbar } = useSnackbar();
   const [rows, setRows] = useState([]);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const mergedFlows = useMemo(() => {
@@ -28,17 +29,17 @@ export default function FlowsTab({ scenario, graph, onScenarioReload }) {
         body: JSON.stringify(flow),
       });
       await readApiPayload(response, 'Failed to save flow probability.');
-      setMessage(`Flow "${flow.flow_name || flow.flow_id}" saved.`);
+      showSnackbar(`Flow "${flow.flow_name || flow.flow_id}" saved.`);
       onScenarioReload?.();
     } catch (saveError) {
       setError(saveError.message || 'Failed to save flow probability.');
+      showSnackbar(saveError.message || 'Failed to save flow probability.', 'danger');
     }
   };
 
   return (
     <div className="d-flex flex-column gap-4">
       {error && <Alert variant="danger">{error}</Alert>}
-      {message && <Alert variant="success">{message}</Alert>}
       <Card className="border-0 shadow-sm">
         <Card.Body className="p-0">
           <Table hover className="sim-table mb-0">

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Row, Table } from 'react-bootstrap';
+import { useSnackbar } from '../../components/SnackbarProvider';
 import { API, fmt, parseWindowsText, readApiPayload, windowsToText } from './utils';
 
 export default function ResourcesTab({ scenario, onScenarioReload }) {
+  const { showSnackbar, confirmAction } = useSnackbar();
   const [resources, setResources] = useState([]);
   const [form, setForm] = useState({
     name: '',
@@ -13,7 +15,6 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
     availabilityText: '',
   });
   const [editingId, setEditingId] = useState(null);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -55,7 +56,6 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
   const submit = async (event) => {
     event.preventDefault();
     setError('');
-    setMessage('');
 
     try {
       const payload = {
@@ -71,12 +71,13 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
         },
       );
       await readApiPayload(response, 'Failed to save resource.');
-      setMessage('Resource saved.');
+      showSnackbar('Resource saved.');
       resetForm();
       load();
       onScenarioReload?.();
     } catch (submitError) {
       setError(submitError.message || 'Failed to save resource.');
+      showSnackbar(submitError.message || 'Failed to save resource.', 'danger');
     }
   };
 
@@ -93,25 +94,31 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
   };
 
   const remove = async (resourceId) => {
-    if (!window.confirm('Delete this resource?')) {
+    const confirmed = await confirmAction({
+      title: 'Delete resource',
+      message: 'Delete this resource?',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
 
     try {
       const response = await fetch(`${API}/simulations/${scenario.id}/resources/${resourceId}`, { method: 'DELETE' });
       await readApiPayload(response, 'Failed to delete resource.');
-      setMessage('Resource deleted.');
+      showSnackbar('Resource deleted.');
       load();
       onScenarioReload?.();
     } catch (removeError) {
       setError(removeError.message || 'Failed to delete resource.');
+      showSnackbar(removeError.message || 'Failed to delete resource.', 'danger');
     }
   };
 
   return (
     <div className="d-flex flex-column gap-4">
       {error && <Alert variant="danger">{error}</Alert>}
-      {message && <Alert variant="success">{message}</Alert>}
 
       <Card className="border-0 shadow-sm">
         <Card.Body>

@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSnackbar } from '../components/SnackbarProvider';
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown } from 'react-bootstrap';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
@@ -240,6 +241,7 @@ function buildWorkflowJourney(workflowInfo, currentStatus) {
 
 export function ProcessManagement({ publicView = false }) {
   const { user, hasPermission, hasRole, ROLES } = useAuth();
+  const { showSnackbar, confirmAction } = useSnackbar();
   const [searchParams, setSearchParams] = useSearchParams();
   const canViewWorkspace = publicView || hasPermission('view_dashboard') || hasPermission('manage_processes');
   const isAdmin = !publicView && hasRole(ROLES.ADMIN);
@@ -256,7 +258,6 @@ export function ProcessManagement({ publicView = false }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCat, setFilterCat] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [message, setMessage] = useState({ text: '', type: 'success' });
   const [viewMode, setViewMode] = useState('hierarchy');
   const [bpmnTarget, setBpmnTarget] = useState(null);
   const [collapsedCategories, setCollapsedCategories] = useState({});
@@ -303,8 +304,7 @@ export function ProcessManagement({ publicView = false }) {
   const lastOpenedProcessRef = useRef({ id: null, at: 0 });
 
   const showMsg = (text, type = 'success') => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage({ text: '', type: 'success' }), 4000);
+    showSnackbar(text, type);
   };
 
   const normalizeGovernedStatus = (status) => (status === 'active' ? 'approved' : status || 'draft');
@@ -771,7 +771,13 @@ export function ProcessManagement({ publicView = false }) {
   };
 
   const handleDeleteCategory = async (category) => {
-    if (!window.confirm(`Delete category "${category.name}"?`)) {
+    const confirmed = await confirmAction({
+      title: 'Delete category',
+      message: `Delete category "${category.name}"?`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -882,7 +888,13 @@ export function ProcessManagement({ publicView = false }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this process?')) return;
+    const confirmed = await confirmAction({
+      title: 'Delete process',
+      message: 'Delete this process?',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${API}/processes/${id}`, { method: 'DELETE' });
       if (response.ok) {
@@ -1234,7 +1246,7 @@ export function ProcessManagement({ publicView = false }) {
 
   const CreateMenu = ({ defaultCategoryId = '', compact = false }) => (
     <Dropdown align="end" onClick={(event) => event.stopPropagation()}>
-      <Dropdown.Toggle variant={compact ? 'outline-secondary' : 'danger'} size="sm" style={compact ? { padding: '3px 7px' } : undefined}>
+      <Dropdown.Toggle variant={compact ? 'outline-success' : 'success'} size="sm" style={compact ? { padding: '3px 7px' } : undefined}>
         <i className="bi bi-plus-lg" />
         {!compact ? <span className="ms-1">Add</span> : null}
       </Dropdown.Toggle>
@@ -1293,11 +1305,11 @@ export function ProcessManagement({ publicView = false }) {
           </button>
         ) : null}
         {canEditProcessDefinition(process) ? (
-          <button type="button" onClick={(event) => { event.stopPropagation(); openBpmnEditor(process); }} title="Edit BPMN diagram" style={{ width: 30, height: 30, background: '#ef4444', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-pencil-fill" /></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); openBpmnEditor(process); }} title="Edit BPMN diagram" style={{ width: 30, height: 30, background: '#2563eb', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-pencil-fill" /></button>
         ) : null}
-        <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} title="Open details and diagram" style={{ width: 30, height: 30, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-info-circle" /></button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} title="Open details and diagram" style={{ width: 30, height: 30, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-info-circle" /></button>
         {canDeleteProcessDefinition(process) ? (
-          <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} title="Delete" style={{ width: 30, height: 30, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-trash" /></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} title="Delete" style={{ width: 30, height: 30, background: '#dc2626', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-trash" /></button>
         ) : null}
         <ExportMenu process={process} compact />
       </div>
@@ -1379,7 +1391,7 @@ export function ProcessManagement({ publicView = false }) {
                 className="me-1"
                 title="Edit category"
                 onClick={() => openEditCategoryModal(category)}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 15, padding: '0 4px' }}
+                style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 15, padding: '0 4px' }}
               >
                 <i className="bi bi-pencil" />
               </button>
@@ -1389,7 +1401,7 @@ export function ProcessManagement({ publicView = false }) {
                   className="me-2"
                   title="Delete category"
                   onClick={() => handleDeleteCategory(category)}
-                  style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 15, padding: '0 4px' }}
+                  style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 15, padding: '0 4px' }}
                 >
                   <i className="bi bi-trash" />
                 </button>
@@ -1438,10 +1450,10 @@ export function ProcessManagement({ publicView = false }) {
               </Button>
               {canCreateDefinitions ? (
                 <>
-                  <Button variant="outline-dark" size="sm" onClick={() => setShowTemplates(true)}>
+                  <Button variant="outline-primary" size="sm" onClick={() => setShowTemplates(true)}>
                     <i className="bi bi-grid me-1" />Templates
                   </Button>
-                  <Button variant="outline-secondary" size="sm" onClick={openImportModal}><i className="bi bi-upload me-1" />Import</Button>
+                  <Button variant="outline-success" size="sm" onClick={openImportModal}><i className="bi bi-upload me-1" />Import</Button>
                   <CreateMenu />
                 </>
               ) : (
@@ -1452,16 +1464,14 @@ export function ProcessManagement({ publicView = false }) {
         </Col>
       </Row>
 
-      {message.text && <Row className="mb-3"><Col><Alert variant={message.type} dismissible onClose={() => setMessage({ text: '', type: 'success' })}>{message.text}</Alert></Col></Row>}
-
       <Row className="mb-3">
         <Col>
           <Card className="border-0 shadow-sm">
             <Card.Body className="py-2 px-3">
               <div className="d-flex align-items-center gap-3 flex-wrap">
                 <div className="btn-group btn-group-sm">
-                  <button type="button" className={`btn ${viewMode === 'hierarchy' ? 'btn-danger' : 'btn-outline-secondary'}`} onClick={() => setViewMode('hierarchy')}><i className="bi bi-diagram-3 me-1" />Hierarchie</button>
-                  <button type="button" className={`btn ${viewMode === 'list' ? 'btn-danger' : 'btn-outline-secondary'}`} onClick={() => setViewMode('list')}><i className="bi bi-list-ul me-1" />Liste</button>
+                  <button type="button" className={`btn ${viewMode === 'hierarchy' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setViewMode('hierarchy')}><i className="bi bi-diagram-3 me-1" />Hierarchie</button>
+                  <button type="button" className={`btn ${viewMode === 'list' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setViewMode('list')}><i className="bi bi-list-ul me-1" />Liste</button>
                 </div>
                 <div style={{ width: 1, height: 24, background: '#e2e8f0' }} />
                 <InputGroup size="sm" style={{ maxWidth: 280 }}>
@@ -1542,7 +1552,7 @@ export function ProcessManagement({ publicView = false }) {
                         </div>
                       </div>
                       {canCreateDefinitions ? (
-                        <Button size="sm" variant="outline-danger" onClick={() => openCategoryModal('', section.key)}>
+                        <Button size="sm" variant="outline-success" onClick={() => openCategoryModal('', section.key)}>
                           <i className="bi bi-plus-lg me-1" />
                           New category
                         </Button>
@@ -1594,12 +1604,12 @@ export function ProcessManagement({ publicView = false }) {
                       </button>
                     ) : null}
                     {canEditProcessDefinition(process) ? (
-                      <button type="button" onClick={(event) => { event.stopPropagation(); openBpmnEditor(process); }} className="btn btn-danger btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-pencil-fill" /></button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); openBpmnEditor(process); }} className="btn btn-primary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-pencil-fill" /></button>
                     ) : null}
-                    <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} className="btn btn-outline-secondary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-info-circle" /></button>
+                    <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} className="btn btn-outline-primary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-info-circle" /></button>
                     <ExportMenu process={process} compact />
                     {canDeleteProcessDefinition(process) ? (
-                      <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} className="btn btn-outline-danger btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-trash" /></button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} className="btn btn-danger btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-trash" /></button>
                     ) : null}
                   </div></td>
                 </tr>
@@ -1663,7 +1673,7 @@ export function ProcessManagement({ publicView = false }) {
                             </>
                           ) : null}
                           {canEditSelectedProcess ? (
-                            <Button size="sm" variant="danger" onClick={() => openBpmnEditor(editingProcess)}>
+                            <Button size="sm" variant="primary" onClick={() => openBpmnEditor(editingProcess)}>
                               Edit diagram
                             </Button>
                           ) : null}
@@ -1683,7 +1693,7 @@ export function ProcessManagement({ publicView = false }) {
                               <Button
                                 type="button"
                                 size="sm"
-                                variant="outline-danger"
+                                variant="outline-primary"
                                 onClick={() => openBpmnEditor(editingProcess, previewRootElementId)}
                               >
                                 {activePreviewSubprocess ? 'Edit this sous-process' : 'Edit main diagram'}
@@ -2050,7 +2060,7 @@ export function ProcessManagement({ publicView = false }) {
             <div className="d-flex justify-content-end gap-2 mt-4">
               <Button variant="secondary" onClick={closeProcessModal}>Close</Button>
               {canEditSelectedProcess ? (
-                <Button type="submit" variant="danger">{editingProcess ? 'Save metadata' : 'Create'}</Button>
+                <Button type="submit" variant={editingProcess ? 'primary' : 'success'}>{editingProcess ? 'Save metadata' : 'Create'}</Button>
               ) : null}
             </div>
           </Form>
@@ -2077,7 +2087,7 @@ export function ProcessManagement({ publicView = false }) {
               {importing && <ProgressBar animated now={100} label="Importing..." className="mb-3" />}
               <div className="d-flex justify-content-end gap-2">
                 <Button variant="secondary" onClick={() => setShowImport(false)} disabled={importing}>Cancel</Button>
-                <Button type="submit" variant="primary" disabled={importing || !importFile}>{importing ? <><span className="spinner-border spinner-border-sm me-2" />Importing...</> : <><i className="bi bi-upload me-2" />Import</>}</Button>
+                <Button type="submit" variant="success" disabled={importing || !importFile}>{importing ? <><span className="spinner-border spinner-border-sm me-2" />Importing...</> : <><i className="bi bi-upload me-2" />Import</>}</Button>
               </div>
             </Form>
           )}
@@ -2152,7 +2162,7 @@ export function ProcessManagement({ publicView = false }) {
             </Form.Group>
             <div className="d-flex justify-content-end gap-2 mt-4">
               <Button variant="secondary" onClick={dismissCategoryModal} disabled={categoryBusy}>Cancel</Button>
-              <Button type="submit" variant="danger" disabled={categoryBusy}>
+              <Button type="submit" variant={editingCategory ? 'primary' : 'success'} disabled={categoryBusy}>
                 {categoryBusy ? (editingCategory ? 'Saving...' : 'Creating...') : (editingCategory ? 'Save category' : 'Create category')}
               </Button>
             </div>
