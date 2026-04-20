@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 const API = 'http://localhost:3001/api';
@@ -35,6 +36,27 @@ const STATUS_META = {
 
 const DEFAULT_SECTION = 'metiers';
 const SECTION_IDS = Object.keys(SECTION_CONFIG);
+
+function parseNavigationParam(value = '') {
+  return String(value || '')
+    .split(',')
+    .map((entry) => {
+      const [type, rawId] = entry.split(':');
+      const id = Number(rawId);
+      if (!['category', 'process'].includes(type) || !Number.isInteger(id) || id <= 0) {
+        return null;
+      }
+      return { type, id };
+    })
+    .filter(Boolean);
+}
+
+function serializeNavigationParam(entries = []) {
+  return entries
+    .filter((entry) => entry && ['category', 'process'].includes(entry.type) && Number.isInteger(Number(entry.id)))
+    .map((entry) => `${entry.type}:${Number(entry.id)}`)
+    .join(',');
+}
 
 function normalizeText(value = '') {
   return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -463,15 +485,16 @@ function ProcessLeafView({ process, onBack }) {
 }
 
 export default function ProcessLibrary() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [processes, setProcesses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [navigation, setNavigation] = useState([]);
   const lastProcessNavigationRef = useRef({ id: null, at: 0 });
   const deferredSearch = useDeferredValue(search);
+  const navigation = useMemo(() => parseNavigationParam(searchParams.get('nav')), [searchParams]);
 
   const loadLibrary = useCallback(async () => {
     setLoading(true);
@@ -575,8 +598,22 @@ export default function ProcessLibrary() {
   const hasRootContent = Object.values(rootCategoriesBySection).some((items) => items.length > 0) || Object.values(rootLooseProcesses).some((items) => items.length > 0);
   const showLibraryOverview = navigation.length === 0;
 
+  const updateNavigation = (updater, options = {}) => {
+    const nextNavigation = typeof updater === 'function' ? updater(navigation) : updater;
+    const nextParams = new URLSearchParams(searchParams);
+    const serialized = serializeNavigationParam(nextNavigation);
+
+    if (serialized) {
+      nextParams.set('nav', serialized);
+    } else {
+      nextParams.delete('nav');
+    }
+
+    setSearchParams(nextParams, { preventScrollReset: true, ...options });
+  };
+
   const enterCategory = (category) => {
-    setNavigation((current) => [...current, { type: 'category', id: category.id }]);
+    updateNavigation((current) => [...current, { type: 'category', id: Number(category.id) }]);
   };
 
   const enterProcess = (process) => {
@@ -585,7 +622,7 @@ export default function ProcessLibrary() {
       return;
     }
 
-    setNavigation((current) => {
+    updateNavigation((current) => {
       const lastEntry = current[current.length - 1] || null;
       const now = Date.now();
 
@@ -606,16 +643,16 @@ export default function ProcessLibrary() {
   };
 
   const goBack = () => {
-    setNavigation((current) => current.slice(0, -1));
+    updateNavigation((current) => current.slice(0, -1));
   };
 
   const jumpTo = (index) => {
     if (index < 0) {
-      setNavigation([]);
+      updateNavigation([]);
       return;
     }
 
-    setNavigation((current) => current.slice(0, index + 1));
+    updateNavigation((current) => current.slice(0, index + 1));
   };
 
   return (

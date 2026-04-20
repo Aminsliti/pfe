@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../components/SnackbarProvider';
@@ -261,6 +261,8 @@ export function ProcessManagement({ publicView = false }) {
   const [viewMode, setViewMode] = useState('hierarchy');
   const [bpmnTarget, setBpmnTarget] = useState(null);
   const [collapsedCategories, setCollapsedCategories] = useState({});
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedProcessIds, setSelectedProcessIds] = useState([]);
   const [importForm, setImportForm] = useState({ name: '', description: '', category_id: '', status: 'draft' });
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -302,9 +304,69 @@ export function ProcessManagement({ publicView = false }) {
   const syncedProcessParamRef = useRef(null);
   const closingProcessRef = useRef(null);
   const lastOpenedProcessRef = useRef({ id: null, at: 0 });
+  const scrollRestoreRef = useRef(null);
+  const categoryRowRefs = useRef(new Map());
+  const categoryToggleAnchorRef = useRef(null);
 
   const showMsg = (text, type = 'success') => {
     showSnackbar(text, type);
+  };
+
+  const preserveScrollPosition = () => {
+    scrollRestoreRef.current = window.scrollY;
+  };
+
+  const registerCategoryRowRef = (categoryId, element) => {
+    if (!categoryId) {
+      return;
+    }
+
+    if (element) {
+      categoryRowRefs.current.set(Number(categoryId), element);
+      return;
+    }
+
+    categoryRowRefs.current.delete(Number(categoryId));
+  };
+
+  const restoreAnchoredCategoryScroll = (anchor) => {
+    if (!anchor) {
+      return;
+    }
+
+    const nextElement = categoryRowRefs.current.get(Number(anchor.categoryId));
+    if (!nextElement) {
+      return;
+    }
+
+    const nextTop = nextElement.getBoundingClientRect().top;
+    const delta = nextTop - anchor.top;
+
+    if (Math.abs(delta) > 1) {
+      window.scrollBy({ top: delta, behavior: 'auto' });
+    }
+  };
+
+  const toggleProcessSelection = (processId, checked) => {
+    const normalizedId = Number(processId);
+    if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+      return;
+    }
+
+    setSelectedProcessIds((current) => (
+      checked
+        ? [...new Set([...current, normalizedId])]
+        : current.filter((entry) => entry !== normalizedId)
+    ));
+  };
+
+  const clearProcessSelection = () => {
+    setSelectedProcessIds([]);
+  };
+
+  const disableSelectionMode = () => {
+    setSelectionMode(false);
+    clearProcessSelection();
   };
 
   const normalizeGovernedStatus = (status) => (status === 'active' ? 'approved' : status || 'draft');
@@ -471,6 +533,32 @@ export function ProcessManagement({ publicView = false }) {
       return changed ? next : previous;
     });
   }, [categories]);
+  useEffect(() => {
+    setSelectedProcessIds((current) => current.filter((id) => processes.some((process) => Number(process.id) === Number(id))));
+  }, [processes]);
+  useLayoutEffect(() => {
+    if (categoryToggleAnchorRef.current) {
+      const anchor = categoryToggleAnchorRef.current;
+      restoreAnchoredCategoryScroll(anchor);
+      window.requestAnimationFrame(() => {
+        restoreAnchoredCategoryScroll(anchor);
+        window.setTimeout(() => restoreAnchoredCategoryScroll(anchor), 0);
+      });
+      categoryToggleAnchorRef.current = null;
+      scrollRestoreRef.current = null;
+      return;
+    }
+
+    if (scrollRestoreRef.current === null) {
+      return;
+    }
+
+    const targetScroll = scrollRestoreRef.current;
+    scrollRestoreRef.current = null;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: targetScroll, behavior: 'auto' });
+    });
+  }, [collapsedCategories, loading, processes, categories, showModal, showCategoryModal]);
   const statusVariant = (status) => ({
     draft: 'secondary',
     review: 'info',
@@ -530,6 +618,7 @@ export function ProcessManagement({ publicView = false }) {
       return;
     }
 
+    preserveScrollPosition();
     const resolvedCategoryId = defaultCategoryId || (categoryOptions.length === 1 ? String(categoryOptions[0].id) : '');
     setEditingProcess(null);
     setProcessDetail(null);
@@ -548,10 +637,10 @@ export function ProcessManagement({ publicView = false }) {
     });
     const nextSearch = new URLSearchParams(searchParams);
     nextSearch.delete('processId');
-    setSearchParams(nextSearch, { replace: true });
+    setSearchParams(nextSearch, { replace: true, preventScrollReset: true });
     setShowModal(true);
   };
-  const syncProcessSearchParam = (processId = null) => {
+  const syncProcessSearchParam = (processId = null, options = {}) => {
     syncedProcessParamRef.current = processId ? Number(processId) : null;
     const nextSearch = new URLSearchParams(searchParams);
     if (processId) {
@@ -559,7 +648,7 @@ export function ProcessManagement({ publicView = false }) {
     } else {
       nextSearch.delete('processId');
     }
-    setSearchParams(nextSearch, { replace: true });
+    setSearchParams(nextSearch, { preventScrollReset: true, ...options });
   };
   const applyProcessForm = (process) => {
     setFormData({
@@ -577,6 +666,7 @@ export function ProcessManagement({ publicView = false }) {
     if (!Number.isInteger(processId) || processId <= 0) {
       return;
     }
+    preserveScrollPosition();
     closingProcessRef.current = null;
 
     const openAttemptTime = Date.now();
@@ -646,7 +736,18 @@ export function ProcessManagement({ publicView = false }) {
 
     openEditDetails({ id: processIdFromUrl }, { syncUrl: false });
   }, [searchParams, editingProcess?.id, processDetail?.id, showModal]);
-  const toggleCategory = (categoryId) => setCollapsedCategories((previous) => ({ ...previous, [categoryId]: !previous[categoryId] }));
+  const toggleCategory = (categoryId) => {
+    const categoryRow = categoryRowRefs.current.get(Number(categoryId));
+    if (categoryRow) {
+      categoryToggleAnchorRef.current = {
+        categoryId: Number(categoryId),
+        top: categoryRow.getBoundingClientRect().top,
+      };
+    } else {
+      preserveScrollPosition();
+    }
+    setCollapsedCategories((previous) => ({ ...previous, [categoryId]: !previous[categoryId] }));
+  };
 
   const handleBpmnSave = async (bpmnXml) => {
     if (!bpmnTarget) throw new Error('No process selected');
@@ -686,12 +787,14 @@ export function ProcessManagement({ publicView = false }) {
   };
 
   const dismissCategoryModal = () => {
+    preserveScrollPosition();
     setShowCategoryModal(false);
     setEditingCategory(null);
     setCategoryError('');
   };
 
   const openCategoryModal = (parentId = '', preferredSection = DEFAULT_PROCESS_SECTION) => {
+    preserveScrollPosition();
     const parentCategory = parentId ? categoryById.get(Number(parentId)) : null;
     setEditingCategory(null);
     setCategoryError('');
@@ -705,6 +808,7 @@ export function ProcessManagement({ publicView = false }) {
   };
 
   const openEditCategoryModal = (category) => {
+    preserveScrollPosition();
     const parentCategory = category?.parent_id ? categoryById.get(Number(category.parent_id)) : null;
     setEditingCategory(category);
     setCategoryError('');
@@ -748,6 +852,7 @@ export function ProcessManagement({ publicView = false }) {
     }
 
     setCategoryBusy(true);
+    preserveScrollPosition();
     try {
       const response = await fetch(editingCategory ? `${API}/process-categories/${editingCategory.id}` : `${API}/process-categories`, {
         method: editingCategory ? 'PUT' : 'POST',
@@ -781,6 +886,7 @@ export function ProcessManagement({ publicView = false }) {
       return;
     }
 
+    preserveScrollPosition();
     try {
       const response = await fetch(`${API}/process-categories/${category.id}`, { method: 'DELETE' });
       await readApiPayload(response, 'Failed to delete category.');
@@ -834,6 +940,7 @@ export function ProcessManagement({ publicView = false }) {
   };
 
   const closeProcessModal = () => {
+    preserveScrollPosition();
     const closingProcessId = Number(processDetail?.id || editingProcess?.id || searchParams.get('processId') || 0);
     closingProcessRef.current = Number.isInteger(closingProcessId) && closingProcessId > 0 ? closingProcessId : null;
     setShowModal(false);
@@ -843,7 +950,7 @@ export function ProcessManagement({ publicView = false }) {
     setWorkflowComment('');
     setVersionDiff(null);
     setVersionSelection({ fromVersion: '', toVersion: '' });
-    syncProcessSearchParam(null);
+    syncProcessSearchParam(null, { replace: true });
   };
 
   const handleFileChange = (event) => {
@@ -867,6 +974,7 @@ export function ProcessManagement({ publicView = false }) {
     if (!importForm.category_id) return setImportError('Category is required.');
     if (!importFile) return setImportError('Please choose a BPMN or XML file.');
     setImporting(true);
+    preserveScrollPosition();
     try {
       const form = new FormData();
       form.append('bpmnFile', importFile);
@@ -895,6 +1003,7 @@ export function ProcessManagement({ publicView = false }) {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+    preserveScrollPosition();
     try {
       const response = await fetch(`${API}/processes/${id}`, { method: 'DELETE' });
       if (response.ok) {
@@ -909,11 +1018,118 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
+  const handleBulkDelete = async () => {
+    const deletableIds = selectedProcessIds.filter((selectedId) => {
+      const process = processes.find((entry) => Number(entry.id) === Number(selectedId));
+      return canDeleteProcessDefinition(process);
+    });
+
+    if (deletableIds.length === 0) {
+      showMsg('Select at least one deletable process.', 'danger');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Delete processes',
+      message: `Delete ${deletableIds.length} selected process${deletableIds.length > 1 ? 'es' : ''}?`,
+      confirmLabel: 'Delete selected',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
+    preserveScrollPosition();
+    try {
+      const results = await Promise.all(
+        deletableIds.map(async (processId) => {
+          const response = await fetch(`${API}/processes/${processId}`, { method: 'DELETE' });
+          const payload = await response.json().catch(() => ({}));
+          return {
+            id: processId,
+            ok: response.ok,
+            error: payload?.error || 'Delete failed',
+          };
+        })
+      );
+
+      const failures = results.filter((result) => !result.ok);
+      const deletedCount = results.length - failures.length;
+
+      if (deletedCount > 0) {
+        showMsg(`${deletedCount} process${deletedCount > 1 ? 'es' : ''} deleted.`);
+      }
+
+      if (failures.length > 0) {
+        showMsg(failures[0].error || 'Some processes could not be deleted.', 'danger');
+      }
+
+      await loadProcesses();
+      setSelectedProcessIds((current) => current.filter((id) => failures.some((failure) => Number(failure.id) === Number(id))));
+    } catch {
+      showMsg('Network error', 'danger');
+    }
+  };
+
+  const handleBulkArchive = async () => {
+    const archivableIds = selectedProcessIds.filter((selectedId) => {
+      const process = processes.find((entry) => Number(entry.id) === Number(selectedId));
+      return canArchiveProcess(process);
+    });
+
+    if (archivableIds.length === 0) {
+      showMsg('Select at least one archivable process.', 'danger');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Archive processes',
+      message: `Archive ${archivableIds.length} selected process${archivableIds.length > 1 ? 'es' : ''}?`,
+      confirmLabel: 'Archive selected',
+      confirmVariant: 'warning',
+    });
+    if (!confirmed) return;
+
+    preserveScrollPosition();
+    try {
+      const results = await Promise.all(
+        archivableIds.map(async (processId) => {
+          const response = await fetch(`${API}/processes/${processId}/workflow`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'archive', comment: '' }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          return {
+            id: processId,
+            ok: response.ok,
+            error: payload?.error || 'Archive failed',
+          };
+        })
+      );
+
+      const failures = results.filter((result) => !result.ok);
+      const archivedCount = results.length - failures.length;
+
+      if (archivedCount > 0) {
+        showMsg(`${archivedCount} process${archivedCount > 1 ? 'es' : ''} archived.`, 'warning');
+      }
+
+      if (failures.length > 0) {
+        showMsg(failures[0].error || 'Some processes could not be archived.', 'danger');
+      }
+
+      await loadProcesses();
+      setSelectedProcessIds((current) => current.filter((id) => failures.some((failure) => Number(failure.id) === Number(id))));
+    } catch {
+      showMsg('Network error', 'danger');
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!formData.name) return showMsg('Process name is required', 'danger');
     if (!formData.category_id) return showMsg('Category is required.', 'danger');
     if (formData.assigned_validator_ids.length === 0) return showMsg('At least one assigned process manager is required.', 'danger');
+    preserveScrollPosition();
     try {
       const url = editingProcess ? `${API}/processes/${editingProcess.id}` : `${API}/processes`;
       const method = editingProcess ? 'PUT' : 'POST';
@@ -1198,6 +1414,18 @@ export function ProcessManagement({ publicView = false }) {
     const directProcesses = processesByCategory.get(String(category.id)) || [];
     return directProcesses.length + category.children.reduce((total, childCategory) => total + countProcessesInCategoryBranch(childCategory), 0);
   };
+  const selectedProcessCount = selectedProcessIds.length;
+  const selectableProcesses = processes.filter((process) => canDeleteProcessDefinition(process));
+  const selectableProcessIds = selectableProcesses.map((process) => Number(process.id));
+  const areAllSelectableProcessesSelected =
+    selectableProcessIds.length > 0 && selectableProcessIds.every((processId) => selectedProcessIds.includes(processId));
+  const toggleSelectAllProcesses = (checked) => {
+    if (checked) {
+      setSelectedProcessIds(selectableProcessIds);
+      return;
+    }
+    clearProcessSelection();
+  };
   const availableVersions = processDetail?.versions || [];
   const selectedProcessRecord = processDetail || editingProcess || null;
   const currentWorkflowStatus = normalizeUiStatus(workflowInfo?.status || formData.status);
@@ -1283,6 +1511,19 @@ export function ProcessManagement({ publicView = false }) {
         }
       }}
     >
+      {selectionMode ? (
+        canDeleteProcessDefinition(process) ? (
+          <Form.Check
+            type="checkbox"
+            className="me-1"
+            checked={selectedProcessIds.includes(Number(process.id))}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => toggleProcessSelection(process.id, event.target.checked)}
+          />
+        ) : (
+          <div style={{ width: 22, flexShrink: 0 }} />
+        )
+      ) : null}
       {indentLevel > 0 && (
         <span style={{ color: '#ef4444', fontSize: 18, flexShrink: 0, marginRight: 10 }}>
           <i className="bi bi-arrow-return-right" />
@@ -1362,6 +1603,7 @@ export function ProcessManagement({ publicView = false }) {
     return (
       <div key={category.id}>
         <div
+          ref={(element) => registerCategoryRowRef(category.id, element)}
           className="d-flex align-items-center gap-2 py-2"
           style={{
             paddingLeft: 24 + (level * 34),
@@ -1371,6 +1613,7 @@ export function ProcessManagement({ publicView = false }) {
         >
           <button
             type="button"
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => toggleCategory(category.id)}
             className="d-flex align-items-center gap-2 flex-grow-1 text-start"
             style={{ background: 'none', border: 'none', padding: 0 }}
@@ -1492,6 +1735,37 @@ export function ProcessManagement({ publicView = false }) {
                 {filterStatus === 'archived' ? (
                   <Badge bg="dark">Archive view</Badge>
                 ) : null}
+                {!publicView && selectableProcessIds.length > 0 ? (
+                  <>
+                    {!selectionMode ? (
+                      <Button size="sm" variant="outline-danger" onClick={() => setSelectionMode(true)}>
+                        <i className="bi bi-check2-square me-1" />
+                        Select processes
+                      </Button>
+                    ) : (
+                      <>
+                        <Form.Check
+                          type="checkbox"
+                          label="Select all"
+                          checked={areAllSelectableProcessesSelected}
+                          onChange={(event) => toggleSelectAllProcesses(event.target.checked)}
+                        />
+                        <Badge bg="primary">{selectedProcessCount} selected</Badge>
+                        <Button size="sm" variant="warning" onClick={handleBulkArchive}>
+                          <i className="bi bi-archive me-1" />
+                          Archive selected
+                        </Button>
+                        <Button size="sm" variant="danger" onClick={handleBulkDelete}>
+                          <i className="bi bi-trash me-1" />
+                          Delete selected
+                        </Button>
+                        <Button size="sm" variant="outline-secondary" onClick={disableSelectionMode}>
+                          Cancel
+                        </Button>
+                      </>
+                    )}
+                  </>
+                ) : null}
                 <Badge bg="secondary" className="ms-auto">{processes.length} processus</Badge>
               </div>
             </Card.Body>
@@ -1578,14 +1852,25 @@ export function ProcessManagement({ publicView = false }) {
       ) : (
         <Row><Col><Card className="border-0 shadow-sm"><div style={{ overflowX: 'auto' }}>
           <table className="table table-hover mb-0" style={{ minWidth: 650 }}>
-            <thead className="table-light"><tr><th>Name</th><th>Category</th><th>Status</th><th>Version</th><th>Updated</th><th style={{ width: 150 }}>Actions</th></tr></thead>
+            <thead className="table-light"><tr>{selectionMode ? <th style={{ width: 48 }}><Form.Check type="checkbox" checked={areAllSelectableProcessesSelected} onChange={(event) => toggleSelectAllProcesses(event.target.checked)} disabled={selectableProcessIds.length === 0} /></th> : null}<th>Name</th><th>Category</th><th>Status</th><th>Version</th><th>Updated</th><th style={{ width: 150 }}>Actions</th></tr></thead>
             <tbody>
-              {processes.length === 0 ? <tr><td colSpan={6} className="text-center py-4 text-muted">No processes found</td></tr> : processes.map((process) => (
+              {processes.length === 0 ? <tr><td colSpan={selectionMode ? 7 : 6} className="text-center py-4 text-muted">No processes found</td></tr> : processes.map((process) => (
                 <tr
                   key={process.id}
                   style={{ cursor: 'pointer' }}
                   onClick={() => openEditDetails(process)}
                 >
+                  {selectionMode ? (
+                    <td onClick={(event) => event.stopPropagation()}>
+                      {canDeleteProcessDefinition(process) ? (
+                        <Form.Check
+                          type="checkbox"
+                          checked={selectedProcessIds.includes(Number(process.id))}
+                          onChange={(event) => toggleProcessSelection(process.id, event.target.checked)}
+                        />
+                      ) : null}
+                    </td>
+                  ) : null}
                   <td><strong>{process.name}</strong>{process.description && <div className="text-muted" style={{ fontSize: 11 }}>{process.description}</div>}</td>
                   <td>{getCategoryLabel(process) || <span className="text-muted">-</span>}</td>
                   <td><Badge bg={statusVariant(process.status)}>{statusLabel(process.status)}</Badge></td>
