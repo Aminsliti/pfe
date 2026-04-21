@@ -1,4 +1,6 @@
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../../utils/api';
+
+const API = API_BASE;
 
 const DAY_OPTIONS = [
   { value: 1, label: 'Mon' },

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Card, Col, Container, Form, Row, Table } from 'react-bootstrap';
 
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../utils/api';
+
+const API = API_BASE;
 
 const entityLabels = {
   user: 'Utilisateur',

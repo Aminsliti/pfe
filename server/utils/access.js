@@ -4,8 +4,9 @@ export const ROLES = {
   ADMIN: 'Admin',
   DESIGNER: 'Designer',
   VALIDATOR: 'Validator',
-  PROCESS_OBSERVER: 'Process Observer',
 };
+
+export const ACTIVE_ROLES = Object.values(ROLES);
 
 export const LEGACY_ROLE_MAP = {
   Administrator: ROLES.ADMIN,
@@ -16,7 +17,6 @@ export const LEGACY_ROLE_MAP = {
   'Risk Manager': ROLES.VALIDATOR,
   'Process Validator': ROLES.VALIDATOR,
   'Process Manager': ROLES.VALIDATOR,
-  Viewer: ROLES.PROCESS_OBSERVER,
 };
 
 export const PERMISSIONS = {
@@ -60,10 +60,6 @@ const FALLBACK_PERMISSIONS_BY_ROLE = {
     PERMISSIONS.VIEW_DASHBOARD,
     PERMISSIONS.VIEW_REPORTS,
     PERMISSIONS.MANAGE_PROCESSES,
-  ],
-  [ROLES.PROCESS_OBSERVER]: [
-    PERMISSIONS.VIEW_DASHBOARD,
-    PERMISSIONS.VIEW_REPORTS,
   ],
 };
 
@@ -290,7 +286,6 @@ async function migrateLegacyRoles() {
     [ROLES.ADMIN]: 'Can administer the workspace and manage governance actions',
     [ROLES.DESIGNER]: 'Can design and update draft processes',
     [ROLES.VALIDATOR]: 'Can review, approve, and reopen governed processes',
-    [ROLES.PROCESS_OBSERVER]: 'Can consult processes without making changes',
   };
 
   const legacyPairs = [
@@ -302,7 +297,6 @@ async function migrateLegacyRoles() {
     ['Risk Manager', ROLES.VALIDATOR],
     ['Process Validator', ROLES.VALIDATOR],
     ['Process Manager', ROLES.VALIDATOR],
-    ['Viewer', ROLES.PROCESS_OBSERVER],
   ];
 
   for (const [, canonicalName] of legacyPairs) {
@@ -400,7 +394,6 @@ export async function ensureAccessBootstrap() {
         { name: ROLES.ADMIN, description: 'Can administer the workspace and manage governance actions' },
         { name: ROLES.DESIGNER, description: 'Can design and update draft processes' },
         { name: ROLES.VALIDATOR, description: 'Can review, approve, and reopen governed processes' },
-        { name: ROLES.PROCESS_OBSERVER, description: 'Can consult processes without making changes' },
       ];
 
       for (const role of roles) {
@@ -452,13 +445,6 @@ export async function ensureAccessBootstrap() {
             PERMISSIONS.VIEW_DASHBOARD,
             PERMISSIONS.VIEW_REPORTS,
             PERMISSIONS.MANAGE_PROCESSES,
-          ],
-        },
-        {
-          role: ROLES.PROCESS_OBSERVER,
-          permissions: [
-            PERMISSIONS.VIEW_DASHBOARD,
-            PERMISSIONS.VIEW_REPORTS,
           ],
         },
       ];

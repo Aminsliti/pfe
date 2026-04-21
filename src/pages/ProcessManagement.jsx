@@ -5,7 +5,9 @@ import { useSnackbar } from '../components/SnackbarProvider';
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown } from 'react-bootstrap';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../utils/api';
+
+const API = API_BASE;
 const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditorModeler'));
 const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
 const PROCESS_SECTION_CONFIG = [
@@ -257,10 +259,13 @@ export function ProcessManagement({ publicView = false }) {
   const [editingCategory, setEditingCategory] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCat, setFilterCat] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState(publicView ? 'approved' : '');
   const [viewMode, setViewMode] = useState('hierarchy');
   const [bpmnTarget, setBpmnTarget] = useState(null);
   const [collapsedCategories, setCollapsedCategories] = useState({});
+  const [collapsedSections, setCollapsedSections] = useState(() =>
+    Object.fromEntries(PROCESS_SECTION_CONFIG.map((section) => [section.key, true]))
+  );
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedProcessIds, setSelectedProcessIds] = useState([]);
   const [importForm, setImportForm] = useState({ name: '', description: '', category_id: '', status: 'draft' });
@@ -515,12 +520,33 @@ export function ProcessManagement({ publicView = false }) {
   }, [canCreateDefinitions, canViewWorkspace, publicView]);
   useEffect(() => { if (canViewWorkspace) loadProcesses(); }, [canViewWorkspace, searchTerm, filterCat, filterStatus]);
   useEffect(() => {
+    setCollapsedSections((previous) => {
+      const next = { ...previous };
+      let changed = false;
+
+      PROCESS_SECTION_CONFIG.forEach((section) => {
+        const nextValue = true;
+        if (next[section.key] !== nextValue) {
+          next[section.key] = nextValue;
+          changed = true;
+        }
+      });
+
+      return changed ? next : previous;
+    });
+  }, [publicView]);
+  useEffect(() => {
+    if (publicView && filterStatus !== 'approved') {
+      setFilterStatus('approved');
+    }
+  }, [publicView, filterStatus]);
+  useEffect(() => {
     setCollapsedCategories((previous) => {
       const next = { ...previous };
       let changed = false;
       categories.forEach((category) => {
         if (!(category.id in next)) {
-          next[category.id] = false;
+          next[category.id] = true;
           changed = true;
         }
       });
@@ -532,7 +558,7 @@ export function ProcessManagement({ publicView = false }) {
       });
       return changed ? next : previous;
     });
-  }, [categories]);
+  }, [categories, publicView]);
   useEffect(() => {
     setSelectedProcessIds((current) => current.filter((id) => processes.some((process) => Number(process.id) === Number(id))));
   }, [processes]);
@@ -1426,6 +1452,12 @@ export function ProcessManagement({ publicView = false }) {
     }
     clearProcessSelection();
   };
+  const toggleSection = (sectionKey) => {
+    setCollapsedSections((previous) => ({
+      ...previous,
+      [sectionKey]: !previous[sectionKey],
+    }));
+  };
   const availableVersions = processDetail?.versions || [];
   const selectedProcessRecord = processDetail || editingProcess || null;
   const currentWorkflowStatus = normalizeUiStatus(workflowInfo?.status || formData.status);
@@ -1496,7 +1528,7 @@ export function ProcessManagement({ publicView = false }) {
       className="d-flex align-items-center gap-2 px-3 py-2"
       style={{
         borderBottom: '1px solid #f1f5f9',
-        paddingLeft: indentLevel > 0 ? 132 + (indentLevel * 58) : 16,
+        paddingLeft: indentLevel > 0 ? 168 + (indentLevel * 68) : 16,
         background: indentLevel > 0 ? '#fff1f2' : 'white',
         boxShadow: indentLevel > 0 ? 'inset 8px 0 0 #fca5a5' : 'none',
         cursor: 'pointer',
@@ -1524,14 +1556,9 @@ export function ProcessManagement({ publicView = false }) {
           <div style={{ width: 22, flexShrink: 0 }} />
         )
       ) : null}
-      {indentLevel > 0 && (
-        <span style={{ color: '#ef4444', fontSize: 18, flexShrink: 0, marginRight: 10 }}>
-          <i className="bi bi-arrow-return-right" />
-        </span>
-      )}
       <i className="bi bi-bezier2 text-muted" style={{ fontSize: 15, flexShrink: 0 }} />
       <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{process.name}</span>
-      {process.description && <span className="text-muted d-none d-lg-inline" style={{ fontSize: 11, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{process.description}</span>}
+      {!publicView && process.description ? <span className="text-muted d-none d-lg-inline" style={{ fontSize: 11, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{process.description}</span> : null}
       <Badge bg={statusVariant(process.status)} style={{ fontSize: 10, flexShrink: 0 }}>{statusLabel(process.status)}</Badge>
       <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap', flexShrink: 0 }}>v{process.version}</span>
       <div className="d-flex gap-1 ms-1" style={{ flexShrink: 0 }}>
@@ -1621,7 +1648,7 @@ export function ProcessManagement({ publicView = false }) {
             <i className={`bi ${isCollapsed ? 'bi-chevron-right' : 'bi-chevron-down'}`} style={{ color: '#6c757d', fontSize: 12 }} />
             <i className={`bi ${level === 0 ? 'bi-diagram-3' : 'bi-diagram-2'} text-muted`} />
             <span style={{ fontSize: 13, color: '#334155', fontWeight: 600 }}>{category.name}</span>
-            {category.description && <span className="text-muted ms-2" style={{ fontSize: 11 }}>{category.description}</span>}
+            {!publicView && category.description ? <span className="text-muted ms-2" style={{ fontSize: 11 }}>{category.description}</span> : null}
             <Badge bg="light" text="dark" pill className="ms-auto">{totalCount}</Badge>
           </button>
           {canCreateDefinitions ? (
@@ -1680,17 +1707,19 @@ export function ProcessManagement({ publicView = false }) {
               {publicView ? <div className="text-muted small mt-1">Mode consultation publique</div> : null}
             </div>
             <div className="d-flex gap-2">
-              <Button
-                variant={filterStatus === 'archived' ? 'dark' : 'outline-secondary'}
-                size="sm"
-                onClick={() => {
-                  setFilterStatus((previous) => (previous === 'archived' ? '' : 'archived'));
-                  setViewMode('list');
-                }}
-              >
-                <i className="bi bi-archive me-1" />
-                {filterStatus === 'archived' ? 'Back To Live' : 'Archived Processes'}
-              </Button>
+              {!publicView ? (
+                <Button
+                  variant={filterStatus === 'archived' ? 'dark' : 'outline-secondary'}
+                  size="sm"
+                  onClick={() => {
+                    setFilterStatus((previous) => (previous === 'archived' ? '' : 'approved'));
+                    setViewMode('list');
+                  }}
+                >
+                  <i className="bi bi-archive me-1" />
+                  {filterStatus === 'archived' ? 'Back To Live' : 'Archived Processes'}
+                </Button>
+              ) : null}
               {canCreateDefinitions ? (
                 <>
                   <Button variant="outline-primary" size="sm" onClick={() => setShowTemplates(true)}>
@@ -1725,13 +1754,17 @@ export function ProcessManagement({ publicView = false }) {
                   <option value="">Toutes categories</option>
                   {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.pathLabel}</option>)}
                 </Form.Select>
-                <Form.Select size="sm" style={{ maxWidth: 140 }} value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
-                  <option value="">Tous statuts</option>
-                  <option value="draft">Draft</option>
-                  <option value="review">In Review</option>
-                  <option value="approved">Approved</option>
-                  <option value="archived">Archived</option>
-                </Form.Select>
+                {!publicView ? (
+                  <Form.Select size="sm" style={{ maxWidth: 140 }} value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
+                    <option value="">Tous statuts</option>
+                    <option value="draft">Draft</option>
+                    <option value="review">In Review</option>
+                    <option value="approved">Approved</option>
+                    <option value="archived">Archived</option>
+                  </Form.Select>
+                ) : (
+                  <Badge bg="success">Approved only</Badge>
+                )}
                 {filterStatus === 'archived' ? (
                   <Badge bg="dark">Archive view</Badge>
                 ) : null}
@@ -1812,38 +1845,50 @@ export function ProcessManagement({ publicView = false }) {
                   (total, category) => total + countProcessesInCategoryBranch(category),
                   0
                 );
+                const isSectionCollapsed = !!collapsedSections[section.key];
 
                 return (
-                  <Card key={section.key} className="border-0 shadow-sm">
-                    <Card.Header className="bg-light border-0 d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
-                      <div className="d-flex align-items-center gap-2">
-                        <i className={`bi ${section.icon} text-danger`} />
-                        <div>
-                          <div className="fw-semibold">{section.label}</div>
-                          <div className="text-muted small">
-                            {sectionCategories.length} categorie(s) - {sectionProcessCount} processus
+                  <div key={section.key}>
+                    <Card className="border-0 shadow-sm">
+                      <Card.Header className="bg-light border-0 d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => toggleSection(section.key)}
+                          className="d-flex align-items-center gap-2 text-start flex-grow-1"
+                          style={{ background: 'none', border: 'none', padding: 0 }}
+                        >
+                          <i className={`bi ${isSectionCollapsed ? 'bi-chevron-right' : 'bi-chevron-down'} text-muted`} style={{ fontSize: 12 }} />
+                          <i className={`bi ${section.icon} text-danger`} />
+                          <div>
+                            <div className="fw-semibold">{section.label}</div>
+                            <div className="text-muted small">
+                              {sectionCategories.length} categorie(s) - {sectionProcessCount} processus
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                      {canCreateDefinitions ? (
-                        <Button size="sm" variant="outline-success" onClick={() => openCategoryModal('', section.key)}>
-                          <i className="bi bi-plus-lg me-1" />
-                          New category
-                        </Button>
+                        </button>
+                        {canCreateDefinitions ? (
+                          <Button size="sm" variant="outline-success" onClick={() => openCategoryModal('', section.key)}>
+                            <i className="bi bi-plus-lg me-1" />
+                            New category
+                          </Button>
+                        ) : null}
+                      </Card.Header>
+                      {!isSectionCollapsed ? (
+                      <Card.Body className="p-0">
+                        {sectionCategories.length === 0 ? (
+                          <div className="text-muted small px-3 py-4">
+                            No categories in this section yet.
+                          </div>
+                        ) : (
+                          sectionCategories.map((category) => (
+                            <CategoryBranch key={category.id} category={category} />
+                          ))
+                        )}
+                      </Card.Body>
                       ) : null}
-                    </Card.Header>
-                    <Card.Body className="p-0">
-                      {sectionCategories.length === 0 ? (
-                        <div className="text-muted small px-3 py-4">
-                          No categories in this section yet.
-                        </div>
-                      ) : (
-                        sectionCategories.map((category) => (
-                          <CategoryBranch key={category.id} category={category} />
-                        ))
-                      )}
-                    </Card.Body>
-                  </Card>
+                    </Card>
+                  </div>
                 );
               })}
             </div>
@@ -2044,79 +2089,97 @@ export function ProcessManagement({ publicView = false }) {
               <Col lg={editingProcess ? 6 : 12}>
                 <Card className="border-0 bg-light-subtle">
                   <Card.Body>
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-                      <div>
-                        <h6 className="mb-1">Metadata</h6>
-                        <div className="text-muted small">Name, category, description, and workflow status.</div>
-                      </div>
-                      {editingProcess && <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>}
-                    </div>
+                    {publicView && editingProcess ? (
+                      <>
+                        <div className="d-flex justify-content-between align-items-center mb-3">
+                          <div>
+                            <h6 className="mb-1">Description</h6>
+                            <div className="text-muted small">Viewer mode only shows the process description with the diagram.</div>
+                          </div>
+                          <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>
+                        </div>
+                        <Form.Group className="mb-0">
+                          <Form.Label>Description</Form.Label>
+                          <Form.Control as="textarea" rows={8} readOnly value={formData.description || 'No description available for this process.'} />
+                        </Form.Group>
+                      </>
+                    ) : (
+                      <>
+                        <div className="d-flex justify-content-between align-items-center mb-3">
+                          <div>
+                            <h6 className="mb-1">Metadata</h6>
+                            <div className="text-muted small">Name, category, description, and workflow status.</div>
+                          </div>
+                          {editingProcess && <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>}
+                        </div>
 
-                    <Form.Group className="mb-3">
-                      <Form.Label>Name *</Form.Label>
-                      <Form.Control required disabled={!canEditSelectedProcess} value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
-                    </Form.Group>
-                    <Form.Group className="mb-3">
-                      <Form.Label>Description</Form.Label>
-                      <Form.Control as="textarea" rows={3} disabled={!canEditSelectedProcess} value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} />
-                    </Form.Group>
-                    <Row>
-                      <Col md={6}>
                         <Form.Group className="mb-3">
-                          <Form.Label>Category *</Form.Label>
-                          <Form.Select required disabled={!canEditSelectedProcess} value={formData.category_id} onChange={(event) => handleProcessCategoryChange(event.target.value)}>
-                            <option value="">Select category</option>
-                            {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.pathLabel}</option>)}
-                          </Form.Select>
+                          <Form.Label>Name *</Form.Label>
+                          <Form.Control required disabled={!canEditSelectedProcess} value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
                         </Form.Group>
-                      </Col>
-                      <Col md={6}>
                         <Form.Group className="mb-3">
-                          <Form.Label>Status</Form.Label>
-                          <Form.Control value={statusLabel(currentWorkflowStatus)} readOnly />
+                          <Form.Label>Description</Form.Label>
+                          <Form.Control as="textarea" rows={3} disabled={!canEditSelectedProcess} value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} />
                         </Form.Group>
-                      </Col>
-                    </Row>
-                    <Row>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Assigned process designer</Form.Label>
-                          {renderGovernanceChecklist({
-                            options: governanceOptions.designers,
-                            selectedIds: formData.assigned_designer_ids,
-                            disabled: !canManageProcessAssignments,
-                            onToggle: (assigned_designer_ids) => setFormData({ ...formData, assigned_designer_ids }),
-                            emptyLabel: 'No process designers are available yet.',
-                            inputPrefix: 'process-designer',
-                          })}
-                          <div className="text-muted small mt-1">
-                            Choose one or more people who can edit the process while it is in draft.
-                          </div>
-                        </Form.Group>
-                      </Col>
-                      <Col md={6}>
-                        <Form.Group className="mb-3">
-                          <Form.Label>Assigned process manager *</Form.Label>
-                          {renderGovernanceChecklist({
-                            options: governanceOptions.validators,
-                            selectedIds: formData.assigned_validator_ids,
-                            disabled: !canManageProcessAssignments,
-                            onToggle: (assigned_validator_ids) => setFormData({ ...formData, assigned_validator_ids }),
-                            emptyLabel: 'No process managers are available yet.',
-                            inputPrefix: 'process-manager',
-                          })}
-                          <div className="text-muted small mt-1">
-                            Choose one or more people who can validate, reopen, archive, and edit the process.
-                          </div>
-                        </Form.Group>
-                      </Col>
-                    </Row>
-                    {governanceLoading ? <div className="text-muted small">Loading governance options...</div> : null}
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Category *</Form.Label>
+                              <Form.Select required disabled={!canEditSelectedProcess} value={formData.category_id} onChange={(event) => handleProcessCategoryChange(event.target.value)}>
+                                <option value="">Select category</option>
+                                {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.pathLabel}</option>)}
+                              </Form.Select>
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Status</Form.Label>
+                              <Form.Control value={statusLabel(currentWorkflowStatus)} readOnly />
+                            </Form.Group>
+                          </Col>
+                        </Row>
+                        <Row>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Assigned process designer</Form.Label>
+                              {renderGovernanceChecklist({
+                                options: governanceOptions.designers,
+                                selectedIds: formData.assigned_designer_ids,
+                                disabled: !canManageProcessAssignments,
+                                onToggle: (assigned_designer_ids) => setFormData({ ...formData, assigned_designer_ids }),
+                                emptyLabel: 'No process designers are available yet.',
+                                inputPrefix: 'process-designer',
+                              })}
+                              <div className="text-muted small mt-1">
+                                Choose one or more people who can edit the process while it is in draft.
+                              </div>
+                            </Form.Group>
+                          </Col>
+                          <Col md={6}>
+                            <Form.Group className="mb-3">
+                              <Form.Label>Assigned process manager *</Form.Label>
+                              {renderGovernanceChecklist({
+                                options: governanceOptions.validators,
+                                selectedIds: formData.assigned_validator_ids,
+                                disabled: !canManageProcessAssignments,
+                                onToggle: (assigned_validator_ids) => setFormData({ ...formData, assigned_validator_ids }),
+                                emptyLabel: 'No process managers are available yet.',
+                                inputPrefix: 'process-manager',
+                              })}
+                              <div className="text-muted small mt-1">
+                                Choose one or more people who can validate, reopen, archive, and edit the process.
+                              </div>
+                            </Form.Group>
+                          </Col>
+                        </Row>
+                        {governanceLoading ? <div className="text-muted small">Loading governance options...</div> : null}
+                      </>
+                    )}
                   </Card.Body>
                 </Card>
               </Col>
 
-              {editingProcess && (
+              {editingProcess && !publicView && (
                 <Col lg={6}>
                   <Card className="border-0 shadow-sm h-100">
                     <Card.Body>
@@ -2226,7 +2289,7 @@ export function ProcessManagement({ publicView = false }) {
               )}
             </Row>
 
-            {editingProcess && (
+            {editingProcess && !publicView && (
               <Row className="g-4 mt-1">
                 <Col lg={12}>
                   <Card className="border-0 shadow-sm">

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, ListGroup, Offcanvas } from 'react-bootstrap';
 
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../utils/api';
+
+const API = API_BASE;
 
 function formatDate(value) {
   if (!value) return '-';

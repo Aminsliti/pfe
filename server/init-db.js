@@ -201,7 +201,6 @@ const seedData = async () => {
       { name: 'Admin', description: 'Full system access' },
       { name: 'Designer', description: 'Can create and edit draft processes' },
       { name: 'Validator', description: 'Can review and approve governed processes' },
-      { name: 'Process Observer', description: 'Can consult processes without changing them' },
     ];
 
     for (const role of roles) {
@@ -257,10 +256,6 @@ const seedData = async () => {
     const hashedValidator = await bcrypt.default.hash('validator123', 10);
     const hashedValidatorA = await bcrypt.default.hash('managerA123', 10);
     const hashedValidatorB = await bcrypt.default.hash('managerB123', 10);
-    const hashedViewer = await bcrypt.default.hash('viewer123', 10);
-    const hashedViewerA = await bcrypt.default.hash('viewerA123', 10);
-    const hashedViewerB = await bcrypt.default.hash('viewerB123', 10);
-
     const users = [
       { username: 'admin', password: hashedAdmin, email: 'admin@pfe.com', full_name: 'System Administrator', role: 'Admin', company_id: 1 },
       { username: 'designer', password: hashedDesigner, email: 'designer@pfe.com', full_name: 'Process Designer', role: 'Designer', company_id: 1 },
@@ -269,9 +264,6 @@ const seedData = async () => {
       { username: 'validator', password: hashedValidator, email: 'validator@pfe.com', full_name: 'Process Validator', role: 'Validator', company_id: 1 },
       { username: 'manager_a', password: hashedValidatorA, email: 'manager.a@pfe.com', full_name: 'Process Manager A', role: 'Validator', company_id: 1 },
       { username: 'manager_b', password: hashedValidatorB, email: 'manager.b@pfe.com', full_name: 'Process Manager B', role: 'Validator', company_id: 1 },
-      { username: 'viewer', password: hashedViewer, email: 'viewer@pfe.com', full_name: 'Process Observer', role: 'Process Observer', company_id: 1 },
-      { username: 'viewer_a', password: hashedViewerA, email: 'viewer.a@pfe.com', full_name: 'Process Observer A', role: 'Process Observer', company_id: 1 },
-      { username: 'viewer_b', password: hashedViewerB, email: 'viewer.b@pfe.com', full_name: 'Process Observer B', role: 'Process Observer', company_id: 1 },
     ];
 
     for (const user of users) {
@@ -292,7 +284,6 @@ const seedData = async () => {
       { role: 'Admin', permissions: ['user_management', 'role_management', 'view_dashboard', 'view_reports', 'manage_processes', 'manage_risks'] },
       { role: 'Designer', permissions: ['view_dashboard', 'view_reports', 'manage_processes'] },
       { role: 'Validator', permissions: ['view_dashboard', 'view_reports', 'manage_processes'] },
-      { role: 'Process Observer', permissions: ['view_dashboard', 'view_reports'] },
     ];
 
     for (const rp of rolePermissions) {

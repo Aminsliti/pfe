@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { apiUrl, isApiUrl } from '../utils/api';
 
 const AuthContext = createContext(null);
-
-const API_URL = 'http://localhost:3001/api';
 const ORIGINAL_FETCH =
   typeof globalThis.fetch === 'function'
     ? globalThis.fetch.bind(globalThis)
@@ -14,14 +13,14 @@ export const ROLES = {
   ADMIN: 'Admin',
   DESIGNER: 'Designer',
   VALIDATOR: 'Validator',
-  PROCESS_OBSERVER: 'Process Observer',
 };
+
+export const ACTIVE_ROLES = Object.values(ROLES);
 
 export const ROLE_LABELS = {
   [ROLES.ADMIN]: 'Admin',
   [ROLES.DESIGNER]: 'Process Designer',
   [ROLES.VALIDATOR]: 'Process Manager',
-  [ROLES.PROCESS_OBSERVER]: 'Viewer',
 };
 
 const LEGACY_ROLE_MAP = {
@@ -33,7 +32,6 @@ const LEGACY_ROLE_MAP = {
   'Risk Manager': ROLES.VALIDATOR,
   'Process Validator': ROLES.VALIDATOR,
   'Process Manager': ROLES.VALIDATOR,
-  Viewer: ROLES.PROCESS_OBSERVER,
 };
 
 export const PERMISSIONS = {
@@ -116,7 +114,7 @@ export function resolveRequestUrl(input) {
 }
 
 export function shouldAttachUserHeader(url) {
-  return url.startsWith(API_URL) || url.startsWith('/api/') || url.includes('://localhost:3001/api');
+  return isApiUrl(url);
 }
 
 export function createAuthedFetch(fetchImpl = ORIGINAL_FETCH) {
@@ -191,7 +189,7 @@ export function AuthProvider({ children }) {
 
   const login = async (username, password) => {
     try {
-      const response = await ORIGINAL_FETCH(`${API_URL}/login`, {
+      const response = await ORIGINAL_FETCH(apiUrl('/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -221,7 +219,7 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const response = await fetch(`${API_URL}/session`);
+      const response = await fetch(apiUrl('/session'));
       const data = await parseResponse(response, 'Failed to refresh session');
       const nextPermissions = data.permissions || [];
       const normalizedUser = normalizeStoredUser(data.user);
@@ -258,7 +256,7 @@ export function AuthProvider({ children }) {
 
   const getAllUsers = async () => {
     try {
-      const response = await fetch(`${API_URL}/users`);
+      const response = await fetch(apiUrl('/users'));
       return await parseResponse(response, 'Failed to load users');
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -268,7 +266,7 @@ export function AuthProvider({ children }) {
 
   const createUser = async (userData) => {
     try {
-      const response = await fetch(`${API_URL}/users`, {
+      const response = await fetch(apiUrl('/users'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -286,7 +284,7 @@ export function AuthProvider({ children }) {
 
   const updateUser = async (userId, userData) => {
     try {
-      const response = await fetch(`${API_URL}/users/${userId}`, {
+      const response = await fetch(apiUrl(`/users/${userId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -307,7 +305,7 @@ export function AuthProvider({ children }) {
 
   const deleteUser = async (userId) => {
     try {
-      const response = await fetch(`${API_URL}/users/${userId}`, {
+      const response = await fetch(apiUrl(`/users/${userId}`), {
         method: 'DELETE',
       });
 
@@ -321,7 +319,7 @@ export function AuthProvider({ children }) {
 
   const getAllRoles = async () => {
     try {
-      const response = await fetch(`${API_URL}/roles`);
+      const response = await fetch(apiUrl('/roles'));
       return await parseResponse(response, 'Failed to load roles');
     } catch (error) {
       console.error('Error fetching roles:', error);
@@ -331,7 +329,7 @@ export function AuthProvider({ children }) {
 
   const getAllPermissions = async () => {
     try {
-      const response = await fetch(`${API_URL}/permissions`);
+      const response = await fetch(apiUrl('/permissions'));
       return await parseResponse(response, 'Failed to load permissions');
     } catch (error) {
       console.error('Error fetching permissions:', error);
@@ -341,7 +339,7 @@ export function AuthProvider({ children }) {
 
   const getRolesWithPermissions = async () => {
     try {
-      const response = await fetch(`${API_URL}/roles-with-permissions`);
+      const response = await fetch(apiUrl('/roles-with-permissions'));
       return await parseResponse(response, 'Failed to load roles');
     } catch (error) {
       console.error('Error fetching roles with permissions:', error);
@@ -351,7 +349,7 @@ export function AuthProvider({ children }) {
 
   const updateRolePermissions = async (roleId, permissionIds) => {
     try {
-      const response = await fetch(`${API_URL}/roles/${roleId}/permissions`, {
+      const response = await fetch(apiUrl(`/roles/${roleId}/permissions`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -369,7 +367,7 @@ export function AuthProvider({ children }) {
 
   const createRole = async (roleData) => {
     try {
-      const response = await fetch(`${API_URL}/roles`, {
+      const response = await fetch(apiUrl('/roles'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -387,7 +385,7 @@ export function AuthProvider({ children }) {
 
   const updateRole = async (roleId, roleData) => {
     try {
-      const response = await fetch(`${API_URL}/roles/${roleId}`, {
+      const response = await fetch(apiUrl(`/roles/${roleId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -405,7 +403,7 @@ export function AuthProvider({ children }) {
 
   const deleteRole = async (roleId) => {
     try {
-      const response = await fetch(`${API_URL}/roles/${roleId}`, {
+      const response = await fetch(apiUrl(`/roles/${roleId}`), {
         method: 'DELETE',
       });
 

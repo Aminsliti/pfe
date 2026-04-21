@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
 import {
+  ACTIVE_ROLES,
   buildRequestUser,
   canManageRoles,
   canonicalizeRoleName,
@@ -46,7 +47,7 @@ function normalizeAdditionalRoles(rawRoles, primaryRole, actor) {
     return [];
   }
 
-  const allowedRoles = new Set(Object.values(ROLES));
+  const allowedRoles = new Set(ACTIVE_ROLES);
   const seen = new Set();
   const normalized = [];
 
@@ -279,7 +280,7 @@ router.post('/users', async (req, res) => {
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
     const { username, password, email, fullName, role } = scopedPayload;
     const primaryRole = canonicalizeRoleName(role);
-    if (!Object.values(ROLES).includes(primaryRole)) {
+    if (!ACTIVE_ROLES.includes(primaryRole)) {
       return res.status(400).json({ error: 'Invalid role selection.' });
     }
     let additionalRoles;
@@ -360,7 +361,7 @@ router.put('/users/:id', async (req, res) => {
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
     const { username, password, email, fullName, role } = scopedPayload;
     const primaryRole = canonicalizeRoleName(role);
-    if (!Object.values(ROLES).includes(primaryRole)) {
+    if (!ACTIVE_ROLES.includes(primaryRole)) {
       return res.status(400).json({ error: 'Invalid role selection.' });
     }
     let additionalRoles;
@@ -507,7 +508,7 @@ router.get('/roles', async (req, res) => {
     if (!canManageRoles(req.user)) {
       return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
-    const result = await pool.query('SELECT * FROM roles ORDER BY id');
+    const result = await pool.query('SELECT * FROM roles WHERE name = ANY($1::text[]) ORDER BY id', [ACTIVE_ROLES]);
     res.json(result.rows);
   } catch (error) {
     console.error('Get roles error:', error);
@@ -555,7 +556,7 @@ router.get('/roles-with-permissions', async (req, res) => {
     if (!canManageRoles(req.user)) {
       return res.status(403).json({ error: 'Only admins can manage roles.' });
     }
-    const rolesResult = await pool.query('SELECT * FROM roles ORDER BY id');
+    const rolesResult = await pool.query('SELECT * FROM roles WHERE name = ANY($1::text[]) ORDER BY id', [ACTIVE_ROLES]);
     const roles = rolesResult.rows;
 
     const rolesWithPermissions = await Promise.all(
@@ -715,7 +716,7 @@ router.delete('/roles/:id', async (req, res) => {
     if (!roleResult.rows.length) {
       return res.status(404).json({ error: 'Role not found' });
     }
-    if (Object.values(ROLES).includes(roleResult.rows[0].name)) {
+    if (ACTIVE_ROLES.includes(roleResult.rows[0].name)) {
       return res.status(400).json({ error: 'Core roles cannot be deleted.' });
     }
     

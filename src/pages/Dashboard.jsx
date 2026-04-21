@@ -21,8 +21,6 @@ export function Dashboard() {
         return 'primary';
       case ROLES.VALIDATOR:
         return 'warning';
-      case ROLES.PROCESS_OBSERVER:
-        return 'secondary';
       default:
         return 'secondary';
     }

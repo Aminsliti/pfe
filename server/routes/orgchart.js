@@ -185,7 +185,6 @@ async function seedDefaultOrgChart() {
       Admin: { key: 'leadership', label: 'Leadership', type: 'division', color: '#dc2626' },
       Designer: { key: 'process', label: 'Process Design', type: 'department', color: '#2563eb' },
       Validator: { key: 'validation', label: 'Validation', type: 'department', color: '#7c3aed' },
-      'Process Observer': { key: 'observation', label: 'Observation', type: 'team', color: '#0891b2' },
     };
     const departments = new Map();
 

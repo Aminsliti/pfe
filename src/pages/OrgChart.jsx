@@ -17,7 +17,9 @@ import { useSnackbar } from '../components/SnackbarProvider';
 import EntityCollaborationPanel from '../components/EntityCollaborationPanel';
 import './OrgChart.css';
 
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../utils/api';
+
+const API = API_BASE;
 const CARD_WIDTH = 280;
 const CARD_HEIGHT = 164;
 const H_GAP = 40;
@@ -39,7 +41,7 @@ const EMPTY_FORM = {
   parentId: '',
   userId: '',
   description: '',
-  color: '#2563eb',
+  color: TYPE_META.department.color,
   isVacant: false,
 };
 
@@ -236,7 +238,7 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
         <Form.Select
           value={form.nodeType}
           onChange={(event) =>
-            setForm((current) => ({ ...current, nodeType: event.target.value, color: current.color || nodeMeta(event.target.value).color }))
+            setForm((current) => ({ ...current, nodeType: event.target.value, color: nodeMeta(event.target.value).color }))
           }
         >
           {Object.entries(TYPE_META).map(([value, meta]) => (
@@ -275,13 +277,6 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
           ))}
         </Form.Select>
       </Form.Group>
-      <Form.Group>
-        <Form.Label>Card Color</Form.Label>
-        <div className="org-color-field">
-          <Form.Control type="color" value={form.color} onChange={(event) => setForm((current) => ({ ...current, color: event.target.value }))} />
-          <Form.Control value={form.color} onChange={(event) => setForm((current) => ({ ...current, color: event.target.value }))} />
-        </div>
-      </Form.Group>
       <Form.Group className="org-form-grid__full">
         <Form.Check
           type="switch"
@@ -317,6 +312,7 @@ export function OrgChart({ publicView = false }) {
   const [selectedId, setSelectedId] = useState(null);
   const [inspectorForm, setInspectorForm] = useState(EMPTY_FORM);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1);
@@ -344,7 +340,13 @@ export function OrgChart({ publicView = false }) {
         : { users: [] };
       setNodes(nextNodes);
       setUsers(meta.users || []);
-      setSelectedId((current) => (current && nextNodes.some((node) => node.id === current) ? current : nextNodes[0]?.id || null));
+      setSelectedId((current) => {
+        if (current && nextNodes.some((node) => node.id === current)) {
+          return current;
+        }
+
+        return publicView ? null : nextNodes[0]?.id || null;
+      });
     } catch (requestError) {
       console.error(requestError);
       setError(requestError.message || 'The organigram could not be loaded.');
@@ -377,18 +379,18 @@ export function OrgChart({ publicView = false }) {
   const layout = buildLayout(visibleNodes);
 
   useEffect(() => {
-    if (!boardFullscreen || loading || !visibleNodes.length || !canvasRef.current) {
+    if (loading || !visibleNodes.length || !canvasRef.current) {
       return undefined;
     }
 
-    const fitToFullscreen = () => {
+    const fitToBoard = () => {
       const canvas = canvasRef.current;
       if (!canvas) {
         return;
       }
 
-      const horizontalPadding = 48;
-      const verticalPadding = 48;
+      const horizontalPadding = boardFullscreen ? 48 : 36;
+      const verticalPadding = boardFullscreen ? 48 : 36;
       const widthScale = (canvas.clientWidth - horizontalPadding) / layout.width;
       const heightScale = (canvas.clientHeight - verticalPadding) / layout.height;
       const nextZoom = Math.min(widthScale, heightScale);
@@ -397,14 +399,23 @@ export function OrgChart({ publicView = false }) {
         return;
       }
 
-      setZoom(Math.max(0.22, Math.min(1.8, Number(nextZoom.toFixed(2)))));
+      setZoom(Math.max(0.1, Math.min(1.8, Number(nextZoom.toFixed(2)))));
     };
 
     const rafId = window.requestAnimationFrame(() => {
-      fitToFullscreen();
+      fitToBoard();
     });
 
-    return () => window.cancelAnimationFrame(rafId);
+    const resizeObserver = new ResizeObserver(() => {
+      fitToBoard();
+    });
+
+    resizeObserver.observe(canvasRef.current);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
+    };
   }, [boardFullscreen, loading, visibleNodes.length, layout.width, layout.height]);
 
   const parentOptions = selectedNode
@@ -418,6 +429,11 @@ export function OrgChart({ publicView = false }) {
   };
 
   const showMessage = (text, variant = 'success') => showSnackbar(text, variant);
+
+  const openNodeDetails = (nodeId) => {
+    setSelectedId(nodeId);
+    setShowDetailsModal(true);
+  };
 
   const openCreateModal = (parentNode = null) => {
     const suggestedType = parentNode
@@ -504,6 +520,7 @@ export function OrgChart({ publicView = false }) {
     try {
       await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'DELETE', {});
       showMessage('Organigram node deleted.');
+      setShowDetailsModal(false);
       setSelectedId(selectedNode.parentId || null);
       await loadOrgChart(true);
     } catch (requestError) {
@@ -554,36 +571,40 @@ export function OrgChart({ publicView = false }) {
 
   return (
     <Container fluid className="org-page">
-      <section className="org-hero">
-        <div className="org-hero__copy">
-          <span className="org-hero__eyebrow">Organisation Builder</span>
-          <h1>Interactive Org Chart</h1>
-          <p>Build real organigrams with structures, departments, teams, functions, and assigned people. Drag cards to re-parent them or edit the selected node in the inspector.</p>
-        </div>
-        <div className="org-hero__actions">
-          <Button variant="outline-secondary" className="org-hero__refresh" onClick={() => loadOrgChart()}>
-            <i className="bi bi-arrow-clockwise me-2"></i>Refresh
-          </Button>
-          {canEdit && (
-            <Button className="org-hero__primary" onClick={() => openCreateModal()}>
-              <i className="bi bi-plus-circle me-2"></i>Add Root Node
+      {!publicView ? (
+        <section className="org-hero">
+          <div className="org-hero__copy">
+            <span className="org-hero__eyebrow">Organisation Builder</span>
+            <h1>Interactive Org Chart</h1>
+            <p>Build real organigrams with structures, departments, teams, functions, and assigned people. Drag cards to re-parent them or edit the selected node in the inspector.</p>
+          </div>
+          <div className="org-hero__actions">
+            <Button variant="outline-secondary" className="org-hero__refresh" onClick={() => loadOrgChart()}>
+              <i className="bi bi-arrow-clockwise me-2"></i>Refresh
             </Button>
-          )}
-        </div>
-      </section>
+            {canEdit && (
+              <Button className="org-hero__primary" onClick={() => openCreateModal()}>
+                <i className="bi bi-plus-circle me-2"></i>Add Root Node
+              </Button>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       {error && <Alert variant="danger">{error}</Alert>}
-      {!canEdit && (
+      {!publicView && !canEdit && (
         <Alert variant="info" className="org-readonly-banner">
           {publicView ? 'Public portal: the organigram is available in read-only mode.' : 'You are viewing the organigram in read-only mode.'}
         </Alert>
       )}
 
-      <Row className="g-3 org-metrics">
-        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>
-        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Filled functions</span><strong>{metrics.filled}</strong><p>Functions already assigned to a person.</p></Card.Body></Card></Col>
-        <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open functions</span><strong>{metrics.open}</strong><p>Vacant or unassigned functions.</p></Card.Body></Card></Col>
-      </Row>
+      {!publicView ? (
+        <Row className="g-3 org-metrics">
+          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>
+          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Filled functions</span><strong>{metrics.filled}</strong><p>Functions already assigned to a person.</p></Card.Body></Card></Col>
+          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open functions</span><strong>{metrics.open}</strong><p>Vacant or unassigned functions.</p></Card.Body></Card></Col>
+        </Row>
+      ) : null}
 
       <div className="org-workspace">
         <Card className={`org-board${boardFullscreen ? ' is-fullscreen' : ''}`} ref={boardRef}>
@@ -602,7 +623,7 @@ export function OrgChart({ publicView = false }) {
                   {boardFullscreen ? 'Exit full screen' : 'Full screen'}
                 </Button>
                 <div className="org-zoom">
-                  <button onClick={() => setZoom((current) => Math.max(0.2, +(current - 0.1).toFixed(1)))}>-</button>
+                  <button onClick={() => setZoom((current) => Math.max(0.1, +(current - 0.1).toFixed(1)))}>-</button>
                   <span>{Math.round(zoom * 100)}%</span>
                   <button onClick={() => setZoom((current) => Math.min(1.8, +(current + 0.1).toFixed(1)))}>+</button>
                 </div>
@@ -662,11 +683,11 @@ export function OrgChart({ publicView = false }) {
                           style={{ left: node.left + CANVAS_PADDING, top: node.top + CANVAS_PADDING, '--node-accent': node.color || meta.color }}
                           role="button"
                           tabIndex={0}
-                          onClick={() => setSelectedId(node.id)}
+                          onClick={() => openNodeDetails(node.id)}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault();
-                              setSelectedId(node.id);
+                              openNodeDetails(node.id);
                             }
                           }}
                           draggable={canEdit}
@@ -722,65 +743,64 @@ export function OrgChart({ publicView = false }) {
           </Card.Body>
         </Card>
 
-        <Card className="org-inspector">
-          <Card.Body>
-            <div className="org-inspector__header">
-              <div>
-                <span className="org-inspector__eyebrow">Inspector</span>
-                <h2>{selectedNode ? selectedNode.name : 'Select a node'}</h2>
-              </div>
-              {selectedNode && <Badge bg="light" text="dark">{nodeMeta(selectedNode.nodeType).label}</Badge>}
-            </div>
+      </div>
 
-            {selectedNode ? (
-              <>
-                <div className="org-inspector__meta">
-                  <div><span>Created</span><strong>{formatDate(selectedNode.createdAt)}</strong></div>
-                  <div><span>Updated</span><strong>{formatDate(selectedNode.updatedAt)}</strong></div>
-                  <div><span>Direct reports</span><strong>{childCount(nodes, selectedNode.id)}</strong></div>
-                  <div><span>All descendants</span><strong>{descendantCount(nodes, selectedNode.id)}</strong></div>
+      <Modal show={Boolean(selectedNode && showDetailsModal)} onHide={() => setShowDetailsModal(false)} size="xl" centered>
+        <Modal.Header closeButton className="org-modal__header">
+          <Modal.Title>{selectedNode ? selectedNode.name : 'Node details'}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="org-modal__body">
+          {selectedNode ? (
+            <div className="d-flex flex-column gap-4">
+              <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                <div>
+                  <span className="org-inspector__eyebrow">Inspector</span>
+                  <h2 className="mb-2">{selectedNode.name}</h2>
                 </div>
+                <Badge bg="light" text="dark">{nodeMeta(selectedNode.nodeType).label}</Badge>
+              </div>
 
-                {canEdit ? (
-                  <Form onSubmit={saveSelectedNode}>
-                    <OrgNodeFields form={inspectorForm} setForm={setInspectorForm} users={users} parentOptions={parentOptions} />
-                    <div className="org-inspector__actions">
-                      <Button variant="outline-secondary" onClick={() => openCreateModal(selectedNode)}><i className="bi bi-plus-circle me-2"></i>Add Child</Button>
-                      <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
-                    </div>
-                    <Button variant="outline-danger" className="org-inspector__delete" onClick={deleteSelectedNode} disabled={saving}>
-                      <i className="bi bi-trash me-2"></i>Delete Node
-                    </Button>
-                  </Form>
-                ) : (
-                  <div className="org-inspector__readonly">
-                    <p>{selectedNode.description || 'No description for this node yet.'}</p>
-                    <ul>
-                      <li>Assigned: {selectedNode.userName || 'Unassigned'}</li>
-                      <li>Title: {selectedNode.title || 'Not specified'}</li>
-                    </ul>
+              <div className="org-inspector__meta">
+                <div><span>Created</span><strong>{formatDate(selectedNode.createdAt)}</strong></div>
+                <div><span>Updated</span><strong>{formatDate(selectedNode.updatedAt)}</strong></div>
+                <div><span>Direct reports</span><strong>{childCount(nodes, selectedNode.id)}</strong></div>
+                <div><span>All descendants</span><strong>{descendantCount(nodes, selectedNode.id)}</strong></div>
+              </div>
+
+              {canEdit ? (
+                <Form onSubmit={saveSelectedNode}>
+                  <OrgNodeFields form={inspectorForm} setForm={setInspectorForm} users={users} parentOptions={parentOptions} />
+                  <div className="org-inspector__actions">
+                    <Button variant="outline-secondary" onClick={() => openCreateModal(selectedNode)}><i className="bi bi-plus-circle me-2"></i>Add Child</Button>
+                    <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
                   </div>
-                )}
+                  <Button variant="outline-danger" className="org-inspector__delete" onClick={deleteSelectedNode} disabled={saving}>
+                    <i className="bi bi-trash me-2"></i>Delete Node
+                  </Button>
+                </Form>
+              ) : (
+                <div className="org-inspector__readonly">
+                  <p>{selectedNode.description || 'No description for this node yet.'}</p>
+                  <ul>
+                    <li>Assigned: {selectedNode.userName || 'Unassigned'}</li>
+                    <li>Title: {selectedNode.title || 'Not specified'}</li>
+                  </ul>
+                </div>
+              )}
 
-                <div className="mt-4">
+              {!publicView ? (
+                <div>
                   <EntityCollaborationPanel
                     entityType="orgchart_node"
                     entityId={selectedNode.id}
                     title="Commentaires et fichiers du noeud"
                   />
                 </div>
-              </>
-            ) : (
-              <div className="org-inspector__empty">
-                <div className="org-state__icon"><i className="bi bi-cursor"></i></div>
-                <h3>No node selected</h3>
-                <p>Click any card in the chart to inspect or edit it.</p>
-                {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Add Root Node</Button>}
-              </div>
-            )}
-          </Card.Body>
-        </Card>
-      </div>
+              ) : null}
+            </div>
+          ) : null}
+        </Modal.Body>
+      </Modal>
 
       <Modal show={showCreateModal} onHide={() => setShowCreateModal(false)} size="lg" centered>
         <Modal.Header closeButton className="org-modal__header">

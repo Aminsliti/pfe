@@ -67,7 +67,6 @@ export function Layout() {
       Admin: 'danger',
       Designer: 'primary',
       Validator: 'warning',
-      'Process Observer': 'secondary',
     };
     return map[role] || 'secondary';
   };

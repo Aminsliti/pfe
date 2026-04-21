@@ -30,11 +30,11 @@ describe('database CRUD contracts', () => {
 
     pool.query
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'crud@pfe.com', full_name: 'Crud User', role: 'Viewer', company_id: null }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'crud@pfe.com', full_name: 'Crud User', role: 'Designer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, company_id: null, role: 'Viewer' }]))
-      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'updated@pfe.com', full_name: 'Crud User', role: 'Viewer', company_id: null }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, company_id: null, role: 'Designer' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 31, username: 'crud-user', email: 'updated@pfe.com', full_name: 'Crud User', role: 'Designer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([{ id: 31, company_id: null }]))
@@ -57,13 +57,13 @@ describe('database CRUD contracts', () => {
       password: 'secret',
       email: 'crud@pfe.com',
       fullName: 'Crud User',
-      role: 'Viewer',
+      role: 'Designer',
     });
     await request(app).put('/api/users/31').send({
       username: 'crud-user',
       email: 'updated@pfe.com',
       fullName: 'Crud User',
-      role: 'Viewer',
+      role: 'Designer',
     });
     await request(app).delete('/api/users/31');
 

@@ -22,12 +22,9 @@ describe('Dashboard', () => {
       },
       hasPermission: (permission) => ['user_management', 'manage_processes', 'view_dashboard'].includes(permission),
       ROLES: {
-        ADMINISTRATOR: 'Administrator',
-        COMPANY_ADMINISTRATOR: 'Company Administrator',
-        BUSINESS_ANALYST: 'Business Analyst',
-        PROCESS_OWNER: 'Process Owner',
-        RISK_MANAGER: 'Risk Manager',
-        VIEWER: 'Viewer',
+        ADMIN: 'Admin',
+        DESIGNER: 'Designer',
+        VALIDATOR: 'Validator',
       },
       PERMISSIONS: {
         USER_MANAGEMENT: 'user_management',

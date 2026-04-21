@@ -27,9 +27,9 @@ describe('AuthContext', () => {
   it('hydrates user state from localStorage', async () => {
     localStorage.setItem('currentUser', JSON.stringify({
       id: 5,
-      username: 'viewer',
-      fullName: 'Viewer User',
-      role: 'Viewer',
+      username: 'designer',
+      fullName: 'Designer User',
+      role: 'Designer',
     }));
     localStorage.setItem('permissions', JSON.stringify(['view_dashboard']));
 
@@ -49,7 +49,7 @@ describe('AuthContext', () => {
       </AuthProvider>
     );
 
-    expect(await screen.findByText('viewer')).toBeInTheDocument();
+    expect(await screen.findByText('designer')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
@@ -81,9 +81,9 @@ describe('AuthContext', () => {
   it('logs out and clears persisted state', async () => {
     localStorage.setItem('currentUser', JSON.stringify({
       id: 5,
-      username: 'viewer',
-      fullName: 'Viewer User',
-      role: 'Viewer',
+      username: 'designer',
+      fullName: 'Designer User',
+      role: 'Designer',
     }));
     localStorage.setItem('permissions', JSON.stringify(['view_dashboard']));
 

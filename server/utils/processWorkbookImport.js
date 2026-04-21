@@ -27,7 +27,6 @@ const LEGACY_ROLE_MAP = {
   'Process Manager': 'Validator',
   'Process Validator': 'Validator',
   'Risk Manager': 'Validator',
-  Viewer: 'Process Observer',
 };
 
 function createXmlDocument(xml) {

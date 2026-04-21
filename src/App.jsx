@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, ROLES, useAuth } from './contexts/AuthContext';
+import { ACTIVE_ROLES, AuthProvider, ROLES, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { SnackbarProvider } from './components/SnackbarProvider';
 import { getHomePath } from './utils/navigation';
@@ -61,7 +61,7 @@ function App() {
               <Route
                 path="/"
                 element={
-                  <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                  <ProtectedRoute allowedRoles={ACTIVE_ROLES}>
                     <Layout />
                   </ProtectedRoute>
                 }
@@ -77,7 +77,6 @@ function App() {
                         ROLES.ADMIN,
                         ROLES.DESIGNER,
                         ROLES.VALIDATOR,
-                        ROLES.PROCESS_OBSERVER,
                       ]}
                     >
                       <ProcessManagement />
@@ -87,7 +86,7 @@ function App() {
                 <Route
                   path="process-library"
                   element={
-                    <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                    <ProtectedRoute allowedRoles={ACTIVE_ROLES}>
                       <ProcessLibrary />
                     </ProtectedRoute>
                   }
@@ -109,7 +108,7 @@ function App() {
                 <Route
                   path="orgchart"
                   element={
-                    <ProtectedRoute allowedRoles={Object.values(ROLES)}>
+                    <ProtectedRoute allowedRoles={ACTIVE_ROLES}>
                       <OrgChart />
                     </ProtectedRoute>
                   }

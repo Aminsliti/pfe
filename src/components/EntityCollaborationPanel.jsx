@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Card, Form, ListGroup } from 'react-bootstrap';
 import { useSnackbar } from './SnackbarProvider';
 
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../utils/api';
+
+const API = API_BASE;
 
 function formatDate(value) {
   if (!value) return '-';

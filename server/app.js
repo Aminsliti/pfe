@@ -12,10 +12,17 @@ import { attachRequestUser } from './utils/access.js';
 export function createApp({ requestUserMiddleware = attachRequestUser } = {}) {
   const app = express();
 
-  // Configure CORS for network access
+  // Reflect the requesting frontend origin so the app works from localhost or another PC on the LAN.
   app.use(cors({
-    origin: ['http://localhost:5174', 'http://127.0.0.1:5174', /^http:\/\/192\.168\.\d+\.\d+:5174$/],
-    credentials: true
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, true);
+    },
+    credentials: true,
   }));
   
   app.use(express.json({ limit: '15mb' }));

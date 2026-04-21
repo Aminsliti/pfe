@@ -136,8 +136,6 @@ export function RoleManagement() {
         return 'primary';
       case ROLES.VALIDATOR:
         return 'warning';
-      case ROLES.PROCESS_OBSERVER:
-        return 'secondary';
       default:
         return 'secondary';
     }
@@ -151,8 +149,6 @@ export function RoleManagement() {
         return 'bg-primary';
       case ROLES.VALIDATOR:
         return 'bg-warning';
-      case ROLES.PROCESS_OBSERVER:
-        return 'bg-secondary';
       default:
         return 'bg-secondary';
     }

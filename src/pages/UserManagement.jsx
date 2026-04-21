@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getRoleDisplayName, useAuth, ROLES } from '../contexts/AuthContext';
+import { ACTIVE_ROLES, getRoleDisplayName, useAuth, ROLES } from '../contexts/AuthContext';
 import {
   Alert,
   Badge,
@@ -20,7 +20,7 @@ const EMPTY_FORM = {
   password: '',
   email: '',
   fullName: '',
-  role: ROLES.PROCESS_OBSERVER,
+  role: ROLES.DESIGNER,
   additionalRoles: [],
 };
 
@@ -77,7 +77,7 @@ export function UserManagement() {
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
-  const roleOptions = useMemo(() => Object.values(ROLES), []);
+  const roleOptions = useMemo(() => ACTIVE_ROLES, []);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -109,7 +109,7 @@ export function UserManagement() {
     setEditingUser(null);
     setFormData({
       ...EMPTY_FORM,
-      role: roleOptions[0] || ROLES.PROCESS_OBSERVER,
+      role: roleOptions[0] || ROLES.DESIGNER,
       additionalRoles: [],
     });
   };
@@ -127,7 +127,7 @@ export function UserManagement() {
       password: '',
       email: selectedUser.email || '',
       fullName: selectedUser.fullName || '',
-      role: selectedUser.role || ROLES.PROCESS_OBSERVER,
+      role: roleOptions.includes(selectedUser.role) ? selectedUser.role : (roleOptions[0] || ROLES.DESIGNER),
       additionalRoles: (selectedUser.additionalRoles || []).map((item) => ({
         role: item.role || '',
         startsOn: item.startsOn || '',

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { apiUrl } from '../utils/api';
 import { getHomePath } from '../utils/navigation';
 import { 
   Container, 
@@ -110,7 +111,7 @@ export function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/forgot-password', {
+      const response = await fetch(apiUrl('/forgot-password'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -144,7 +145,7 @@ export function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/verify-reset-code', {
+      const response = await fetch(apiUrl('/verify-reset-code'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -193,7 +194,7 @@ export function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/reset-password', {
+      const response = await fetch(apiUrl('/reset-password'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

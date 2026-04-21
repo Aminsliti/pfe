@@ -7,7 +7,9 @@ import { useSnackbar } from '../components/SnackbarProvider';
 import './SimulationScenarios.css';
 import BpmnHeatmapViewer from '../components/BpmnEditor/BpmnHeatmapViewer';
 
-const API = 'http://localhost:3001/api';
+import { API_BASE } from '../utils/api';
+
+const API = API_BASE;
 
 async function readApiPayload(response) {
   const contentType = response.headers.get('content-type') || '';

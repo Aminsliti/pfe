@@ -62,31 +62,31 @@ describe('auth routes', () => {
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(null) });
 
     pool.query
-      .mockResolvedValueOnce(makeResult([{ id: 5, email: 'viewer@pfe.com' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 5, email: 'designer@pfe.com' }]))
       .mockResolvedValueOnce(makeResult([]));
 
-    const forgot = await request(app).post('/api/forgot-password').send({ email: 'viewer@pfe.com' });
+    const forgot = await request(app).post('/api/forgot-password').send({ email: 'designer@pfe.com' });
     expect(forgot.status).toBe(200);
 
-    pool.query.mockResolvedValueOnce(makeResult([{ id: 5, email: 'viewer@pfe.com' }]));
-    const verify = await request(app).post('/api/verify-reset-code').send({ email: 'viewer@pfe.com', code: '123456' });
+    pool.query.mockResolvedValueOnce(makeResult([{ id: 5, email: 'designer@pfe.com' }]));
+    const verify = await request(app).post('/api/verify-reset-code').send({ email: 'designer@pfe.com', code: '123456' });
     expect(verify.status).toBe(200);
 
     pool.query
-      .mockResolvedValueOnce(makeResult([{ id: 5, email: 'viewer@pfe.com' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 5, email: 'designer@pfe.com' }]))
       .mockResolvedValueOnce(makeResult([]));
     const reset = await request(app).post('/api/reset-password').send({
-      email: 'viewer@pfe.com',
+      email: 'designer@pfe.com',
       code: '123456',
       newPassword: 'new-secret',
     });
     expect(reset.status).toBe(200);
   });
 
-  it('blocks viewers from accessing user management', async () => {
+  it('blocks designers without user-management permission from accessing user management', async () => {
     const app = createApp({
       requestUserMiddleware: createRequestUserMiddleware(
-        createUser({ role: 'Viewer', permissions: ['view_dashboard'] })
+        createUser({ role: 'Designer', permissions: ['view_dashboard'] })
       ),
     });
 
@@ -102,7 +102,7 @@ describe('auth routes', () => {
           username: 'anas',
           email: 'anas@example.com',
           full_name: 'Anas Ksiksi',
-          role: 'Viewer',
+          role: 'Designer',
           company_id: 2,
           company_name: 'Operations Division',
           created_at: '2026-03-03T00:00:00.000Z',
@@ -134,7 +134,7 @@ describe('auth routes', () => {
     expect(response.body).toEqual([
       expect.objectContaining({
         username: 'anas',
-        activeRoles: ['Process Observer', 'Validator'],
+        activeRoles: ['Designer', 'Validator'],
         additionalRoles: [
           expect.objectContaining({
             role: 'Validator',
@@ -155,7 +155,7 @@ describe('auth routes', () => {
 
     pool.query
       .mockResolvedValueOnce(makeResult([]))
-      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'new@pfe.com', full_name: 'New User', role: 'Viewer', company_id: null }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'new@pfe.com', full_name: 'New User', role: 'Designer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([
@@ -174,15 +174,15 @@ describe('auth routes', () => {
       password: 'secret',
       email: 'new@pfe.com',
       fullName: 'New User',
-      role: 'Viewer',
+      role: 'Designer',
       additionalRoles: [{ role: 'Risk Manager', expiresOn: '2026-05-20' }],
     });
     expect(created.status).toBe(201);
-    expect(created.body.activeRoles).toEqual(['Process Observer', 'Validator']);
+    expect(created.body.activeRoles).toEqual(['Designer', 'Validator']);
 
     pool.query
-      .mockResolvedValueOnce(makeResult([{ id: 11, company_id: null, role: 'Viewer' }]))
-      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'updated@pfe.com', full_name: 'Updated User', role: 'Viewer', company_id: null }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, company_id: null, role: 'Designer' }]))
+      .mockResolvedValueOnce(makeResult([{ id: 11, username: 'newuser', email: 'updated@pfe.com', full_name: 'Updated User', role: 'Designer', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([
@@ -200,7 +200,7 @@ describe('auth routes', () => {
       username: 'newuser',
       email: 'updated@pfe.com',
       fullName: 'Updated User',
-      role: 'Viewer',
+      role: 'Designer',
       additionalRoles: [{ role: 'Process Owner', expiresOn: '2026-06-01' }],
     });
     expect(updated.status).toBe(200);

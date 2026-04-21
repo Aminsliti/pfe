@@ -42,26 +42,22 @@ export default function PublicPortal() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fffdf8 0%, #f8fafc 100%)' }}>
-      <div className="container-fluid py-4">
-        <div className="mx-auto d-flex flex-column gap-4" style={{ maxWidth: 1600 }}>
+      <div className="container-fluid py-3">
+        <div className="mx-auto d-flex flex-column gap-3" style={{ maxWidth: 1600 }}>
           <section
             className="card border-0 shadow-sm"
             style={{
-              borderRadius: 28,
+              borderRadius: 22,
               background: 'radial-gradient(circle at top left, rgba(153,27,27,.08), transparent 35%), linear-gradient(180deg, #fffdfa 0%, #ffffff 100%)',
             }}
           >
-            <div className="card-body p-4 p-xl-5 d-flex flex-column gap-4">
+            <div className="card-body p-2 p-xl-3 d-flex flex-column gap-2">
               <div className="d-flex justify-content-between align-items-start flex-wrap gap-3">
-                <div style={{ maxWidth: 860 }}>
-                  <div className="small text-uppercase fw-bold text-danger mb-2">Portail public</div>
-                  <h1 className="fw-bold mb-2" style={{ letterSpacing: '-0.03em' }}>
+                <div style={{ maxWidth: 720 }}>
+                  <div className="small text-uppercase fw-bold text-danger mb-1">Portail public</div>
+                  <h1 className="fw-bold mb-1" style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.2rem, 1.8vw, 1.7rem)', lineHeight: 1.08 }}>
                     Consultation libre de la cartographie des processus et de l organigramme
                   </h1>
-                  <p className="text-muted mb-0" style={{ maxWidth: 760 }}>
-                    Cette interface est accessible sans login. Elle regroupe la vue arborescente de la cartographie,
-                    la navigation graphique de la bibliotheque des processus et l organigramme en mode lecture seule.
-                  </p>
                 </div>
 
                 <div className="d-flex gap-2 flex-wrap">
@@ -74,7 +70,7 @@ export default function PublicPortal() {
                 </div>
               </div>
 
-              <div className="d-flex flex-column gap-3">
+              <div className="d-flex flex-column gap-1">
                 <div className="d-flex gap-2 flex-wrap">
                   {PORTAL_VIEWS.map((view) => (
                     <button
@@ -87,16 +83,15 @@ export default function PublicPortal() {
                     </button>
                   ))}
                 </div>
-
                 <div className="text-muted small">{activeMeta.description}</div>
               </div>
             </div>
           </section>
 
-          <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
+          <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 22 }}>
             <div className="card-body p-0">
               {activeView === 'tree' ? <ProcessManagement publicView /> : null}
-              {activeView === 'library' ? <ProcessLibrary /> : null}
+              {activeView === 'library' ? <ProcessLibrary publicView /> : null}
               {activeView === 'orgchart' ? <OrgChart publicView /> : null}
             </div>
           </section>

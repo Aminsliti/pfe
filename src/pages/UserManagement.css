@@ -95,11 +95,6 @@
   color: #c62828;
 }
 
-.role-viewer {
-  background: #f5f5f5;
-  color: #616161;
-}
-
 .btn-edit,
 .btn-delete {
   padding: 6px 12px;
@@ -232,4 +227,3 @@
 .btn-submit:hover {
   background: #5568d3;
 }
-
