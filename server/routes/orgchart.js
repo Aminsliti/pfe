@@ -8,13 +8,14 @@ import { logAuditEvent } from '../utils/auditLog.js';
 
 const router = express.Router();
 
-const NODE_TYPES = new Set(['company', 'division', 'department', 'team', 'position']);
+const NODE_TYPES = new Set(['company', 'institute', 'structure', 'manager', 'function', 'org_unit']);
 const TYPE_COLORS = {
-  company: '#dc2626',
-  division: '#2563eb',
-  department: '#7c3aed',
-  team: '#0891b2',
-  position: '#475569',
+  company: '#4338ca',
+  institute: '#0f766e',
+  structure: '#1d4ed8',
+  manager: '#9a3412',
+  function: '#a16207',
+  org_unit: '#0891b2',
 };
 
 let schemaPromise = null;
@@ -40,11 +41,20 @@ function normalizeInteger(value) {
 }
 
 function normalizeNodeType(value) {
-  return NODE_TYPES.has(value) ? value : 'position';
+  if (NODE_TYPES.has(value)) {
+    return value;
+  }
+
+  return {
+    division: 'institute',
+    department: 'structure',
+    team: 'org_unit',
+    position: 'function',
+  }[value] || 'function';
 }
 
 function defaultColorForType(nodeType) {
-  return TYPE_COLORS[nodeType] || TYPE_COLORS.position;
+  return TYPE_COLORS[nodeType] || TYPE_COLORS.function;
 }
 
 function serializeNode(row) {
@@ -78,7 +88,7 @@ export async function ensureOrgChartSchema() {
           user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
           name VARCHAR(255) NOT NULL,
           title VARCHAR(255),
-          node_type VARCHAR(40) NOT NULL DEFAULT 'position',
+          node_type VARCHAR(40) NOT NULL DEFAULT 'function',
           description TEXT,
           color VARCHAR(20) NOT NULL DEFAULT '#475569',
           sort_order INTEGER NOT NULL DEFAULT 0,
@@ -94,7 +104,7 @@ export async function ensureOrgChartSchema() {
       `);
       await pool.query(`
         ALTER TABLE org_chart_nodes
-        ADD COLUMN IF NOT EXISTS node_type VARCHAR(40) NOT NULL DEFAULT 'position'
+        ADD COLUMN IF NOT EXISTS node_type VARCHAR(40) NOT NULL DEFAULT 'function'
       `);
       await pool.query(`
         ALTER TABLE org_chart_nodes
@@ -119,6 +129,51 @@ export async function ensureOrgChartSchema() {
       await pool.query(`
         ALTER TABLE org_chart_nodes
         ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+      `);
+
+      await pool.query(`
+        UPDATE org_chart_nodes
+        SET node_type = CASE node_type
+          WHEN 'division' THEN 'institute'
+          WHEN 'department' THEN 'structure'
+          WHEN 'team' THEN 'org_unit'
+          WHEN 'position' THEN 'function'
+          ELSE node_type
+        END
+        WHERE node_type IN ('division', 'department', 'team', 'position')
+      `);
+
+      await pool.query(`
+        UPDATE org_chart_nodes
+        SET color = CASE node_type
+          WHEN 'company' THEN '${TYPE_COLORS.company}'
+          WHEN 'institute' THEN '${TYPE_COLORS.institute}'
+          WHEN 'structure' THEN '${TYPE_COLORS.structure}'
+          WHEN 'manager' THEN '${TYPE_COLORS.manager}'
+          WHEN 'function' THEN '${TYPE_COLORS.function}'
+          WHEN 'org_unit' THEN '${TYPE_COLORS.org_unit}'
+          ELSE color
+        END
+        WHERE color IS NULL
+           OR color IN ('#dc2626', '#2563eb', '#7c3aed', '#0891b2', '#475569')
+      `);
+
+      await pool.query(`
+        UPDATE org_chart_nodes
+        SET
+          name = CASE
+            WHEN node_type = 'company' AND LOWER(name) = 'organisation' THEN 'Company'
+            ELSE name
+          END,
+          title = CASE
+            WHEN node_type = 'company' AND (title IS NULL OR LOWER(title) = 'organisation') THEN 'Entite racine legale'
+            WHEN node_type = 'institute' AND (title IS NULL OR title = 'Department') THEN 'Division ou branche'
+            WHEN node_type = 'structure' AND (title IS NULL OR title = 'Department') THEN 'Unite operationnelle'
+            WHEN node_type = 'manager' AND title IS NULL THEN 'Responsable humain'
+            WHEN node_type = 'function' AND title IS NULL THEN 'Role ou poste metier'
+            WHEN node_type = 'org_unit' AND title IS NULL THEN 'Unite organisationnelle'
+            ELSE title
+          END
       `);
 
       await seedDefaultOrgChart();
@@ -173,33 +228,87 @@ async function seedDefaultOrgChart() {
         RETURNING id
       `,
       [
-        'Organisation',
-        'Organisation',
-        'Workspace-wide organigram',
+        'Company',
+        'Entite racine legale',
+        'Root legal entity for the organisation chart',
         defaultColorForType('company'),
       ]
     );
 
     const rootId = rootResult.rows[0].id;
     const roleBuckets = {
-      Admin: { key: 'leadership', label: 'Leadership', type: 'division', color: '#dc2626' },
-      Designer: { key: 'process', label: 'Process Design', type: 'department', color: '#2563eb' },
-      Validator: { key: 'validation', label: 'Validation', type: 'department', color: '#7c3aed' },
+      Admin: {
+        key: 'leadership',
+        instituteLabel: 'Governance Institute',
+        instituteTitle: 'Division ou branche',
+        structureLabel: 'Executive Structure',
+        structureTitle: 'Unite operationnelle',
+      },
+      Designer: {
+        key: 'design',
+        instituteLabel: 'Operations Institute',
+        instituteTitle: 'Division ou branche',
+        structureLabel: 'Process Design Structure',
+        structureTitle: 'Unite operationnelle',
+      },
+      Validator: {
+        key: 'management',
+        instituteLabel: 'Control Institute',
+        instituteTitle: 'Division ou branche',
+        structureLabel: 'Validation Structure',
+        structureTitle: 'Unite operationnelle',
+      },
     };
-    const departments = new Map();
+    const institutes = new Map();
+    const structures = new Map();
 
     for (const user of users) {
       const bucket = roleBuckets[user.role] || {
-        key: 'general',
-        label: 'General Administration',
-        type: 'department',
-        color: '#475569',
+        key: 'shared',
+        instituteLabel: 'Shared Institute',
+        instituteTitle: 'Division ou branche',
+        structureLabel: 'Shared Structure',
+        structureTitle: 'Unite operationnelle',
       };
-      const departmentKey = `${rootId}:${bucket.key}`;
+      const instituteKey = `${rootId}:${bucket.key}`;
 
-      let departmentId = departments.get(departmentKey);
-      if (!departmentId) {
-        const insertDepartment = await client.query(
+      let instituteId = institutes.get(instituteKey);
+      if (!instituteId) {
+        const insertInstitute = await client.query(
+          `
+            INSERT INTO org_chart_nodes (
+              parent_id,
+              company_id,
+              user_id,
+              name,
+              title,
+              node_type,
+              description,
+              color,
+              sort_order,
+              is_vacant
+            )
+            VALUES ($1, NULL, NULL, $2, $3, 'institute', $4, $5, $6, FALSE)
+            RETURNING id
+          `,
+          [
+            rootId,
+            bucket.instituteLabel,
+            bucket.instituteTitle,
+            `Auto-generated institute for ${bucket.key}`,
+            defaultColorForType('institute'),
+            institutes.size,
+          ]
+        );
+
+        instituteId = insertInstitute.rows[0].id;
+        institutes.set(instituteKey, instituteId);
+      }
+
+      const structureKey = `${instituteId}:${bucket.key}`;
+      let structureId = structures.get(structureKey);
+      if (!structureId) {
+        const insertStructure = await client.query(
           `
             INSERT INTO org_chart_nodes (
               parent_id,
@@ -217,18 +326,18 @@ async function seedDefaultOrgChart() {
             RETURNING id
           `,
           [
-            rootId,
-            bucket.label,
-            'Department',
-            bucket.type,
-            `Auto-generated from ${bucket.label} roles`,
-            bucket.color,
-            departments.size,
+            instituteId,
+            bucket.structureLabel,
+            bucket.structureTitle,
+            'structure',
+            `Auto-generated structure for ${bucket.key}`,
+            defaultColorForType('structure'),
+            structures.size,
           ]
         );
 
-        departmentId = insertDepartment.rows[0].id;
-        departments.set(departmentKey, departmentId);
+        structureId = insertStructure.rows[0].id;
+        structures.set(structureKey, structureId);
       }
 
       await client.query(
@@ -245,15 +354,16 @@ async function seedDefaultOrgChart() {
             sort_order,
             is_vacant
           )
-          VALUES ($1, NULL, $2, $3, $4, 'position', $5, $6, $7, FALSE)
+          VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, FALSE)
         `,
         [
-          departmentId,
+          structureId,
           user.id,
           user.full_name,
-          user.role,
-          `Auto-generated position for ${user.full_name}`,
-          defaultColorForType('position'),
+          user.role === 'Admin' ? 'Responsable humain' : 'Role ou poste metier',
+          `Auto-generated actor node for ${user.full_name}`,
+          user.role === 'Admin' ? 'manager' : 'function',
+          user.role === 'Admin' ? defaultColorForType('manager') : defaultColorForType('function'),
           user.id,
         ]
       );

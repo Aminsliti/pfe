@@ -27,37 +27,38 @@ const V_GAP = 108;
 const CANVAS_PADDING = 40;
 
 const TYPE_META = {
-  company: { label: 'Organisation', icon: 'bi-building', color: '#dc2626' },
-  division: { label: 'Structure', icon: 'bi-diagram-2', color: '#2563eb' },
-  department: { label: 'Department', icon: 'bi-kanban', color: '#7c3aed' },
-  team: { label: 'Team', icon: 'bi-people', color: '#0891b2' },
-  position: { label: 'Function', icon: 'bi-person-badge', color: '#475569' },
+  org_unit: { label: 'Org-Unit', icon: 'bi-diagram-3', color: '#0891b2' },
+  company: { label: 'Company', icon: 'bi-house-door-fill', color: '#4338ca' },
+  institute: { label: 'Institute', icon: 'bi-bank', color: '#0f766e' },
+  structure: { label: 'Structure', icon: 'bi-diagram-2-fill', color: '#1d4ed8' },
+  manager: { label: 'Manager', icon: 'bi-person-workspace', color: '#9a3412' },
+  function: { label: 'Function', icon: 'bi-people-fill', color: '#a16207' },
 };
 
 const EMPTY_FORM = {
   name: '',
   title: '',
-  nodeType: 'department',
+  nodeType: 'structure',
   parentId: '',
   userId: '',
   description: '',
-  color: TYPE_META.department.color,
+  color: TYPE_META.structure.color,
   isVacant: false,
 };
 
 function nodeMeta(nodeType) {
-  return TYPE_META[nodeType] || TYPE_META.position;
+  return TYPE_META[nodeType] || TYPE_META.function;
 }
 
 function toForm(node = null, overrides = {}) {
   return {
     name: node?.name || '',
     title: node?.title || '',
-    nodeType: node?.nodeType || 'department',
+    nodeType: node?.nodeType || 'structure',
     parentId: node?.parentId ? String(node.parentId) : '',
     userId: node?.userId ? String(node.userId) : '',
     description: node?.description || '',
-    color: node?.color || nodeMeta(node?.nodeType).color || '#2563eb',
+    color: node?.color || nodeMeta(node?.nodeType).color || TYPE_META.structure.color,
     isVacant: Boolean(node?.isVacant),
     ...overrides,
   };
@@ -256,7 +257,7 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
         </Form.Select>
       </Form.Group>
       <Form.Group>
-        <Form.Label>Assigned Person</Form.Label>
+        <Form.Label>Actor</Form.Label>
         <Form.Select
           value={form.userId}
           disabled={form.isVacant}
@@ -271,7 +272,7 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
             }));
           }}
         >
-          <option value="">Unassigned</option>
+          <option value="">Unassigned actor</option>
           {users.map((user) => (
             <option key={user.id} value={user.id}>{user.fullName} - {user.role}</option>
           ))}
@@ -425,7 +426,7 @@ export function OrgChart({ publicView = false }) {
   const metrics = {
     total: nodes.length,
     filled: nodes.filter((node) => node.userId).length,
-    open: nodes.filter((node) => node.nodeType === 'position' && (node.isVacant || !node.userId)).length,
+    open: nodes.filter((node) => ['function', 'manager'].includes(node.nodeType) && (node.isVacant || !node.userId)).length,
   };
 
   const showMessage = (text, variant = 'success') => showSnackbar(text, variant);
@@ -438,12 +439,16 @@ export function OrgChart({ publicView = false }) {
   const openCreateModal = (parentNode = null) => {
     const suggestedType = parentNode
       ? parentNode.nodeType === 'company'
-        ? 'division'
-        : parentNode.nodeType === 'division'
-          ? 'department'
-          : parentNode.nodeType === 'department'
-            ? 'team'
-            : 'position'
+        ? 'institute'
+        : parentNode.nodeType === 'institute'
+          ? 'structure'
+          : parentNode.nodeType === 'structure'
+            ? 'manager'
+            : parentNode.nodeType === 'manager'
+              ? 'function'
+              : parentNode.nodeType === 'org_unit'
+                ? 'function'
+                : 'function'
       : 'company';
 
     setCreateForm(
@@ -574,9 +579,9 @@ export function OrgChart({ publicView = false }) {
       {!publicView ? (
         <section className="org-hero">
           <div className="org-hero__copy">
-            <span className="org-hero__eyebrow">Organisation Builder</span>
+            <span className="org-hero__eyebrow">Actor Org Builder</span>
             <h1>Interactive Org Chart</h1>
-            <p>Build real organigrams with structures, departments, teams, functions, and assigned people. Drag cards to re-parent them or edit the selected node in the inspector.</p>
+            <p>Build the organigram with companies, institutes, structures, managers, functions, org-units, and linked actors. Drag cards to re-parent them or edit the selected node.</p>
           </div>
           <div className="org-hero__actions">
             <Button variant="outline-secondary" className="org-hero__refresh" onClick={() => loadOrgChart()}>
@@ -601,8 +606,8 @@ export function OrgChart({ publicView = false }) {
       {!publicView ? (
         <Row className="g-3 org-metrics">
           <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>
-          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Filled functions</span><strong>{metrics.filled}</strong><p>Functions already assigned to a person.</p></Card.Body></Card></Col>
-          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open functions</span><strong>{metrics.open}</strong><p>Vacant or unassigned functions.</p></Card.Body></Card></Col>
+          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Assigned actors</span><strong>{metrics.filled}</strong><p>Nodes already linked to a person.</p></Card.Body></Card></Col>
+          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open roles</span><strong>{metrics.open}</strong><p>Vacant or unassigned manager/function nodes.</p></Card.Body></Card></Col>
         </Row>
       ) : null}
 
@@ -722,8 +727,8 @@ export function OrgChart({ publicView = false }) {
                           <div className="org-card-node__person">
                             <div className="org-card-node__avatar">{node.isVacant ? 'V' : initials(node.userName || node.name)}</div>
                             <div>
-                              <strong>{node.isVacant ? 'Vacant role' : node.userName || 'Unassigned'}</strong>
-                              <small>{node.isVacant ? 'Ready to fill' : node.userRole || 'No person assigned'}</small>
+                              <strong>{node.isVacant ? 'Vacant actor' : node.userName || 'Unassigned actor'}</strong>
+                              <small>{node.isVacant ? 'Ready to assign' : node.userRole || 'No actor linked yet'}</small>
                             </div>
                           </div>
                           <div className="org-card-node__footer"><span>{meta.label}</span><span>{descendantCount(nodes, node.id)} nested</span></div>
@@ -782,7 +787,7 @@ export function OrgChart({ publicView = false }) {
                 <div className="org-inspector__readonly">
                   <p>{selectedNode.description || 'No description for this node yet.'}</p>
                   <ul>
-                    <li>Assigned: {selectedNode.userName || 'Unassigned'}</li>
+                    <li>Actor: {selectedNode.userName || 'Unassigned actor'}</li>
                     <li>Title: {selectedNode.title || 'Not specified'}</li>
                   </ul>
                 </div>
