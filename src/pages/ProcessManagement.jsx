@@ -798,6 +798,82 @@ export function ProcessManagement({ publicView = false }) {
     loadProcesses();
   };
 
+  const handleBpmnImportExisting = async (processId) => {
+    const response = await fetch(`${API}/processes/${processId}`);
+    if (!response.ok) {
+      throw new Error('Failed to load the selected process diagram.');
+    }
+
+    const detail = await response.json();
+    return {
+      xml: detail?.bpmn_xml || '',
+      name: detail?.name || 'Process',
+    };
+  };
+
+  const buildDuplicateProcessName = (sourceProcess) => {
+    const sourceName = String(sourceProcess?.name || 'Process').trim() || 'Process';
+    const baseName = sourceName.replace(/\s*\((\d+)\)\s*$/u, '').trim() || sourceName;
+    const normalizedBase = baseName.toLocaleLowerCase('fr');
+    const usedNumbers = new Set(
+      processes
+        .filter((process) => {
+          const currentName = String(process?.name || '').trim();
+          const currentBase = currentName.replace(/\s*\((\d+)\)\s*$/u, '').trim();
+          return currentBase.toLocaleLowerCase('fr') === normalizedBase;
+        })
+        .map((process) => {
+          const match = String(process?.name || '').trim().match(/\((\d+)\)\s*$/u);
+          return match ? Number(match[1]) : 1;
+        })
+        .filter(Number.isFinite)
+    );
+
+    let nextNumber = 2;
+    while (usedNumbers.has(nextNumber)) {
+      nextNumber += 1;
+    }
+
+    return `${baseName} (${nextNumber})`;
+  };
+
+  const handleDuplicateProcess = async (process, event = null) => {
+    event?.stopPropagation?.();
+    preserveScrollPosition();
+
+    try {
+      const response = await fetch(`${API}/processes/${process.id}`);
+      if (!response.ok) {
+        throw new Error('Failed to load the process to duplicate.');
+      }
+
+      const detail = await response.json();
+      const duplicatePayload = {
+        name: buildDuplicateProcessName(detail),
+        description: detail.description || '',
+        bpmn_xml: detail.bpmn_xml || '',
+        category_id: detail.category_id || process.category_id,
+        status: 'draft',
+        assigned_designer_id: getAssignedDesignerIds(detail)[0] || null,
+        assigned_validator_id: getAssignedValidatorIds(detail)[0] || null,
+        assigned_designer_ids: getAssignedDesignerIds(detail),
+        assigned_validator_ids: getAssignedValidatorIds(detail),
+      };
+
+      const createResponse = await fetch(`${API}/processes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(duplicatePayload),
+      });
+
+      const payload = await readApiPayload(createResponse, 'Failed to duplicate process.');
+      await loadProcesses();
+      showMsg(`Process "${payload.name}" created from duplicate.`);
+    } catch (error) {
+      showMsg(error.message || 'Failed to duplicate process.', 'danger');
+    }
+  };
+
   const openImportModal = () => {
     setImportForm({
       name: '',
@@ -1494,6 +1570,10 @@ export function ProcessManagement({ publicView = false }) {
             loadProcesses();
           }}
           onSave={handleBpmnSave}
+          importOptions={processes
+            .filter((process) => Number(process.id) !== Number(bpmnTarget.id))
+            .map((process) => ({ id: process.id, name: process.name }))}
+          onImportExisting={handleBpmnImportExisting}
           initialSubprocessId={bpmnTarget.initialSubprocessId}
         />
       </Suspense>
@@ -1574,6 +1654,9 @@ export function ProcessManagement({ publicView = false }) {
         ) : null}
         {canEditProcessDefinition(process) ? (
           <button type="button" onClick={(event) => { event.stopPropagation(); openBpmnEditor(process); }} title="Edit BPMN diagram" style={{ width: 30, height: 30, background: '#2563eb', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-pencil-fill" /></button>
+        ) : null}
+        {canCreateDefinitions ? (
+          <button type="button" onClick={(event) => handleDuplicateProcess(process, event)} title="Duplicate process" style={{ width: 30, height: 30, background: '#0f766e', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-copy" /></button>
         ) : null}
         <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} title="Open details and diagram" style={{ width: 30, height: 30, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-info-circle" /></button>
         {canDeleteProcessDefinition(process) ? (
@@ -1935,6 +2018,9 @@ export function ProcessManagement({ publicView = false }) {
                     ) : null}
                     {canEditProcessDefinition(process) ? (
                       <button type="button" onClick={(event) => { event.stopPropagation(); openBpmnEditor(process); }} className="btn btn-primary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-pencil-fill" /></button>
+                    ) : null}
+                    {canCreateDefinitions ? (
+                      <button type="button" onClick={(event) => handleDuplicateProcess(process, event)} className="btn btn-success btn-sm" style={{ padding: '3px 7px' }} title="Duplicate process"><i className="bi bi-copy" /></button>
                     ) : null}
                     <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} className="btn btn-outline-primary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-info-circle" /></button>
                     <ExportMenu process={process} compact />

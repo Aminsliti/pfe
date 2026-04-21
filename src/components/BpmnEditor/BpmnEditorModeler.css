@@ -202,6 +202,102 @@
   border-color: rgba(248, 113, 113, 0.5);
 }
 
+.bpmn-import-launcher {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px 0;
+  background: #0f172a;
+}
+
+.bpmn-import-overlay {
+  position: absolute;
+  inset: 58px 24px auto auto;
+  z-index: 10001;
+}
+
+.bpmn-import-panel {
+  width: min(420px, calc(100vw - 48px));
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 20px 60px rgba(2, 6, 23, 0.55);
+  color: #e2e8f0;
+}
+
+.bpmn-import-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.bpmn-import-panel__help {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.bpmn-import-panel__close,
+.bpmn-import-panel__section button {
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #e2e8f0;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bpmn-import-panel__close {
+  padding: 8px 10px;
+}
+
+.bpmn-import-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bpmn-import-panel__section label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.bpmn-import-panel__section select,
+.bpmn-import-panel__section button {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.bpmn-import-panel__section select {
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  outline: none;
+}
+
+.bpmn-import-panel__divider {
+  margin: 16px 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.bpmn-import-panel__close:hover,
+.bpmn-import-panel__section button:hover {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(127, 29, 29, 0.32);
+}
+
 /* Body */
 .bpmn-modeler-body {
   display: flex;

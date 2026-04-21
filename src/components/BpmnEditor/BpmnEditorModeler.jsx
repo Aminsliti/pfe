@@ -345,10 +345,65 @@ function normalizeProcessXml(rawValue, processName) {
   );
 }
 
+async function extractImportableDiagram(rawValue, processName = 'Imported Process') {
+  const xml = normalizeProcessXml(rawValue, processName);
+  const mountNode = document.createElement('div');
+  mountNode.style.position = 'absolute';
+  mountNode.style.width = '1px';
+  mountNode.style.height = '1px';
+  mountNode.style.overflow = 'hidden';
+  mountNode.style.opacity = '0';
+  mountNode.style.pointerEvents = 'none';
+  document.body.appendChild(mountNode);
+
+  const tempModeler = new BpmnModeler({ container: mountNode });
+
+  try {
+    await tempModeler.importXML(xml);
+    const canvas = tempModeler.get('canvas');
+    const elementRegistry = tempModeler.get('elementRegistry');
+    const root = canvas.getRootElement();
+    const rootElements = elementRegistry.filter((element) => element.parent === root && !element.labelTarget);
+    const shapes = rootElements.filter((element) => Number.isFinite(element.x) && Number.isFinite(element.y) && Number.isFinite(element.width) && Number.isFinite(element.height));
+    const allowedShapeIds = new Set(shapes.map((shape) => shape.id));
+    const connections = rootElements.filter(
+      (element) =>
+        Array.isArray(element.waypoints) &&
+        allowedShapeIds.has(element.source?.id) &&
+        allowedShapeIds.has(element.target?.id)
+    );
+
+    return {
+      shapes: shapes.map((shape) => ({
+        id: shape.id,
+        type: shape.type,
+        x: shape.x,
+        y: shape.y,
+        width: shape.width,
+        height: shape.height,
+        name: shape.businessObject?.name || '',
+        documentation: shape.businessObject?.documentation?.[0]?.text || '',
+      })),
+      connections: connections.map((connection) => ({
+        id: connection.id,
+        type: connection.type,
+        sourceId: connection.source.id,
+        targetId: connection.target.id,
+        name: connection.businessObject?.name || '',
+      })),
+    };
+  } finally {
+    tempModeler.destroy();
+    mountNode.remove();
+  }
+}
+
 const BpmnEditorModeler = ({
   process,
   onClose,
   onSave,
+  importOptions = [],
+  onImportExisting = null,
   readOnly = false,
   reviewActionLabel = 'Approve',
   onReviewAction = null,
@@ -359,6 +414,7 @@ const BpmnEditorModeler = ({
   const modelerRef = useRef(null);
   const mainContainerRef = useRef(null);
   const mainRootIdRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [xml, setXml] = useState(() => normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
@@ -370,6 +426,9 @@ const BpmnEditorModeler = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredElements, setFilteredElements] = useState([]);
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [selectedImportId, setSelectedImportId] = useState('');
+  const [importing, setImporting] = useState(false);
   const editorSubprocesses = useMemo(() => getBpmnSubprocesses(xml), [xml]);
 
   // BPMN elements database
@@ -396,6 +455,11 @@ const BpmnEditorModeler = ({
   useEffect(() => {
     setXml(normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
   }, [process]);
+
+  useEffect(() => {
+    setShowImportPanel(false);
+    setSelectedImportId('');
+  }, [process?.id]);
 
   // Filter elements based on search
   useEffect(() => {
@@ -708,6 +772,126 @@ const BpmnEditorModeler = ({
     }
   };
 
+  const applyImportedDiagram = async (rawValue, sourceName = 'Process') => {
+    if (!modelerRef.current) {
+      setXml(normalizeProcessXml(rawValue, sourceName));
+      setSelectedElement(null);
+      setProperties({});
+      setShowImportPanel(false);
+      setSelectedImportId('');
+      return;
+    }
+
+    const imported = await extractImportableDiagram(rawValue, sourceName);
+    if (!imported.shapes.length) {
+      throw new Error('No importable BPMN elements were found in that diagram.');
+    }
+
+    const modeler = modelerRef.current;
+    const canvas = modeler.get('canvas');
+    const elementRegistry = modeler.get('elementRegistry');
+    const elementFactory = modeler.get('elementFactory');
+    const modeling = modeler.get('modeling');
+    const moddle = modeler.get('moddle');
+    const selection = modeler.get('selection');
+    const root = canvas.getRootElement();
+    const existingRootShapes = elementRegistry.filter(
+      (element) => element.parent === root && !element.labelTarget && Number.isFinite(element.x) && Number.isFinite(element.width)
+    );
+    const currentRightEdge = existingRootShapes.reduce((max, shape) => Math.max(max, shape.x + shape.width), 120);
+    const importedLeftEdge = imported.shapes.reduce((min, shape) => Math.min(min, shape.x), imported.shapes[0].x);
+    const offsetX = currentRightEdge - importedLeftEdge + 140;
+    const offsetY = 40;
+    const timestamp = Date.now();
+    const importedShapeMap = new Map();
+
+    imported.shapes.forEach((shape, index) => {
+      const businessObject = moddle.create(shape.type, {
+        id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
+        name: shape.name || undefined,
+      });
+
+      if (shape.documentation) {
+        businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
+      }
+
+      const createdShape = elementFactory.createShape({
+        type: shape.type,
+        businessObject,
+        width: shape.width,
+        height: shape.height,
+      });
+
+      modeling.createShape(
+        createdShape,
+        {
+          x: shape.x + offsetX + (shape.width / 2),
+          y: shape.y + offsetY + (shape.height / 2),
+        },
+        root
+      );
+
+      importedShapeMap.set(shape.id, createdShape);
+    });
+
+    imported.connections.forEach((connection, index) => {
+      const source = importedShapeMap.get(connection.sourceId);
+      const target = importedShapeMap.get(connection.targetId);
+      if (!source || !target) {
+        return;
+      }
+
+      const businessObject = moddle.create('bpmn:SequenceFlow', {
+        id: sanitizeId(`SequenceFlow_${timestamp}_${index + 1}`),
+        name: connection.name || undefined,
+      });
+
+      modeling.createConnection(source, target, { type: 'bpmn:SequenceFlow', businessObject }, root);
+    });
+
+    const { xml: mergedXml } = await modeler.saveXML({ format: true });
+    setXml(mergedXml);
+    setSelectedElement(null);
+    setProperties({});
+    setShowImportPanel(false);
+    setSelectedImportId('');
+    selection.select([...importedShapeMap.values()]);
+    canvas.zoom('fit-viewport');
+  };
+
+  const handleImportExisting = async () => {
+    if (!selectedImportId || !onImportExisting) return;
+
+    try {
+      setImporting(true);
+      const imported = await onImportExisting(selectedImportId);
+      if (!imported?.xml) {
+        throw new Error('This process does not contain a diagram yet.');
+      }
+      applyImportedDiagram(imported.xml, imported.name || process?.name || 'Process');
+    } catch (importError) {
+      alert(importError.message || 'Failed to import the selected diagram.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportFromPc = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setImporting(true);
+      const text = await file.text();
+      applyImportedDiagram(text, file.name.replace(/\.[^.]+$/u, '') || process?.name || 'Process');
+    } catch (importError) {
+      alert(importError.message || 'Failed to import the BPMN file from this computer.');
+    } finally {
+      event.target.value = '';
+      setImporting(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="bpmn-modeler-error">
@@ -770,6 +954,58 @@ const BpmnEditorModeler = ({
           <button onClick={onClose} className="bpmn-modeler-btn-close">✕</button>
         </div>
       </header>
+
+      {!readOnly ? (
+        <div className="bpmn-import-launcher">
+          <button type="button" className="bpmn-modeler-btn-export" onClick={() => setShowImportPanel(true)}>
+            Import diagram
+          </button>
+        </div>
+      ) : null}
+
+      {!readOnly && showImportPanel ? (
+        <div className="bpmn-import-overlay">
+          <div className="bpmn-import-panel">
+            <div className="bpmn-import-panel__header">
+              <div>
+                <strong>Import diagram</strong>
+                <div className="bpmn-import-panel__help">Use an existing platform diagram or a BPMN/XML file from this computer.</div>
+              </div>
+              <button type="button" className="bpmn-import-panel__close" onClick={() => setShowImportPanel(false)} disabled={importing}>Close</button>
+            </div>
+
+            <div className="bpmn-import-panel__section">
+              <label htmlFor="bpmn-existing-import">Existing platform diagram</label>
+              <select id="bpmn-existing-import" value={selectedImportId} onChange={(event) => setSelectedImportId(event.target.value)} disabled={importing}>
+                <option value="">Choose a process</option>
+                {importOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
+              <button type="button" onClick={handleImportExisting} disabled={!selectedImportId || importing}>
+                {importing ? 'Importing...' : 'Import selected diagram'}
+              </button>
+            </div>
+
+            <div className="bpmn-import-panel__divider">or</div>
+
+            <div className="bpmn-import-panel__section">
+              <label>Diagram from this PC</label>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+                Import from computer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".bpmn,.xml,text/xml,application/xml"
+        style={{ display: 'none' }}
+        onChange={handleImportFromPc}
+      />
 
       {/* Main Body */}
       <div className="bpmn-modeler-body">
