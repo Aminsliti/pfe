@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import ProcessManagement from './ProcessManagement';
 import ProcessLibrary from './ProcessLibrary';
@@ -29,6 +29,7 @@ function resolvePortalView(value) {
 export default function PublicPortal() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeView = resolvePortalView(searchParams.get('view'));
+  const [headerCollapsed, setHeaderCollapsed] = useState(activeView === 'library');
   const activeMeta = useMemo(
     () => PORTAL_VIEWS.find((entry) => entry.key === activeView) || PORTAL_VIEWS[0],
     [activeView]
@@ -38,6 +39,7 @@ export default function PublicPortal() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('view', nextView);
     setSearchParams(nextParams, { replace: true });
+    setHeaderCollapsed(nextView === 'library');
   };
 
   return (
@@ -52,23 +54,36 @@ export default function PublicPortal() {
             }}
           >
             <div className="card-body p-2 p-xl-3 d-flex flex-column gap-2">
-              <div className="d-flex justify-content-between align-items-start flex-wrap gap-3">
-                <div style={{ maxWidth: 720 }}>
-                  <div className="small text-uppercase fw-bold text-danger mb-1">Portail public</div>
-                  <h1 className="fw-bold mb-1" style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.2rem, 1.8vw, 1.7rem)', lineHeight: 1.08 }}>
-                    Consultation libre de la cartographie des processus et de l organigramme
-                  </h1>
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  <div className="small text-uppercase fw-bold text-danger">Portail public</div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary rounded-pill"
+                    onClick={() => setHeaderCollapsed((current) => !current)}
+                  >
+                    <i className={`bi ${headerCollapsed ? 'bi-chevron-down' : 'bi-chevron-up'} me-2`} />
+                    {headerCollapsed ? 'Afficher' : 'Masquer'}
+                  </button>
                 </div>
-
                 <div className="d-flex gap-2 flex-wrap">
-                  <Link to="/login" className="btn btn-outline-secondary rounded-pill">
+                  <Link to="/login" className="btn btn-sm btn-outline-secondary rounded-pill">
                     Se connecter
                   </Link>
-                  <Link to="/portal" className="btn btn-danger rounded-pill">
+                  <Link to="/portal" className="btn btn-sm btn-danger rounded-pill">
                     Lien du portail
                   </Link>
                 </div>
               </div>
+
+              {!headerCollapsed ? (
+                <div style={{ maxWidth: 860 }}>
+                  <h1 className="fw-bold mb-1" style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.05rem, 1.5vw, 1.45rem)', lineHeight: 1.08 }}>
+                    Consultation libre de la cartographie des processus et de l organigramme
+                  </h1>
+                  <div className="text-muted small">{activeMeta.description}</div>
+                </div>
+              ) : null}
 
               <div className="d-flex flex-column gap-1">
                 <div className="d-flex gap-2 flex-wrap">
@@ -76,14 +91,13 @@ export default function PublicPortal() {
                     <button
                       key={view.key}
                       type="button"
-                      className={`btn rounded-pill ${activeView === view.key ? 'btn-danger' : 'btn-outline-secondary'}`}
+                      className={`btn btn-sm rounded-pill ${activeView === view.key ? 'btn-danger' : 'btn-outline-secondary'}`}
                       onClick={() => switchView(view.key)}
                     >
                       {view.label}
                     </button>
                   ))}
                 </div>
-                <div className="text-muted small">{activeMeta.description}</div>
               </div>
             </div>
           </section>

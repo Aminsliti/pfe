@@ -786,7 +786,19 @@ export function ProcessManagement({ publicView = false }) {
     } else {
       preserveScrollPosition();
     }
-    setCollapsedCategories((previous) => ({ ...previous, [categoryId]: !previous[categoryId] }));
+    setCollapsedCategories((previous) => {
+      const nextValue = !previous[categoryId];
+      if (!nextValue) {
+        return { ...previous, [categoryId]: false };
+      }
+
+      const next = { ...previous, [categoryId]: true };
+      const category = categoryById.get(Number(categoryId));
+      collectCategoryDescendantIds(category).forEach((descendantId) => {
+        next[descendantId] = true;
+      });
+      return next;
+    });
   };
 
   const handleBpmnSave = async (bpmnXml) => {
@@ -1546,10 +1558,30 @@ export function ProcessManagement({ publicView = false }) {
     clearProcessSelection();
   };
   const toggleSection = (sectionKey) => {
-    setCollapsedSections((previous) => ({
-      ...previous,
-      [sectionKey]: !previous[sectionKey],
-    }));
+    preserveScrollPosition();
+    setCollapsedSections((previous) => {
+      const nextValue = !previous[sectionKey];
+      return {
+        ...previous,
+        [sectionKey]: nextValue,
+      };
+    });
+    setCollapsedCategories((previous) => {
+      const isClosing = !collapsedSections[sectionKey];
+      if (!isClosing) {
+        return previous;
+      }
+
+      const next = { ...previous };
+      const sectionCategories = categoryRootsBySection[sectionKey] || [];
+      sectionCategories.forEach((category) => {
+        next[category.id] = true;
+        collectCategoryDescendantIds(category).forEach((descendantId) => {
+          next[descendantId] = true;
+        });
+      });
+      return next;
+    });
   };
   const availableVersions = processDetail?.versions || [];
   const selectedProcessRecord = processDetail || editingProcess || null;
@@ -1620,12 +1652,24 @@ export function ProcessManagement({ publicView = false }) {
     </Dropdown>
   );
 
+  const categoryIndentBase = 24;
+  const categoryIndentStep = 34;
+  const processContentOffset = 48;
+  const processIndentForLevel = (indentLevel = 0) => (
+    indentLevel > 0
+      ? categoryIndentBase + ((indentLevel - 1) * categoryIndentStep) + processContentOffset
+      : 16
+  );
+  const processSpacerWidthForLevel = (indentLevel = 0) => (
+    indentLevel > 0 ? Math.max(processIndentForLevel(indentLevel) - 16, 0) : 0
+  );
+
   const ProcessRow = ({ process, indentLevel = 0 }) => (
     <div
-      className="d-flex align-items-center gap-2 px-3 py-2"
+      className="d-flex align-items-center gap-2 py-2 pe-3"
       style={{
         borderBottom: '1px solid #f1f5f9',
-        paddingLeft: indentLevel > 0 ? 34 + (indentLevel * 34) : 16,
+        paddingLeft: 16,
         background: indentLevel > 0 ? '#fff7f7' : 'white',
         boxShadow: indentLevel > 0 ? 'inset 4px 0 0 #fecdd3' : 'none',
         cursor: 'pointer',
@@ -1653,6 +1697,7 @@ export function ProcessManagement({ publicView = false }) {
           <div style={{ width: 22, flexShrink: 0 }} />
         )
       ) : null}
+      {indentLevel > 0 ? <div style={{ width: processSpacerWidthForLevel(indentLevel), flexShrink: 0 }} /> : null}
       <i className="bi bi-bezier2 text-muted" style={{ fontSize: 15, flexShrink: 0 }} />
       <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{process.name}</span>
       {!publicView && process.description ? <span className="text-muted d-none d-lg-inline" style={{ fontSize: 11, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{process.description}</span> : null}
@@ -1733,7 +1778,7 @@ export function ProcessManagement({ publicView = false }) {
           ref={(element) => registerCategoryRowRef(category.id, element)}
           className="d-flex align-items-center gap-2 py-2"
           style={{
-            paddingLeft: 24 + (level * 34),
+            paddingLeft: categoryIndentBase + (level * categoryIndentStep),
             borderBottom: '1px solid #f1f5f9',
             background: level === 0 ? 'white' : '#fffaf5',
           }}
@@ -1785,7 +1830,7 @@ export function ProcessManagement({ publicView = false }) {
               <CategoryBranch key={childCategory.id} category={childCategory} level={level + 1} />
             ))}
             {directProcesses.length === 0 && childCount === 0 ? (
-              <div style={{ padding: `6px 16px 6px ${34 + ((level + 1) * 34)}px`, fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #f8fafc', background: '#fff7f7', boxShadow: 'inset 4px 0 0 #fecdd3' }}>
+              <div style={{ padding: `6px 16px 6px ${processIndentForLevel(level + 1)}px`, fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #f8fafc', background: '#fff7f7', boxShadow: 'inset 4px 0 0 #fecdd3' }}>
                 No processes
               </div>
             ) : (
