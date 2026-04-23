@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Process Management Test</title>
+</head>
+<body>
+    <h1>Process Management API Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        // Test the processes API
+        fetch('http://localhost:3001/api/processes')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('results').innerHTML = 
+                    '<h2>Processes:</h2><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            })
+            .catch(error => {
+                document.getElementById('results').innerHTML = 
+                    '<h2>Error:</h2><pre>' + error.message + '</pre>';
+            });
+    </script>
+</body>
+</html>
