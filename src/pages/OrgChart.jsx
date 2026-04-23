@@ -4,12 +4,10 @@ import {
   Badge,
   Button,
   Card,
-  Col,
   Container,
   Form,
   InputGroup,
   Modal,
-  Row,
   Spinner,
 } from 'react-bootstrap';
 import { ROLES, useAuth } from '../contexts/AuthContext';
@@ -58,21 +56,10 @@ function toForm(node = null, overrides = {}) {
     parentId: node?.parentId ? String(node.parentId) : '',
     userId: node?.userId ? String(node.userId) : '',
     description: node?.description || '',
-    color: node?.color || nodeMeta(node?.nodeType).color || TYPE_META.structure.color,
+    color: nodeMeta(node?.nodeType).color || TYPE_META.structure.color,
     isVacant: Boolean(node?.isVacant),
     ...overrides,
   };
-}
-
-function initials(value = '') {
-  return (
-    value
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'OG'
-  );
 }
 
 function formatDate(value) {
@@ -235,7 +222,7 @@ function OrgNodeFields({ form, setForm, users, parentOptions }) {
         <Form.Control value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
       </Form.Group>
       <Form.Group>
-        <Form.Label>Node Type</Form.Label>
+        <Form.Label>Acteur Type</Form.Label>
         <Form.Select
           value={form.nodeType}
           onChange={(event) =>
@@ -319,7 +306,6 @@ export function OrgChart({ publicView = false }) {
   const [zoom, setZoom] = useState(1);
   const [draggedId, setDraggedId] = useState(null);
   const [dropTargetId, setDropTargetId] = useState(null);
-  const [rootDropActive, setRootDropActive] = useState(false);
   const [boardFullscreen, setBoardFullscreen] = useState(false);
   const boardRef = useRef(null);
   const canvasRef = useRef(null);
@@ -423,12 +409,6 @@ export function OrgChart({ publicView = false }) {
     ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
     : nodes;
 
-  const metrics = {
-    total: nodes.length,
-    filled: nodes.filter((node) => node.userId).length,
-    open: nodes.filter((node) => ['function', 'manager'].includes(node.nodeType) && (node.isVacant || !node.userId)).length,
-  };
-
   const showMessage = (text, variant = 'success') => showSnackbar(text, variant);
 
   const openNodeDetails = (nodeId) => {
@@ -480,12 +460,12 @@ export function OrgChart({ publicView = false }) {
         parentId: inspectorForm.parentId || null,
         userId: inspectorForm.userId || null,
       });
-      showMessage('Organigram node updated successfully.');
+      showMessage('Organigram acteur updated successfully.');
       await loadOrgChart(true);
       setSelectedId(data.id);
     } catch (requestError) {
       console.error(requestError);
-      showMessage(requestError.message || 'Failed to update node.', 'danger');
+      showMessage(requestError.message || 'Failed to update acteur.', 'danger');
     } finally {
       setSaving(false);
     }
@@ -500,13 +480,13 @@ export function OrgChart({ publicView = false }) {
         parentId: createForm.parentId || null,
         userId: createForm.userId || null,
       });
-      showMessage('New organigram node created.');
+      showMessage('New organigram acteur created.');
       setShowCreateModal(false);
       await loadOrgChart(true);
       setSelectedId(data.id);
     } catch (requestError) {
       console.error(requestError);
-      showMessage(requestError.message || 'Failed to create node.', 'danger');
+      showMessage(requestError.message || 'Failed to create acteur.', 'danger');
     } finally {
       setSaving(false);
     }
@@ -515,8 +495,8 @@ export function OrgChart({ publicView = false }) {
   const deleteSelectedNode = async () => {
     if (!selectedNode) return;
     const confirmed = await confirmAction({
-      title: 'Delete node',
-      message: `Delete "${selectedNode.name}"? Children will move to the deleted node's parent.`,
+      title: 'Delete acteur',
+      message: `Delete "${selectedNode.name}"? Children will move to the deleted acteur's parent.`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -524,13 +504,13 @@ export function OrgChart({ publicView = false }) {
     setSaving(true);
     try {
       await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'DELETE', {});
-      showMessage('Organigram node deleted.');
+      showMessage('Organigram acteur deleted.');
       setShowDetailsModal(false);
       setSelectedId(selectedNode.parentId || null);
       await loadOrgChart(true);
     } catch (requestError) {
       console.error(requestError);
-      showMessage(requestError.message || 'Failed to delete node.', 'danger');
+      showMessage(requestError.message || 'Failed to delete acteur.', 'danger');
     } finally {
       setSaving(false);
     }
@@ -546,12 +526,11 @@ export function OrgChart({ publicView = false }) {
       setSelectedId(nodeId);
     } catch (requestError) {
       console.error(requestError);
-      showMessage(requestError.message || 'Failed to move node.', 'danger');
+      showMessage(requestError.message || 'Failed to move acteur.', 'danger');
     } finally {
       setSaving(false);
       setDraggedId(null);
       setDropTargetId(null);
-      setRootDropActive(false);
     }
   };
 
@@ -576,41 +555,7 @@ export function OrgChart({ publicView = false }) {
 
   return (
     <Container fluid className="org-page">
-      {!publicView ? (
-        <section className="org-hero">
-          <div className="org-hero__copy">
-            <span className="org-hero__eyebrow">Actor Org Builder</span>
-            <h1>Interactive Org Chart</h1>
-            <p>Build the organigram with companies, institutes, structures, managers, functions, org-units, and linked actors. Drag cards to re-parent them or edit the selected node.</p>
-          </div>
-          <div className="org-hero__actions">
-            <Button variant="outline-secondary" className="org-hero__refresh" onClick={() => loadOrgChart()}>
-              <i className="bi bi-arrow-clockwise me-2"></i>Refresh
-            </Button>
-            {canEdit && (
-              <Button className="org-hero__primary" onClick={() => openCreateModal()}>
-                <i className="bi bi-plus-circle me-2"></i>Add Root Node
-              </Button>
-            )}
-          </div>
-        </section>
-      ) : null}
-
       {error && <Alert variant="danger">{error}</Alert>}
-      {!publicView && !canEdit && (
-        <Alert variant="info" className="org-readonly-banner">
-          {publicView ? 'Public portal: the organigram is available in read-only mode.' : 'You are viewing the organigram in read-only mode.'}
-        </Alert>
-      )}
-
-      {!publicView ? (
-        <Row className="g-3 org-metrics">
-          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Nodes</span><strong>{metrics.total}</strong><p>Structure blocks across the organigram.</p></Card.Body></Card></Col>
-          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Assigned actors</span><strong>{metrics.filled}</strong><p>Nodes already linked to a person.</p></Card.Body></Card></Col>
-          <Col lg={4} md={6}><Card className="org-metric-card"><Card.Body><span>Open roles</span><strong>{metrics.open}</strong><p>Vacant or unassigned manager/function nodes.</p></Card.Body></Card></Col>
-        </Row>
-      ) : null}
-
       <div className="org-workspace">
         <Card className={`org-board${boardFullscreen ? ' is-fullscreen' : ''}`} ref={boardRef}>
           <Card.Body>
@@ -618,7 +563,7 @@ export function OrgChart({ publicView = false }) {
               <div className="org-board__filters">
                 <InputGroup>
                   <InputGroup.Text><i className="bi bi-search"></i></InputGroup.Text>
-                  <Form.Control value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search nodes, roles, or people" />
+                  <Form.Control value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search acteurs, roles, or people" />
                 </InputGroup>
               </div>
 
@@ -636,32 +581,14 @@ export function OrgChart({ publicView = false }) {
               </div>
             </div>
 
-            {canEdit && (
-              <div
-                className={`org-root-dropzone${rootDropActive ? ' is-active' : ''}`}
-                onDragOver={(event) => {
-                  if (draggedId === null) return;
-                  event.preventDefault();
-                  setRootDropActive(true);
-                }}
-                onDragLeave={() => setRootDropActive(false)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (draggedId !== null) moveNode(draggedId, null);
-                }}
-              >
-                <i className="bi bi-arrows-move"></i>Drop a node here to make it top-level
-              </div>
-            )}
-
             {loading ? (
               <div className="org-state"><Spinner animation="border" variant="danger" /><p>Loading the organigram editor...</p></div>
             ) : visibleNodes.length === 0 ? (
               <div className="org-state">
                 <div className="org-state__icon"><i className="bi bi-diagram-3"></i></div>
-                <h3>No nodes to display</h3>
-                <p>{searchTerm ? 'Adjust the search to bring matching nodes back into view.' : 'Create the first root node to start building the organisation.'}</p>
-                {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Create first node</Button>}
+                <h3>No acteurs to display</h3>
+                <p>{searchTerm ? 'Adjust the search to bring matching acteurs back into view.' : 'Create the first acteur to start building the organisation.'}</p>
+                {canEdit && <Button variant="danger" onClick={() => openCreateModal()}>Create first acteur</Button>}
               </div>
             ) : (
               <div className={`org-canvas${boardFullscreen ? ' is-fullscreen-fit' : ''}`} ref={canvasRef}>
@@ -685,7 +612,7 @@ export function OrgChart({ publicView = false }) {
                         <div
                           key={node.id}
                           className={['org-card-node', selectedId === node.id ? 'is-selected' : '', dropTargetId === node.id ? 'is-drop-target' : '', deferredSearch && matchesSearch(node, deferredSearch) ? 'is-match' : ''].filter(Boolean).join(' ')}
-                          style={{ left: node.left + CANVAS_PADDING, top: node.top + CANVAS_PADDING, '--node-accent': node.color || meta.color }}
+                          style={{ left: node.left + CANVAS_PADDING, top: node.top + CANVAS_PADDING, '--node-accent': meta.color }}
                           role="button"
                           tabIndex={0}
                           onClick={() => openNodeDetails(node.id)}
@@ -700,7 +627,6 @@ export function OrgChart({ publicView = false }) {
                           onDragEnd={() => {
                             setDraggedId(null);
                             setDropTargetId(null);
-                            setRootDropActive(false);
                           }}
                           onDragOver={(event) => {
                             if (!canEdit || !dropAllowed) return;
@@ -724,13 +650,6 @@ export function OrgChart({ publicView = false }) {
                             <h3>{node.name}</h3>
                             <p>{node.title || 'No title defined yet'}</p>
                           </div>
-                          <div className="org-card-node__person">
-                            <div className="org-card-node__avatar">{node.isVacant ? 'V' : initials(node.userName || node.name)}</div>
-                            <div>
-                              <strong>{node.isVacant ? 'Vacant actor' : node.userName || 'Unassigned actor'}</strong>
-                              <small>{node.isVacant ? 'Ready to assign' : node.userRole || 'No actor linked yet'}</small>
-                            </div>
-                          </div>
                           <div className="org-card-node__footer"><span>{meta.label}</span><span>{descendantCount(nodes, node.id)} nested</span></div>
                           {canEdit && (
                             <div className="org-card-node__actions">
@@ -752,14 +671,14 @@ export function OrgChart({ publicView = false }) {
 
       <Modal show={Boolean(selectedNode && showDetailsModal)} onHide={() => setShowDetailsModal(false)} size="xl" centered>
         <Modal.Header closeButton className="org-modal__header">
-          <Modal.Title>{selectedNode ? selectedNode.name : 'Node details'}</Modal.Title>
+          <Modal.Title>{selectedNode ? selectedNode.name : 'Acteur details'}</Modal.Title>
         </Modal.Header>
         <Modal.Body className="org-modal__body">
           {selectedNode ? (
             <div className="d-flex flex-column gap-4">
               <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                 <div>
-                  <span className="org-inspector__eyebrow">Inspector</span>
+                  <span className="org-inspector__eyebrow">Acteur</span>
                   <h2 className="mb-2">{selectedNode.name}</h2>
                 </div>
                 <Badge bg="light" text="dark">{nodeMeta(selectedNode.nodeType).label}</Badge>
@@ -780,14 +699,13 @@ export function OrgChart({ publicView = false }) {
                     <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
                   </div>
                   <Button variant="outline-danger" className="org-inspector__delete" onClick={deleteSelectedNode} disabled={saving}>
-                    <i className="bi bi-trash me-2"></i>Delete Node
+                    <i className="bi bi-trash me-2"></i>Delete acteur
                   </Button>
                 </Form>
               ) : (
                 <div className="org-inspector__readonly">
-                  <p>{selectedNode.description || 'No description for this node yet.'}</p>
+                  <p>{selectedNode.description || 'No description for this acteur yet.'}</p>
                   <ul>
-                    <li>Actor: {selectedNode.userName || 'Unassigned actor'}</li>
                     <li>Title: {selectedNode.title || 'Not specified'}</li>
                   </ul>
                 </div>
@@ -798,7 +716,7 @@ export function OrgChart({ publicView = false }) {
                   <EntityCollaborationPanel
                     entityType="orgchart_node"
                     entityId={selectedNode.id}
-                    title="Commentaires et fichiers du noeud"
+                    title="Commentaires et fichiers de l acteur"
                   />
                 </div>
               ) : null}
@@ -809,14 +727,14 @@ export function OrgChart({ publicView = false }) {
 
       <Modal show={showCreateModal} onHide={() => setShowCreateModal(false)} size="lg" centered>
         <Modal.Header closeButton className="org-modal__header">
-          <Modal.Title>Create Organigram Node</Modal.Title>
+          <Modal.Title>Create Organigram Acteur</Modal.Title>
         </Modal.Header>
         <Modal.Body className="org-modal__body">
           <Form onSubmit={createNode}>
             <OrgNodeFields form={createForm} setForm={setCreateForm} users={users} parentOptions={nodes} />
             <div className="org-modal__actions">
               <Button variant="outline-secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-              <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Creating...' : 'Create Node'}</Button>
+              <Button type="submit" variant="danger" disabled={saving}>{saving ? 'Creating...' : 'Create Acteur'}</Button>
             </div>
           </Form>
         </Modal.Body>

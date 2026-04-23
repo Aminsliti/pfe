@@ -46,11 +46,10 @@ export function Layout() {
     { path: '/orgchart', label: 'Org Chart', icon: 'bi-diagram-3-fill', permission: PERMISSIONS.VIEW_DASHBOARD },
     { path: '/users', label: 'User Management', icon: 'bi-people', permission: PERMISSIONS.USER_MANAGEMENT },
     { path: '/audit-logs', label: 'Audit Log', icon: 'bi-journal-text', permission: PERMISSIONS.USER_MANAGEMENT },
-    { path: '/roles', label: 'Role Management', icon: 'bi-shield-check', permission: PERMISSIONS.ROLE_MANAGEMENT },
   ];
 
   const visibleNavItems = navItems.filter((item) => hasPermission(item.permission));
-  const adminPaths = new Set(['/users', '/roles', '/audit-logs']);
+  const adminPaths = new Set(['/users', '/audit-logs']);
   const isAdmin = hasRole(ROLES.ADMIN);
   const primaryNavItems = visibleNavItems.filter((item) => !adminPaths.has(item.path));
   const adminNavItems = isAdmin ? visibleNavItems.filter((item) => adminPaths.has(item.path)) : [];

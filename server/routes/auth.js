@@ -6,9 +6,13 @@ import {
   buildRequestUser,
   canManageRoles,
   canonicalizeRoleName,
+  clearUserPresenceSession,
   ensurePermission,
   ensureUserRoleAssignmentsTable,
+  isUserCurrentlyOnline,
   isGlobalAdmin,
+  markUserPresenceSession,
+  normalizePresenceSessionId,
   sanitizeUserPayloadForRole,
   PERMISSIONS,
   ROLES,
@@ -40,6 +44,26 @@ function normalizeStartsOn(value) {
   }
 
   return value;
+}
+
+function normalizeIsActive(value, fallbackValue = true) {
+  if (value === undefined) {
+    return fallbackValue;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === 'true' || value === '1' || value === 1) {
+    return true;
+  }
+
+  if (value === 'false' || value === '0' || value === 0) {
+    return false;
+  }
+
+  return fallbackValue;
 }
 
 function normalizeAdditionalRoles(rawRoles, primaryRole, actor) {
@@ -141,6 +165,7 @@ async function loadAdditionalRolesForUsers(userIds) {
 function buildUserResponse(row, additionalRoles = []) {
   const primaryRole = canonicalizeRoleName(row.role);
   const activeRoles = [...new Set([primaryRole, ...additionalRoles.filter((item) => item.active).map((item) => item.role)])];
+  const online = row.is_active !== false && (row.online === true || isUserCurrentlyOnline(row.online));
 
   return {
     id: row.id,
@@ -151,6 +176,9 @@ function buildUserResponse(row, additionalRoles = []) {
     primaryRole,
     activeRoles,
     additionalRoles,
+    isActive: row.is_active !== false,
+    lastSeenAt: row.last_seen_at,
+    online,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -182,7 +210,7 @@ async function syncAdditionalRoles(userId, primaryRole, additionalRoles, assigne
 // Login
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, sessionId } = req.body;
     
     const result = await pool.query(
       'SELECT * FROM users WHERE username = $1 OR email = $1',
@@ -194,11 +222,25 @@ router.post('/login', async (req, res) => {
     }
 
     const user = result.rows[0];
+    if (user.is_active === false) {
+      return res.status(403).json({ error: 'This account is inactive. Please contact an administrator.' });
+    }
     const isValidPassword = await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+
+    await pool.query(
+      `
+        UPDATE users
+        SET last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+
+    await markUserPresenceSession(user.id, normalizePresenceSessionId(sessionId));
 
     const requestUser = await buildRequestUser(user.id);
     
@@ -208,6 +250,46 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/logout', async (req, res) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    await pool.query(
+      `
+        UPDATE users
+        SET last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `,
+      [req.user.id]
+    );
+    await clearUserPresenceSession(req.user.id, req.presenceSessionId);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/presence/ping', async (req, res) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    res.json({
+      ok: true,
+      online: true,
+      lastSeenAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Presence ping error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -248,6 +330,14 @@ router.get('/users', async (req, res) => {
         u.email,
         u.full_name,
         u.role,
+        u.is_active,
+        u.last_seen_at,
+        EXISTS(
+          SELECT 1
+          FROM user_presence_sessions ups
+          WHERE ups.user_id = u.id
+            AND ups.expires_at > CURRENT_TIMESTAMP
+        ) AS online,
         u.created_at,
         u.updated_at
       FROM users u
@@ -279,6 +369,7 @@ router.post('/users', async (req, res) => {
 
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
     const { username, password, email, fullName, role } = scopedPayload;
+    const isActive = normalizeIsActive(scopedPayload.isActive, true);
     const primaryRole = canonicalizeRoleName(role);
     if (!ACTIVE_ROLES.includes(primaryRole)) {
       return res.status(400).json({ error: 'Invalid role selection.' });
@@ -304,11 +395,11 @@ router.post('/users', async (req, res) => {
     
     const result = await pool.query(
       `
-        INSERT INTO users (username, password, email, full_name, role, company_id)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, username, email, full_name, role, company_id
+        INSERT INTO users (username, password, email, full_name, role, company_id, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, username, email, full_name, role, company_id, is_active, last_seen_at, FALSE AS online
       `,
-      [username, hashedPassword, email, fullName, primaryRole, null]
+      [username, hashedPassword, email, fullName, primaryRole, null, isActive]
     );
     
     const user = result.rows[0];
@@ -360,6 +451,7 @@ router.put('/users/:id', async (req, res) => {
     const { id } = req.params;
     const scopedPayload = sanitizeUserPayloadForRole(req.user, req.body);
     const { username, password, email, fullName, role } = scopedPayload;
+    const isActive = normalizeIsActive(scopedPayload.isActive, true);
     const primaryRole = canonicalizeRoleName(role);
     if (!ACTIVE_ROLES.includes(primaryRole)) {
       return res.status(400).json({ error: 'Invalid role selection.' });
@@ -372,7 +464,7 @@ router.put('/users/:id', async (req, res) => {
     }
 
     const existingUser = await pool.query(
-      'SELECT id, company_id, role FROM users WHERE id = $1',
+      'SELECT id, company_id, role, is_active FROM users WHERE id = $1',
       [id]
     );
 
@@ -386,9 +478,10 @@ router.put('/users/:id', async (req, res) => {
           email = $2,
           full_name = $3,
           role = $4,
+          is_active = $5,
           updated_at = CURRENT_TIMESTAMP
     `;
-    let params = [username, email, fullName, primaryRole, id];
+    let params = [username, email, fullName, primaryRole, isActive, id];
     
     // If password is provided, hash and update it
     if (password) {
@@ -400,12 +493,13 @@ router.put('/users/:id', async (req, res) => {
             email = $3,
             full_name = $4,
             role = $5,
+            is_active = $6,
             updated_at = CURRENT_TIMESTAMP
       `;
-      params = [username, hashedPassword, email, fullName, primaryRole, id];
+      params = [username, hashedPassword, email, fullName, primaryRole, isActive, id];
     }
     
-    query += ' WHERE id = $' + params.length + ' RETURNING id, username, email, full_name, role, company_id';
+    query += ' WHERE id = $' + params.length + ' RETURNING id, username, email, full_name, role, company_id, is_active, last_seen_at, FALSE AS online';
     
     const result = await pool.query(query, params);
     

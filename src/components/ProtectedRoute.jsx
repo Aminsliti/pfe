@@ -23,6 +23,10 @@ export function ProtectedRoute({ children, allowedRoles }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  if (user?.isActive === false) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
   if (allowedRoles && !activeRoles.some((role) => allowedRoles.includes(role))) {
     return <Navigate to="/unauthorized" replace />;
   }
@@ -42,6 +46,10 @@ export function RequirePermission({ permission, children }) {
   }
 
   if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user?.isActive === false) {
     return <Navigate to="/login" replace />;
   }
 

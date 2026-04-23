@@ -1,9 +1,13 @@
 import 'dotenv/config';
 import { writeSync } from 'node:fs';
 import createApp from './app.js';
+import { ensureAccessBootstrap } from './utils/access.js';
 
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0'; // Allow access from any IP on network
+await ensureAccessBootstrap().catch((error) => {
+  console.error('[startup] failed to prepare access bootstrap:', error);
+});
 const app = createApp();
 let shuttingDown = false;
 const activeSockets = new Set();

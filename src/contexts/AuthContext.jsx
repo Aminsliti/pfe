@@ -2,6 +2,9 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { apiUrl, isApiUrl } from '../utils/api';
 
 const AuthContext = createContext(null);
+const SESSION_EXPIRED_EVENT = 'vbpm:session-expired';
+const SESSION_ID_KEY = 'currentSessionId';
+const PRESENCE_PING_INTERVAL_MS = 45 * 1000;
 const ORIGINAL_FETCH =
   typeof globalThis.fetch === 'function'
     ? globalThis.fetch.bind(globalThis)
@@ -53,6 +56,37 @@ function getActiveRoleNames(user) {
 
 function canonicalizeRoleName(role) {
   return LEGACY_ROLE_MAP[role] || role || null;
+}
+
+function clearStoredSession() {
+  try {
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('permissions');
+    sessionStorage.removeItem(SESSION_ID_KEY);
+  } catch {}
+}
+
+function createSessionId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function getPresenceSessionId() {
+  try {
+    const existingValue = sessionStorage.getItem(SESSION_ID_KEY);
+    if (existingValue) {
+      return existingValue;
+    }
+
+    const nextValue = createSessionId();
+    sessionStorage.setItem(SESSION_ID_KEY, nextValue);
+    return nextValue;
+  } catch {
+    return createSessionId();
+  }
 }
 
 export function getRoleDisplayName(role) {
@@ -118,9 +152,10 @@ export function shouldAttachUserHeader(url) {
 }
 
 export function createAuthedFetch(fetchImpl = ORIGINAL_FETCH) {
-  return (input, init = undefined) => {
+  return async (input, init = undefined) => {
     const requestUrl = resolveRequestUrl(input);
     const currentUser = getStoredUser();
+    const currentSessionId = getPresenceSessionId();
 
     if (!currentUser?.id || !shouldAttachUserHeader(requestUrl)) {
       return fetchImpl(input, init);
@@ -134,10 +169,29 @@ export function createAuthedFetch(fetchImpl = ORIGINAL_FETCH) {
       headers.set('x-user-id', String(currentUser.id));
     }
 
-    return fetchImpl(input, {
+    if (currentSessionId && !headers.has('x-session-id')) {
+      headers.set('x-session-id', currentSessionId);
+    }
+
+    const response = await fetchImpl(input, {
       ...init,
       headers,
     });
+
+    if (response.status === 401 || response.status === 403) {
+      try {
+        const clone = response.clone();
+        const payload = await clone.json().catch(() => null);
+        const errorText = String(payload?.error || '').toLowerCase();
+
+        if (errorText.includes('inactive') || errorText.includes('log in again') || errorText.includes('authentication required')) {
+          clearStoredSession();
+          window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { error: payload?.error || '' } }));
+        }
+      } catch {}
+    }
+
+    return response;
   };
 }
 
@@ -159,62 +213,46 @@ export function AuthProvider({ children }) {
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const pingPresence = async (fetchImpl = fetch) => {
+    const currentSessionUser = getStoredUser();
+    if (!currentSessionUser?.id) {
+      return { success: false, error: 'No active session.' };
+    }
+
+    try {
+      const response = await fetchImpl(apiUrl('/presence/ping'), {
+        method: 'POST',
+      });
+
+      await parseResponse(response, 'Failed to refresh presence');
+      return { success: true };
+    } catch (error) {
+      console.error('Presence ping error:', error);
+      return { success: false, error: error.message || 'Network error' };
+    }
+  };
+
   useEffect(() => {
     const authedFetch = createAuthedFetch();
     globalThis.fetch = authedFetch;
 
+    const handleSessionExpired = () => {
+      setUser(null);
+      setPermissions([]);
+      setLoading(false);
+    };
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+
     return () => {
       globalThis.fetch = ORIGINAL_FETCH;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
   }, []);
 
-  useEffect(() => {
-    const savedUser = getStoredUser();
-    const savedPermissions = localStorage.getItem('permissions');
-
-    if (savedUser) {
-      setUser(savedUser);
-      localStorage.setItem('currentUser', JSON.stringify(savedUser));
-      if (savedPermissions) {
-        try {
-          setPermissions(JSON.parse(savedPermissions));
-        } catch {
-          setPermissions([]);
-        }
-      }
-    }
-
-    setLoading(false);
-  }, []);
-
-  const login = async (username, password) => {
-    try {
-      const response = await ORIGINAL_FETCH(apiUrl('/login'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await parseResponse(response, 'Login failed');
-      const nextPermissions = data.permissions || [];
-      const normalizedUser = normalizeStoredUser(data.user);
-
-      setUser(normalizedUser);
-      setPermissions(nextPermissions);
-      localStorage.setItem('currentUser', JSON.stringify(normalizedUser));
-      localStorage.setItem('permissions', JSON.stringify(nextPermissions));
-
-      return { success: true, user: normalizedUser, permissions: nextPermissions };
-    } catch (error) {
-      console.error('Login error:', error);
-      return { success: false, error: error.message || 'Network error. Please try again.' };
-    }
-  };
-
   const refreshCurrentUser = async () => {
-    if (!user?.id) {
+    const currentSessionUser = getStoredUser();
+    if (!currentSessionUser?.id) {
       return { success: false, error: 'No active session.' };
     }
 
@@ -236,9 +274,98 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('permissions');
+  useEffect(() => {
+    const savedUser = getStoredUser();
+    const savedPermissions = localStorage.getItem('permissions');
+
+    if (savedUser) {
+      setUser(savedUser);
+      localStorage.setItem('currentUser', JSON.stringify(savedUser));
+      if (savedPermissions) {
+        try {
+          setPermissions(JSON.parse(savedPermissions));
+        } catch {
+          setPermissions([]);
+        }
+      }
+
+      setLoading(false);
+      refreshCurrentUser().catch(() => {});
+      return;
+    }
+
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) {
+      return undefined;
+    }
+
+    pingPresence().catch(() => {});
+
+    const intervalId = window.setInterval(() => {
+      pingPresence().catch(() => {});
+    }, PRESENCE_PING_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        pingPresence().catch(() => {});
+      }
+    };
+
+    const handleFocus = () => {
+      pingPresence().catch(() => {});
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user?.id]);
+
+  const login = async (username, password) => {
+    try {
+      const response = await ORIGINAL_FETCH(apiUrl('/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password, sessionId: getPresenceSessionId() }),
+      });
+
+      const data = await parseResponse(response, 'Login failed');
+      const nextPermissions = data.permissions || [];
+      const normalizedUser = normalizeStoredUser(data.user);
+
+      setUser(normalizedUser);
+      setPermissions(nextPermissions);
+      localStorage.setItem('currentUser', JSON.stringify(normalizedUser));
+      localStorage.setItem('permissions', JSON.stringify(nextPermissions));
+
+      return { success: true, user: normalizedUser, permissions: nextPermissions };
+    } catch (error) {
+      console.error('Login error:', error);
+      return { success: false, error: error.message || 'Network error. Please try again.' };
+    }
+  };
+
+  const logout = async () => {
+    try {
+      if (getStoredUser()?.id) {
+        await fetch(apiUrl('/logout'), {
+          method: 'POST',
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+
+    clearStoredSession();
     setUser(null);
     setPermissions([]);
     setLoading(false);

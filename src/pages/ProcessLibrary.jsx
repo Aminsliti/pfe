@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Modal } from 'react-bootstrap';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 import { API_BASE } from '../utils/api';
@@ -10,19 +11,16 @@ const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProce
 const SECTION_CONFIG = {
   pilotage: {
     title: 'Processus de pilotage',
-    subtitle: 'Gouvernance, controle et orientation strategique.',
     accent: '#991b1b',
     background: '#fff7f5',
   },
   metiers: {
-    title: 'Metiers',
-    subtitle: 'Parcours client et execution bancaire.',
+    title: 'Processus metiers',
     accent: '#0f766e',
     background: '#f2fbfa',
   },
   support: {
-    title: 'Support',
-    subtitle: 'Fonctions de support et moyens transverses.',
+    title: 'Processus support',
     accent: '#92400e',
     background: '#fff9f0',
   },
@@ -193,21 +191,43 @@ function HeroStat({ label, value }) {
   );
 }
 
-function VerticalLane({ children }) {
+function VerticalLane({ children, compact = false }) {
   return (
-    <div className="d-flex flex-column gap-3">
+    <div className={`d-flex flex-column ${compact ? 'gap-2' : 'gap-3'}`}>
       {children}
     </div>
   );
 }
 
-function CategoryCard({ category, onOpen }) {
+function CategoryCard({ category, onOpen, compact = false }) {
+  if (compact) {
+    return (
+      <button
+        type="button"
+        className="card border-0 shadow-sm text-start"
+        onClick={() => onOpen(category)}
+        style={{ width: '100%', background: 'linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%)', color: '#7f1d1d', borderRadius: 16, border: '1px solid #fecdd3' }}
+      >
+        <div className="card-body p-2 d-flex align-items-center justify-content-between gap-2">
+          <div className="d-flex align-items-center gap-2" style={{ minWidth: 0 }}>
+            <span className="small opacity-75"><i className="bi bi-diagram-3" /></span>
+            <div className="fw-semibold lh-sm" style={{ minWidth: 0 }}>{category.name}</div>
+          </div>
+          <div className="d-flex align-items-center gap-2 flex-wrap justify-content-end flex-shrink-0">
+            <span className="badge text-bg-light">{category.children.length}</span>
+            <span className="badge text-bg-light">{category.totalProcessCount}</span>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
       className="card border-0 shadow-sm text-start"
       onClick={() => onOpen(category)}
-      style={{ width: '100%', minHeight: 132, background: 'linear-gradient(135deg,#6b1722 0%,#9f1239 55%,#be123c 100%)', color: 'white', borderRadius: 20 }}
+      style={{ width: '100%', minHeight: compact ? 100 : 132, background: 'linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%)', color: '#7f1d1d', borderRadius: 20, border: '1px solid #fecdd3' }}
     >
       <div className="card-body d-flex flex-column gap-2 p-3">
         <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-diagram-3 me-2" />Categorie</div>
@@ -221,8 +241,32 @@ function CategoryCard({ category, onOpen }) {
   );
 }
 
-function ProcessCard({ process, onOpen, publicView = false }) {
+function ProcessCard({ process, onOpen, publicView = false, compact = false }) {
   const status = getStatusMeta(process.status);
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        className="card border-0 shadow-sm text-start"
+        onClick={() => onOpen(process)}
+        style={{ width: '100%', background: 'linear-gradient(135deg,#0f4c5c 0%,#0f766e 100%)', color: 'white', borderRadius: 16 }}
+      >
+        <div className="card-body p-2 d-flex flex-column gap-2">
+          <div className="small text-uppercase fw-bold opacity-75">
+            <i className="bi bi-bezier2 me-2" />
+            {process.childCount > 0 ? 'Macro-processus' : 'Processus'}
+          </div>
+          <div className="fw-semibold lh-sm">{process.name}</div>
+          <div className="d-flex flex-wrap gap-2 mt-1">
+            <span className="badge" style={{ background: status.bg, color: status.color }}>{status.label}</span>
+            <span className="badge text-bg-light">v{process.version || 1}</span>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -253,36 +297,41 @@ function EmptyBox({ title, text }) {
   );
 }
 
-function RootSection({ sectionId, categories, looseProcesses, onOpenCategory, onOpenProcess, publicView = false }) {
+function RootSection({ sectionId, categories, looseProcesses, onOpenCategory, onOpenProcess, publicView = false, collapsed = false, onToggle }) {
   const section = SECTION_CONFIG[sectionId];
   if (!categories.length && !looseProcesses.length) return null;
 
   return (
-    <section className="card border-0 shadow-sm" style={{ background: section.background, borderRadius: 28 }}>
-      <div className="card-body p-4 d-flex flex-column gap-4">
+    <section className="card border-0 shadow-sm" style={{ background: section.background, borderRadius: publicView ? 22 : 28 }}>
+      <div className={`card-body d-flex flex-column ${publicView ? 'p-3 gap-3' : 'p-4 gap-4'}`}>
         <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
           <div>
-            <h2 className="mb-1" style={{ color: section.accent }}>{section.title}</h2>
-            <p className="mb-0 text-muted">{section.subtitle}</p>
+            <h2 className="mb-0" style={{ color: section.accent, fontSize: publicView ? '1.15rem' : undefined }}>{section.title}</h2>
           </div>
-          <div className="d-flex gap-2 flex-wrap">
+          <div className="d-flex gap-2 flex-wrap align-items-center">
             <span className="badge rounded-pill text-bg-light">{categories.length} categories</span>
             {looseProcesses.length ? <span className="badge rounded-pill text-bg-light">{looseProcesses.length} sans categorie</span> : null}
+            {onToggle ? (
+              <button type="button" className="btn btn-sm btn-outline-secondary rounded-pill" onClick={onToggle}>
+                <i className={`bi ${collapsed ? 'bi-chevron-down' : 'bi-chevron-up'} me-2`} />
+                {collapsed ? 'Ouvrir' : 'Reduire'}
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {categories.length ? (
-          <VerticalLane>
+        {!collapsed && categories.length ? (
+          <VerticalLane compact={publicView}>
             {categories.map((category) => (
-              <CategoryCard key={category.id} category={category} onOpen={onOpenCategory} />
+              <CategoryCard key={category.id} category={category} onOpen={onOpenCategory} compact={publicView} />
             ))}
           </VerticalLane>
         ) : null}
 
-        {looseProcesses.length ? (
-          <div className="d-flex flex-column gap-3">
+        {!collapsed && looseProcesses.length ? (
+          <div className={`d-flex flex-column ${publicView ? 'gap-2' : 'gap-3'}`}>
             <h3 className="h5 mb-0">Processus sans categorie</h3>
-            <VerticalLane>
+            <VerticalLane compact={publicView}>
               {looseProcesses.map((process) => (
                 <ProcessCard key={process.id} process={process} onOpen={onOpenProcess} publicView={publicView} />
               ))}
@@ -300,39 +349,60 @@ function CategoryView({ category, childCategories, directProcesses, onOpenCatego
   return (
     <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
       <div className="card-body p-4 d-flex flex-column gap-4">
-        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div className="d-flex justify-content-between align-items-start gap-3">
           <div>
             <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-diagram-2 me-2" />Categorie</div>
             <h2 className="mb-2">{category.name}</h2>
             <p className="mb-0 text-muted">{category.description || 'Descendez niveau par niveau dans cette branche.'}</p>
           </div>
-          <div className="d-flex gap-2 flex-wrap">
-            <span className="badge rounded-pill text-bg-light">{childCategories.length} sous-categorie(s)</span>
-            <span className="badge rounded-pill text-bg-light">{visibleProcesses.length} processus</span>
-            <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
-              <i className="bi bi-arrow-left me-2" />Retour
-            </button>
-          </div>
+          <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill flex-shrink-0" onClick={onBack}>
+            <i className="bi bi-arrow-left me-2" />Retour
+          </button>
+        </div>
+
+        <div className="d-flex gap-2 flex-wrap">
+          <span className="badge rounded-pill text-bg-light">{childCategories.length} sous-categorie(s)</span>
+          <span className="badge rounded-pill text-bg-light">{visibleProcesses.length} processus</span>
         </div>
 
         {showsCategoriesOnly ? (
           <div className="d-flex flex-column gap-3">
             <h3 className="h5 mb-0">Sous-categories</h3>
-            <VerticalLane>
-              {childCategories.map((child) => (
-                <CategoryCard key={child.id} category={child} onOpen={onOpenCategory} />
-              ))}
-            </VerticalLane>
+            {publicView ? (
+              <div className="row g-3">
+                {childCategories.map((child) => (
+                  <div className="col-md-6 col-xl-4" key={child.id}>
+                    <CategoryCard category={child} onOpen={onOpenCategory} compact />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <VerticalLane>
+                {childCategories.map((child) => (
+                  <CategoryCard key={child.id} category={child} onOpen={onOpenCategory} />
+                ))}
+              </VerticalLane>
+            )}
           </div>
         ) : (
           <div className="d-flex flex-column gap-3">
             <h3 className="h5 mb-0">Processus</h3>
             {visibleProcesses.length ? (
-              <VerticalLane>
-                {visibleProcesses.map((process) => (
-                  <ProcessCard key={process.id} process={process} onOpen={onOpenProcess} publicView={publicView} />
-                ))}
-              </VerticalLane>
+              publicView ? (
+                <div className="row g-3">
+                  {visibleProcesses.map((process) => (
+                    <div className="col-md-6 col-xl-4" key={process.id}>
+                      <ProcessCard process={process} onOpen={onOpenProcess} publicView compact />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <VerticalLane>
+                  {visibleProcesses.map((process) => (
+                    <ProcessCard key={process.id} process={process} onOpen={onOpenProcess} publicView={publicView} />
+                  ))}
+                </VerticalLane>
+              )
             ) : (
               <EmptyBox title="Aucun processus visible" text="Aucun processus approuve n est visible dans cette categorie." />
             )}
@@ -347,27 +417,38 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack, publicVie
   return (
     <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
       <div className="card-body p-4 d-flex flex-column gap-4">
-        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div className="d-flex justify-content-between align-items-start gap-3">
           <div>
             <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-bezier2 me-2" />Macro-processus</div>
             <h2 className="mb-2">{process.name}</h2>
             <p className="mb-0 text-muted">{publicView ? 'Ouvrez un sous-processus pour continuer jusqu au detail du diagramme.' : (process.description || 'Ouvrez un sous-processus pour continuer jusqu au diagramme detaille.')}</p>
           </div>
-          <div className="d-flex gap-2 flex-wrap">
-            <span className="badge rounded-pill text-bg-light">{children.length} sous-processus visible(s)</span>
-            <span className="badge rounded-pill text-bg-light">{process.descendantCount} niveau(x) en profondeur</span>
-            <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
-              <i className="bi bi-arrow-left me-2" />Retour
-            </button>
-          </div>
+          <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill flex-shrink-0" onClick={onBack}>
+            <i className="bi bi-arrow-left me-2" />Retour
+          </button>
+        </div>
+
+        <div className="d-flex gap-2 flex-wrap">
+          <span className="badge rounded-pill text-bg-light">{children.length} sous-processus visible(s)</span>
+          <span className="badge rounded-pill text-bg-light">{process.descendantCount} niveau(x) en profondeur</span>
         </div>
 
         {children.length ? (
-          <VerticalLane>
-            {children.map((child) => (
-              <ProcessCard key={child.id} process={child} onOpen={onOpenProcess} publicView={publicView} />
-            ))}
-          </VerticalLane>
+          publicView ? (
+            <div className="row g-3">
+              {children.map((child) => (
+                <div className="col-md-6 col-xl-4" key={child.id}>
+                  <ProcessCard process={child} onOpen={onOpenProcess} publicView compact />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <VerticalLane>
+              {children.map((child) => (
+                <ProcessCard key={child.id} process={child} onOpen={onOpenProcess} publicView={publicView} />
+              ))}
+            </VerticalLane>
+          )
         ) : (
           <EmptyBox title="Aucun sous-processus visible" text="Ajustez vos filtres ou revenez en arriere pour choisir une autre branche." />
         )}
@@ -379,6 +460,7 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack, publicVie
 function ProcessLeafView({ process, onBack }) {
   const status = getStatusMeta(process.status);
   const [previewRootElementId, setPreviewRootElementId] = useState(null);
+  const [showDiagramModal, setShowDiagramModal] = useState(false);
   const subprocesses = useMemo(() => getBpmnSubprocesses(process.bpmn_xml), [process.bpmn_xml]);
   const previewTrail = useMemo(
     () => buildBpmnSubprocessTrail(subprocesses, previewRootElementId),
@@ -398,28 +480,35 @@ function ProcessLeafView({ process, onBack }) {
   return (
     <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
       <div className="card-body p-4 d-flex flex-column gap-4">
-        <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div className="d-flex justify-content-between align-items-start gap-3">
           <div>
             <div className="small text-uppercase fw-bold text-danger mb-2"><i className="bi bi-image me-2" />Diagramme BPMN final</div>
             <h2 className="mb-2">{process.name}</h2>
             <p className="mb-0 text-muted">{process.description || 'Vous avez atteint le dernier niveau de navigation: le diagramme du processus detaille.'}</p>
           </div>
-          <div className="d-flex gap-2 flex-wrap">
-            <span className="badge rounded-pill" style={{ background: status.bg, color: status.color }}>{status.label}</span>
-            <span className="badge rounded-pill text-bg-light">v{process.version || 1}</span>
-            <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill" onClick={onBack}>
-              <i className="bi bi-arrow-left me-2" />Retour
-            </button>
-          </div>
+          <button type="button" className="btn btn-outline-secondary btn-sm rounded-pill flex-shrink-0" onClick={onBack}>
+            <i className="bi bi-arrow-left me-2" />Retour
+          </button>
+        </div>
+
+        <div className="d-flex gap-2 flex-wrap">
+          <span className="badge rounded-pill" style={{ background: status.bg, color: status.color }}>{status.label}</span>
+          <span className="badge rounded-pill text-bg-light">v{process.version || 1}</span>
         </div>
 
         <div className="row g-4">
           <div className="col-xl-8">
-            <div className="border rounded-4 bg-white p-3 shadow-sm">
+            <button
+              type="button"
+              className="border rounded-4 bg-white p-3 shadow-sm w-100 text-start"
+              style={{ cursor: 'zoom-in' }}
+              onClick={() => setShowDiagramModal(true)}
+            >
+              <div className="small text-muted mb-2">Cliquez sur le diagramme pour l ouvrir.</div>
               <Suspense fallback={<div className="text-center py-5 text-muted">Rendu du diagramme BPMN...</div>}>
                 <BpmnProcessPreview xml={process.bpmn_xml} rootElementId={previewRootElementId} />
               </Suspense>
-            </div>
+            </button>
           </div>
           <div className="col-xl-4">
             <div className="d-flex flex-column gap-3 h-100">
@@ -488,6 +577,22 @@ function ProcessLeafView({ process, onBack }) {
           </div>
         </div>
       </div>
+
+      <Modal show={showDiagramModal} onHide={() => setShowDiagramModal(false)} size="xl" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>{process.name}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="d-flex flex-column gap-3">
+            <div className="text-muted">{process.description || 'Aucune description disponible pour ce processus.'}</div>
+            <div className="border rounded-4 bg-white p-3 shadow-sm">
+              <Suspense fallback={<div className="text-center py-5 text-muted">Rendu du diagramme BPMN...</div>}>
+                <BpmnProcessPreview xml={process.bpmn_xml} rootElementId={previewRootElementId} />
+              </Suspense>
+            </div>
+          </div>
+        </Modal.Body>
+      </Modal>
     </section>
   );
 }
@@ -500,6 +605,7 @@ export default function ProcessLibrary({ publicView = false }) {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(publicView ? 'approved' : 'all');
+  const [collapsedRootSections, setCollapsedRootSections] = useState({ pilotage: false, metiers: false, support: false });
   const lastProcessNavigationRef = useRef({ id: null, at: 0 });
   const deferredSearch = useDeferredValue(search);
   const navigation = useMemo(() => parseNavigationParam(searchParams.get('nav')), [searchParams]);
@@ -673,9 +779,16 @@ export default function ProcessLibrary({ publicView = false }) {
     updateNavigation((current) => current.slice(0, index + 1));
   };
 
+  const toggleRootSection = (sectionId) => {
+    setCollapsedRootSections((current) => ({
+      ...current,
+      [sectionId]: !current[sectionId],
+    }));
+  };
+
   return (
-    <div className="container-fluid py-4">
-      <div className="mx-auto d-flex flex-column gap-4" style={{ maxWidth: 1520 }}>
+    <div className="container-fluid py-3">
+      <div className="mx-auto d-flex flex-column gap-3" style={{ maxWidth: 1520 }}>
         <div className="d-flex flex-wrap align-items-center gap-2" style={{ paddingLeft: 12 }}>
           <button type="button" className="btn btn-sm rounded-pill btn-danger" onClick={() => jumpTo(-1)}>
             Bibliotheque
@@ -739,36 +852,48 @@ export default function ProcessLibrary({ publicView = false }) {
           </div>
         ) : (
           <div className="row g-3 align-items-start">
-            <div className="col-12 col-lg-4">
-              <RootSection
-                sectionId="pilotage"
-                categories={rootCategoriesBySection.pilotage}
-                looseProcesses={rootLooseProcesses.pilotage}
-                onOpenCategory={enterCategory}
-                onOpenProcess={enterProcess}
-                publicView={publicView}
-              />
-            </div>
-            <div className="col-12 col-lg-4">
-              <RootSection
-                sectionId="metiers"
-                categories={rootCategoriesBySection.metiers}
-                looseProcesses={rootLooseProcesses.metiers}
-                onOpenCategory={enterCategory}
-                onOpenProcess={enterProcess}
-                publicView={publicView}
-              />
-            </div>
-            <div className="col-12 col-lg-4">
-              <RootSection
-                sectionId="support"
-                categories={rootCategoriesBySection.support}
-                looseProcesses={rootLooseProcesses.support}
-                onOpenCategory={enterCategory}
-                onOpenProcess={enterProcess}
-                publicView={publicView}
-              />
-            </div>
+            {rootCategoriesBySection.pilotage.length || rootLooseProcesses.pilotage.length ? (
+              <div className="col-12 col-lg-4">
+                <RootSection
+                  sectionId="pilotage"
+                  categories={rootCategoriesBySection.pilotage}
+                  looseProcesses={rootLooseProcesses.pilotage}
+                  onOpenCategory={enterCategory}
+                  onOpenProcess={enterProcess}
+                  publicView={publicView}
+                  collapsed={collapsedRootSections.pilotage}
+                  onToggle={() => toggleRootSection('pilotage')}
+                />
+              </div>
+            ) : null}
+            {rootCategoriesBySection.metiers.length || rootLooseProcesses.metiers.length ? (
+              <div className="col-12 col-lg-4">
+                <RootSection
+                  sectionId="metiers"
+                  categories={rootCategoriesBySection.metiers}
+                  looseProcesses={rootLooseProcesses.metiers}
+                  onOpenCategory={enterCategory}
+                  onOpenProcess={enterProcess}
+                  publicView={publicView}
+                  collapsed={collapsedRootSections.metiers}
+                  onToggle={() => toggleRootSection('metiers')}
+                />
+              </div>
+            ) : null}
+            {rootCategoriesBySection.support.length || rootLooseProcesses.support.length ? (
+              <div className="col-12 col-lg-4">
+                <RootSection
+                  sectionId="support"
+                  categories={rootCategoriesBySection.support}
+                  looseProcesses={rootLooseProcesses.support}
+                  onOpenCategory={enterCategory}
+                  onOpenProcess={enterProcess}
+                  publicView={publicView}
+                  collapsed={collapsedRootSections.support}
+                  onToggle={() => toggleRootSection('support')}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </div>

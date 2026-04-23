@@ -71,6 +71,53 @@ function normalizeProcessSection(value, fallbackValue = DEFAULT_PROCESS_SECTION)
   return PROCESS_SECTION_VALUES.includes(normalized) ? normalized : fallbackValue;
 }
 
+function normalizeProcessNameBase(value, fallbackValue = 'Process') {
+  const trimmed = String(value || '').trim();
+  const withoutSuffix = trimmed.replace(/\s*\((\d+)\)\s*$/u, '').trim();
+  return withoutSuffix || fallbackValue;
+}
+
+async function buildNextAvailableProcessName(name, { categoryId, excludeId = null } = {}) {
+  const baseName = normalizeProcessNameBase(name);
+  const params = [categoryId];
+  let query = `
+    SELECT name
+    FROM processes
+    WHERE category_id = $1
+  `;
+
+  if (excludeId !== null) {
+    params.push(excludeId);
+    query += ` AND id <> $${params.length}`;
+  }
+
+  const result = await pool.query(query, params);
+  const normalizedBase = baseName.toLocaleLowerCase('fr');
+  const matchingNames = result.rows
+    .map((row) => String(row.name || '').trim())
+    .filter((existingName) => normalizeProcessNameBase(existingName).toLocaleLowerCase('fr') === normalizedBase);
+
+  if (!matchingNames.length) {
+    return baseName;
+  }
+
+  const usedNumbers = new Set(
+    matchingNames
+      .map((existingName) => {
+        const match = existingName.match(/\((\d+)\)\s*$/u);
+        return match ? Number(match[1]) : 1;
+      })
+      .filter(Number.isFinite)
+  );
+
+  let nextNumber = 2;
+  while (usedNumbers.has(nextNumber)) {
+    nextNumber += 1;
+  }
+
+  return `${baseName} (${nextNumber})`;
+}
+
 async function ensureProcessEnhancements() {
   if (process.env.NODE_ENV === 'test') {
     return;
@@ -1177,7 +1224,8 @@ router.post('/processes', async (req, res) => {
       return res.status(400).json({ error: assignmentError.message });
     }
 
-    const bpmnXml = bpmn_xml || buildDefaultBpmnXml(name);
+    const resolvedName = await buildNextAvailableProcessName(name, { categoryId });
+    const bpmnXml = bpmn_xml || buildDefaultBpmnXml(resolvedName);
     const initialStatus = normalizeProcessStatus(status, 'draft');
     const result = await pool.query(
       `
@@ -1198,7 +1246,7 @@ router.post('/processes', async (req, res) => {
         RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
       `,
       [
-        name,
+        resolvedName,
         description || null,
         bpmnXml,
         categoryId,
@@ -1523,6 +1571,7 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       return res.status(400).json({ error: 'Invalid BPMN file format' });
     }
 
+    const resolvedName = await buildNextAvailableProcessName(name, { categoryId });
     const initialStatus = isAdmin(req.user)
       ? normalizeProcessStatus(status, 'draft')
       : 'draft';
@@ -1546,7 +1595,7 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
         RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
       `,
       [
-        name,
+        resolvedName,
         description || null,
         bpmnXml,
         categoryId,

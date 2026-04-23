@@ -154,8 +154,6 @@ export async function ensureOrgChartSchema() {
           WHEN 'org_unit' THEN '${TYPE_COLORS.org_unit}'
           ELSE color
         END
-        WHERE color IS NULL
-           OR color IN ('#dc2626', '#2563eb', '#7c3aed', '#0891b2', '#475569')
       `);
 
       await pool.query(`
@@ -550,7 +548,7 @@ router.post('/orgchart/nodes', async (req, res) => {
     const name = normalizeText(req.body.name);
     const title = normalizeText(req.body.title);
     const description = normalizeText(req.body.description);
-    const color = normalizeText(req.body.color) || defaultColorForType(nodeType);
+    const color = defaultColorForType(nodeType);
     const isVacant = Boolean(req.body.isVacant);
 
     if (!name) {
@@ -676,9 +674,7 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
     const nextType = req.body.nodeType === undefined
       ? existing.nodeType
       : normalizeNodeType(req.body.nodeType);
-    const nextColor = req.body.color === undefined
-      ? existing.color
-      : normalizeText(req.body.color) || defaultColorForType(nextType);
+    const nextColor = defaultColorForType(nextType);
     const nextVacant = req.body.isVacant === undefined
       ? existing.isVacant
       : Boolean(req.body.isVacant);

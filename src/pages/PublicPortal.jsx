@@ -6,14 +6,14 @@ import OrgChart from './OrgChart';
 
 const PORTAL_VIEWS = [
   {
-    key: 'tree',
-    label: 'Cartographie arborescente',
-    description: 'Consultez la structure categories > sous-categories > processus.',
+    key: 'library',
+    label: 'Cartographie de process',
+    description: 'Explorez la bibliotheque visuelle jusqu au diagramme BPMN.',
   },
   {
-    key: 'library',
-    label: 'Navigation graphique',
-    description: 'Explorez la bibliotheque visuelle jusqu au diagramme BPMN.',
+    key: 'tree',
+    label: 'Liste de processus',
+    description: 'Consultez la structure categories > sous-categories > processus.',
   },
   {
     key: 'orgchart',
@@ -23,7 +23,7 @@ const PORTAL_VIEWS = [
 ];
 
 function resolvePortalView(value) {
-  return PORTAL_VIEWS.some((entry) => entry.key === value) ? value : 'tree';
+  return PORTAL_VIEWS.some((entry) => entry.key === value) ? value : 'library';
 }
 
 export default function PublicPortal() {

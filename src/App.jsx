@@ -8,7 +8,6 @@ import './App.css';
 
 const Login = lazy(() => import('./pages/Login'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
-const RoleManagement = lazy(() => import('./pages/RoleManagement'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const ProcessManagement = lazy(() => import('./pages/ProcessManagement'));
 const OrgChart = lazy(() => import('./pages/OrgChart'));
@@ -126,14 +125,6 @@ function App() {
                   element={
                     <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
                       <AuditLogs />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="roles"
-                  element={
-                    <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
-                      <RoleManagement />
                     </ProtectedRoute>
                   }
                 />

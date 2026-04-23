@@ -22,6 +22,7 @@ const EMPTY_FORM = {
   fullName: '',
   role: ROLES.DESIGNER,
   additionalRoles: [],
+  isActive: true,
 };
 
 function formatExpiryLabel(expiresOn) {
@@ -74,6 +75,9 @@ export function UserManagement() {
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
@@ -88,7 +92,26 @@ export function UserManagement() {
 
   useEffect(() => {
     loadUsers();
+
+    const intervalId = window.setInterval(() => {
+      loadUsers();
+    }, 30000);
+
+    const handleFocus = () => {
+      loadUsers();
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
+
+  useEffect(() => {
+    setSelectedUserIds((current) => current.filter((userId) => users.some((item) => Number(item.id) === Number(userId))));
+  }, [users]);
 
   const filteredUsers = users.filter((item) => {
     const haystack = [
@@ -102,8 +125,29 @@ export function UserManagement() {
       .join(' ')
       .toLowerCase();
 
-    return haystack.includes(searchTerm.toLowerCase());
+    const matchesSearch = haystack.includes(searchTerm.toLowerCase());
+    const matchesRole = roleFilter === 'all'
+      ? true
+      : item.role === roleFilter || (item.additionalRoles || []).some((roleItem) => roleItem.role === roleFilter);
+    const matchesStatus = statusFilter === 'all'
+      ? true
+      : statusFilter === 'online'
+        ? Boolean(item.online)
+        : statusFilter === 'offline'
+          ? !item.online
+          : statusFilter === 'active'
+            ? item.isActive !== false
+            : item.isActive === false;
+
+    return matchesSearch && matchesRole && matchesStatus;
   });
+
+  const onlineUsers = useMemo(
+    () => users.filter((item) => item.online),
+    [users]
+  );
+  const selectableUsers = filteredUsers.filter((item) => Number(item.id) !== Number(user?.id));
+  const allSelectableSelected = selectableUsers.length > 0 && selectableUsers.every((item) => selectedUserIds.includes(Number(item.id)));
 
   const resetForm = () => {
     setEditingUser(null);
@@ -111,6 +155,7 @@ export function UserManagement() {
       ...EMPTY_FORM,
       role: roleOptions[0] || ROLES.DESIGNER,
       additionalRoles: [],
+      isActive: true,
     });
   };
 
@@ -133,6 +178,7 @@ export function UserManagement() {
         startsOn: item.startsOn || '',
         expiresOn: item.expiresOn || '',
       })),
+      isActive: selectedUser.isActive !== false,
     });
     setError('');
     setShowModal(true);
@@ -157,6 +203,104 @@ export function UserManagement() {
     }
   };
 
+  const buildUpdatePayloadFromUser = (selectedUser, overrides = {}) => ({
+    username: selectedUser.username,
+    email: selectedUser.email,
+    fullName: selectedUser.fullName,
+    role: selectedUser.role,
+    isActive: selectedUser.isActive !== false,
+    additionalRoles: (selectedUser.additionalRoles || []).map((item) => ({
+      role: item.role,
+      startsOn: item.startsOn || null,
+      expiresOn: item.expiresOn || null,
+    })),
+    ...overrides,
+  });
+
+  const toggleUserSelection = (userId, checked) => {
+    const normalizedId = Number(userId);
+    if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+      return;
+    }
+
+    setSelectedUserIds((current) => (
+      checked
+        ? [...new Set([...current, normalizedId])]
+        : current.filter((entry) => entry !== normalizedId)
+    ));
+  };
+
+  const toggleSelectAllUsers = (checked) => {
+    if (checked) {
+      setSelectedUserIds(selectableUsers.map((item) => Number(item.id)));
+      return;
+    }
+
+    setSelectedUserIds([]);
+  };
+
+  const clearSelection = () => {
+    setSelectedUserIds([]);
+  };
+
+  const handleBulkStatusUpdate = async (nextIsActive) => {
+    const targets = users.filter((item) => selectedUserIds.includes(Number(item.id)) && Number(item.id) !== Number(user?.id));
+    if (!targets.length) {
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: nextIsActive ? 'Activate accounts' : 'Deactivate accounts',
+      message: `Apply this change to ${targets.length} account(s)?`,
+      confirmLabel: nextIsActive ? 'Activate' : 'Deactivate',
+      confirmVariant: nextIsActive ? 'success' : 'warning',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const results = await Promise.all(
+      targets.map((item) => updateUser(item.id, buildUpdatePayloadFromUser(item, { isActive: nextIsActive })))
+    );
+
+    const failures = results.filter((result) => !result.success);
+    if (failures.length) {
+      setError(failures[0].error || 'Some accounts could not be updated.');
+    }
+
+    await loadUsers();
+    clearSelection();
+  };
+
+  const handleBulkDelete = async () => {
+    const targets = users.filter((item) => selectedUserIds.includes(Number(item.id)) && Number(item.id) !== Number(user?.id));
+    if (!targets.length) {
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Delete selected users',
+      message: `Delete ${targets.length} selected account(s)?`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const results = await Promise.all(targets.map((item) => deleteUser(item.id)));
+    const failures = results.filter((result) => !result.success);
+
+    if (failures.length) {
+      setError(failures[0].error || 'Some users could not be deleted.');
+    }
+
+    await loadUsers();
+    clearSelection();
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
@@ -176,6 +320,7 @@ export function UserManagement() {
       email: formData.email.trim(),
       fullName: formData.fullName.trim(),
       role: formData.role,
+      isActive: formData.isActive !== false,
       additionalRoles: formData.additionalRoles
         .filter((item) => item.role)
         .map((item) => ({
@@ -257,8 +402,8 @@ export function UserManagement() {
         </Col>
       </Row>
 
-      <Row className="mb-4">
-        <Col md={7} xl={6}>
+      <Row className="mb-4 g-3">
+        <Col xl={4} md={6}>
           <InputGroup>
             <InputGroup.Text>
               <i className="bi bi-search"></i>
@@ -270,10 +415,81 @@ export function UserManagement() {
             />
           </InputGroup>
         </Col>
-        <Col md={5} xl={6} className="text-md-end mt-3 mt-md-0">
+        <Col xl={3} md={6}>
+          <Form.Select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+            <option value="all">All roles</option>
+            {roleOptions.map((role) => (
+              <option key={`filter-${role}`} value={role}>{getRoleDisplayName(role)}</option>
+            ))}
+          </Form.Select>
+        </Col>
+        <Col xl={3} md={6}>
+          <Form.Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="active">Active accounts</option>
+            <option value="inactive">Inactive accounts</option>
+            <option value="online">Currently online</option>
+            <option value="offline">Currently offline</option>
+          </Form.Select>
+        </Col>
+        <Col xl={2} md={6} className="d-flex align-items-center justify-content-xl-end">
           <Badge bg="info" className="p-2">
             {filteredUsers.length} user{filteredUsers.length === 1 ? '' : 's'}
           </Badge>
+        </Col>
+      </Row>
+
+      <Row className="mb-4 g-3">
+        <Col lg={8}>
+          <Card className="h-100">
+            <Card.Body>
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div>
+                  <h6 className="mb-1">Currently using the platform</h6>
+                  <div className="text-muted small">Online reflects an active app session. Last seen stays visible after logout.</div>
+                </div>
+                <Badge bg="success">{onlineUsers.length} online</Badge>
+              </div>
+              {onlineUsers.length === 0 ? (
+                <div className="text-muted small">No active session detected right now.</div>
+              ) : (
+                <div className="d-flex flex-wrap gap-2">
+                  {onlineUsers.map((item) => (
+                    <Badge key={`online-${item.id}`} bg="light" text="dark" className="border px-3 py-2">
+                      {item.fullName || item.username}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col lg={4}>
+          <Card className="h-100">
+            <Card.Body>
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div>
+                  <h6 className="mb-1">Bulk actions</h6>
+                  <div className="text-muted small">Apply account changes to multiple selected users at once.</div>
+                </div>
+                <Badge bg="secondary">{selectedUserIds.length} selected</Badge>
+              </div>
+              <div className="d-flex flex-wrap gap-2">
+                <Button variant="outline-success" size="sm" disabled={selectedUserIds.length === 0} onClick={() => handleBulkStatusUpdate(true)}>
+                  Activate selected
+                </Button>
+                <Button variant="outline-warning" size="sm" disabled={selectedUserIds.length === 0} onClick={() => handleBulkStatusUpdate(false)}>
+                  Deactivate selected
+                </Button>
+                <Button variant="outline-danger" size="sm" disabled={selectedUserIds.length === 0} onClick={handleBulkDelete}>
+                  Delete selected
+                </Button>
+                <Button variant="outline-secondary" size="sm" disabled={selectedUserIds.length === 0} onClick={clearSelection}>
+                  Clear
+                </Button>
+              </div>
+            </Card.Body>
+          </Card>
         </Col>
       </Row>
 
@@ -293,10 +509,19 @@ export function UserManagement() {
                   <Table hover className="mb-0">
                     <thead className="table-light">
                       <tr>
-                        <th>ID</th>
+                        <th style={{ width: 48 }}>
+                          <Form.Check
+                            type="checkbox"
+                            checked={allSelectableSelected}
+                            onChange={(event) => toggleSelectAllUsers(event.target.checked)}
+                            disabled={selectableUsers.length === 0}
+                          />
+                        </th>
                         <th>Username</th>
                         <th>Full Name</th>
                         <th>Email</th>
+                        <th>Account</th>
+                        <th>Activity</th>
                         <th>Role</th>
                         <th>Actions</th>
                       </tr>
@@ -304,17 +529,40 @@ export function UserManagement() {
                     <tbody>
                       {filteredUsers.length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="text-center py-4 text-muted">
+                          <td colSpan="8" className="text-center py-4 text-muted">
                             {searchTerm ? 'No users found matching your search.' : 'No users available.'}
                           </td>
                         </tr>
                       ) : (
                         filteredUsers.map((item) => (
                           <tr key={item.id}>
-                            <td>{item.id}</td>
+                            <td>
+                              {item.id !== user?.id ? (
+                                <Form.Check
+                                  type="checkbox"
+                                  checked={selectedUserIds.includes(Number(item.id))}
+                                  onChange={(event) => toggleUserSelection(item.id, event.target.checked)}
+                                />
+                              ) : null}
+                            </td>
                             <td><strong>{item.username}</strong></td>
                             <td>{item.fullName}</td>
                             <td>{item.email}</td>
+                            <td>
+                              <Badge bg={item.isActive !== false ? 'success' : 'secondary'}>
+                                {item.isActive !== false ? 'Active' : 'Inactive'}
+                              </Badge>
+                            </td>
+                            <td>
+                              <div className="d-flex flex-column gap-1">
+                                <Badge bg={item.online ? 'success' : 'light'} text={item.online ? 'light' : 'dark'}>
+                                  {item.online ? 'Online' : 'Offline'}
+                                </Badge>
+                                <span className="text-muted" style={{ fontSize: 11 }}>
+                                  {item.lastSeenAt ? `Last seen ${new Date(item.lastSeenAt).toLocaleString()}` : 'No recent activity'}
+                                </span>
+                              </div>
+                            </td>
                             <td>
                               <div className="d-flex flex-wrap gap-1">
                                 <Badge bg={getRoleBadgeVariant(item.role)}>{getRoleDisplayName(item.role)}</Badge>
@@ -429,6 +677,18 @@ export function UserManagement() {
                     {roleOptions.map((role) => (
                       <option key={role} value={role}>{getRoleDisplayName(role)}</option>
                     ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Account status *</Form.Label>
+                  <Form.Select
+                    value={formData.isActive !== false ? 'active' : 'inactive'}
+                    onChange={(event) => setFormData((current) => ({ ...current, isActive: event.target.value === 'active' }))}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
                   </Form.Select>
                 </Form.Group>
               </Col>

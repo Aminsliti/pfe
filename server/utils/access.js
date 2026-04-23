@@ -65,6 +65,9 @@ const FALLBACK_PERMISSIONS_BY_ROLE = {
 
 let accessBootstrapPromise = null;
 let userRoleAssignmentSchemaPromise = null;
+const SESSION_TOUCH_THROTTLE_MS = 60 * 1000;
+const PRESENCE_SESSION_TTL_MS = 2 * 60 * 1000;
+const lastSeenTouchCache = new Map();
 
 export function canonicalizeRoleName(role) {
   if (!role) {
@@ -387,6 +390,52 @@ export async function loadAdditionalRoleAssignments(userId, { includeExpired = t
 export async function ensureAccessBootstrap() {
   if (!accessBootstrapPromise) {
     accessBootstrapPromise = (async () => {
+      await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
+      `);
+
+      await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_presence_sessions (
+          session_id VARCHAR(128) PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.query(`
+        ALTER TABLE user_presence_sessions
+        ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      `);
+
+      await pool.query(`
+        UPDATE user_presence_sessions
+        SET expires_at = COALESCE(expires_at, CURRENT_TIMESTAMP)
+        WHERE expires_at IS NULL
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_user_presence_sessions_user_id
+        ON user_presence_sessions(user_id)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_user_presence_sessions_expires_at
+        ON user_presence_sessions(expires_at)
+      `);
+
       await ensureUserRoleAssignmentsTable();
       await migrateLegacyRoles();
 
@@ -493,6 +542,14 @@ export async function buildRequestUser(userId) {
         u.full_name,
         u.role,
         u.company_id,
+        u.is_active,
+        u.last_seen_at,
+        EXISTS(
+          SELECT 1
+          FROM user_presence_sessions ups
+          WHERE ups.user_id = u.id
+            AND ups.expires_at > CURRENT_TIMESTAMP
+        ) AS online,
         u.created_at,
         u.updated_at,
         c.name AS company_name
@@ -525,6 +582,9 @@ export async function buildRequestUser(userId) {
     primaryRole,
     activeRoles,
     additionalRoles,
+    isActive: row.is_active !== false,
+    lastSeenAt: row.last_seen_at,
+    online: row.is_active !== false && row.online === true,
     companyId: row.company_id,
     company: row.company_id
       ? {
@@ -536,6 +596,124 @@ export async function buildRequestUser(userId) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+export function isUserCurrentlyOnline(lastSeenAt) {
+  return lastSeenAt === true;
+}
+
+export function normalizePresenceSessionId(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 128) {
+    return null;
+  }
+
+  if (!/^[A-Za-z0-9._:-]+$/.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+async function clearExpiredPresenceSessions() {
+  await pool.query(`
+    DELETE FROM user_presence_sessions
+    WHERE expires_at <= CURRENT_TIMESTAMP
+  `);
+}
+
+export async function markUserPresenceSession(userId, sessionId) {
+  const normalizedUserId = Number(userId);
+  const normalizedSessionId = normalizePresenceSessionId(sessionId);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0 || !normalizedSessionId) {
+    return;
+  }
+
+  const cacheKey = `${normalizedUserId}:${normalizedSessionId}`;
+  const lastTouchedAt = lastSeenTouchCache.get(cacheKey) || 0;
+  const now = Date.now();
+
+  if (now - lastTouchedAt < SESSION_TOUCH_THROTTLE_MS) {
+    return;
+  }
+
+  lastSeenTouchCache.set(cacheKey, now);
+  const expiresAt = new Date(now + PRESENCE_SESSION_TTL_MS);
+
+  await pool.query(
+    `
+      INSERT INTO user_presence_sessions (
+        session_id,
+        user_id,
+        last_seen_at,
+        expires_at,
+        updated_at
+      )
+      VALUES ($1, $2, CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (session_id) DO UPDATE
+      SET
+        user_id = EXCLUDED.user_id,
+        last_seen_at = CURRENT_TIMESTAMP,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [normalizedSessionId, normalizedUserId, expiresAt]
+  );
+}
+
+export async function clearUserPresenceSession(userId, sessionId = null) {
+  const normalizedUserId = Number(userId);
+  const normalizedSessionId = normalizePresenceSessionId(sessionId);
+
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0) {
+    return;
+  }
+
+  if (normalizedSessionId) {
+    lastSeenTouchCache.delete(`${normalizedUserId}:${normalizedSessionId}`);
+    await pool.query(
+      `
+        DELETE FROM user_presence_sessions
+        WHERE user_id = $1
+          AND session_id = $2
+      `,
+      [normalizedUserId, normalizedSessionId]
+    );
+    return;
+  }
+
+  for (const cacheKey of lastSeenTouchCache.keys()) {
+    if (cacheKey.startsWith(`${normalizedUserId}:`)) {
+      lastSeenTouchCache.delete(cacheKey);
+    }
+  }
+
+  await pool.query('DELETE FROM user_presence_sessions WHERE user_id = $1', [normalizedUserId]);
+}
+
+async function touchUserSession(userId, sessionId = null) {
+  const normalizedUserId = Number(userId);
+  if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0) {
+    return;
+  }
+
+  await clearExpiredPresenceSessions();
+
+  await pool.query(
+    `
+      UPDATE users
+      SET last_seen_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `,
+    [normalizedUserId]
+  );
+
+  await markUserPresenceSession(normalizedUserId, sessionId);
 }
 
 export async function attachRequestUser(req, res, next) {
@@ -551,6 +729,7 @@ export async function attachRequestUser(req, res, next) {
     }
 
     const rawUserId = req.header('x-user-id');
+    const presenceSessionId = normalizePresenceSessionId(req.header('x-session-id'));
 
     if (
       req.method === 'GET' &&
@@ -574,7 +753,15 @@ export async function attachRequestUser(req, res, next) {
       return res.status(401).json({ error: 'User not found. Please log in again.' });
     }
 
+    if (requestUser.isActive === false) {
+      await clearUserPresenceSession(userId, presenceSessionId);
+      return res.status(401).json({ error: 'This account is inactive. Please contact an administrator.' });
+    }
+
+    await touchUserSession(requestUser.id, presenceSessionId);
+
     req.user = requestUser;
+    req.presenceSessionId = presenceSessionId;
     next();
   } catch (error) {
     console.error('attachRequestUser error:', error);

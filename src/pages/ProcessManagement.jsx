@@ -12,8 +12,8 @@ const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditor
 const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
 const PROCESS_SECTION_CONFIG = [
   { key: 'pilotage', label: 'Processus de pilotage', icon: 'bi-compass' },
-  { key: 'metiers', label: 'Metiers', icon: 'bi-briefcase' },
-  { key: 'support', label: 'Support', icon: 'bi-life-preserver' },
+  { key: 'metiers', label: 'Processus metiers', icon: 'bi-briefcase' },
+  { key: 'support', label: 'Processus support', icon: 'bi-life-preserver' },
 ];
 const DEFAULT_PROCESS_SECTION = 'metiers';
 
@@ -839,28 +839,11 @@ export function ProcessManagement({ publicView = false }) {
 
   const buildDuplicateProcessName = (sourceProcess) => {
     const sourceName = String(sourceProcess?.name || 'Process').trim() || 'Process';
-    const baseName = sourceName.replace(/\s*\((\d+)\)\s*$/u, '').trim() || sourceName;
-    const normalizedBase = baseName.toLocaleLowerCase('fr');
-    const usedNumbers = new Set(
-      processes
-        .filter((process) => {
-          const currentName = String(process?.name || '').trim();
-          const currentBase = currentName.replace(/\s*\((\d+)\)\s*$/u, '').trim();
-          return currentBase.toLocaleLowerCase('fr') === normalizedBase;
-        })
-        .map((process) => {
-          const match = String(process?.name || '').trim().match(/\((\d+)\)\s*$/u);
-          return match ? Number(match[1]) : 1;
-        })
-        .filter(Number.isFinite)
-    );
-
-    let nextNumber = 2;
-    while (usedNumbers.has(nextNumber)) {
-      nextNumber += 1;
-    }
-
-    return `${baseName} (${nextNumber})`;
+    const baseName = sourceName
+      .replace(/^duplicata\s+/iu, '')
+      .replace(/\s*\((\d+)\)\s*$/u, '')
+      .trim() || sourceName;
+    return `Duplicata ${baseName}`;
   };
 
   const handleDuplicateProcess = async (process, event = null) => {
@@ -1640,13 +1623,13 @@ export function ProcessManagement({ publicView = false }) {
         {!compact ? <span className="ms-1">Add</span> : null}
       </Dropdown.Toggle>
       <Dropdown.Menu>
-        <Dropdown.Item onClick={() => openCreate(defaultCategoryId)}>
-          <i className="bi bi-bezier2 me-2" />
-          New process
-        </Dropdown.Item>
         <Dropdown.Item onClick={() => openCategoryModal(defaultCategoryId)}>
           <i className="bi bi-diagram-2 me-2" />
           New category
+        </Dropdown.Item>
+        <Dropdown.Item onClick={() => openCreate(defaultCategoryId)}>
+          <i className="bi bi-bezier2 me-2" />
+          New process
         </Dropdown.Item>
       </Dropdown.Menu>
     </Dropdown>
@@ -1700,7 +1683,6 @@ export function ProcessManagement({ publicView = false }) {
       {indentLevel > 0 ? <div style={{ width: processSpacerWidthForLevel(indentLevel), flexShrink: 0 }} /> : null}
       <i className="bi bi-bezier2 text-muted" style={{ fontSize: 15, flexShrink: 0 }} />
       <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{process.name}</span>
-      {!publicView && process.description ? <span className="text-muted d-none d-lg-inline" style={{ fontSize: 11, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{process.description}</span> : null}
       <Badge bg={statusVariant(process.status)} style={{ fontSize: 10, flexShrink: 0 }}>{statusLabel(process.status)}</Badge>
       <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap', flexShrink: 0 }}>v{process.version}</span>
       <div className="d-flex gap-1 ms-1" style={{ flexShrink: 0 }}>
@@ -1793,7 +1775,6 @@ export function ProcessManagement({ publicView = false }) {
             <i className={`bi ${isCollapsed ? 'bi-chevron-right' : 'bi-chevron-down'}`} style={{ color: '#6c757d', fontSize: 12 }} />
             <i className={`bi ${level === 0 ? 'bi-diagram-3' : 'bi-diagram-2'} text-muted`} />
             <span style={{ fontSize: 13, color: '#334155', fontWeight: 600 }}>{category.name}</span>
-            {!publicView && category.description ? <span className="text-muted ms-2" style={{ fontSize: 11 }}>{category.description}</span> : null}
             <Badge bg="light" text="dark" pill className="ms-auto">{totalCount}</Badge>
           </button>
           {canCreateDefinitions ? (
@@ -2061,7 +2042,7 @@ export function ProcessManagement({ publicView = false }) {
                       ) : null}
                     </td>
                   ) : null}
-                  <td><strong>{process.name}</strong>{process.description && <div className="text-muted" style={{ fontSize: 11 }}>{process.description}</div>}</td>
+                  <td><strong>{process.name}</strong></td>
                   <td>{getCategoryLabel(process) || <span className="text-muted">-</span>}</td>
                   <td><Badge bg={statusVariant(process.status)}>{statusLabel(process.status)}</Badge></td>
                   <td>v{process.version}</td>

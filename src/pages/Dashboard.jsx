@@ -95,12 +95,6 @@ export function Dashboard() {
                   </Badge>
                 </ListGroup.Item>
                 <ListGroup.Item className="d-flex justify-content-between align-items-center">
-                  <span>Role Management</span>
-                  <Badge bg={getPermissionVariant(hasPermission(PERMISSIONS.ROLE_MANAGEMENT))}>
-                    {getPermissionIcon(hasPermission(PERMISSIONS.ROLE_MANAGEMENT))}
-                  </Badge>
-                </ListGroup.Item>
-                <ListGroup.Item className="d-flex justify-content-between align-items-center">
                   <span>View Dashboard</span>
                   <Badge bg={getPermissionVariant(hasPermission(PERMISSIONS.VIEW_DASHBOARD))}>
                     {getPermissionIcon(hasPermission(PERMISSIONS.VIEW_DASHBOARD))}
@@ -176,24 +170,6 @@ export function Dashboard() {
                       <h6>User Management</h6>
                       <p className="small mb-0">Manage user accounts (CRUD operations)</p>
                       {hasPermission(PERMISSIONS.USER_MANAGEMENT) ? (
-                        <Badge bg="success" className="mt-2">Accessible</Badge>
-                      ) : (
-                        <Badge bg="secondary" className="mt-2">Restricted</Badge>
-                      )}
-                    </Card.Body>
-                  </Card>
-                </Col>
-
-                <Col md={6} lg={4} className="mb-3">
-                  <Card 
-                    className={`h-100 ${hasPermission(PERMISSIONS.ROLE_MANAGEMENT) ? 'border-success' : 'border-secondary'}`}
-                    bg={hasPermission(PERMISSIONS.ROLE_MANAGEMENT) ? 'light' : 'secondary'}
-                  >
-                    <Card.Body className="text-center">
-                      <i className="bi bi-shield-fill-check display-4 mb-3"></i>
-                      <h6>Role Management</h6>
-                      <p className="small mb-0">Assign roles and define permissions</p>
-                      {hasPermission(PERMISSIONS.ROLE_MANAGEMENT) ? (
                         <Badge bg="success" className="mt-2">Accessible</Badge>
                       ) : (
                         <Badge bg="secondary" className="mt-2">Restricted</Badge>

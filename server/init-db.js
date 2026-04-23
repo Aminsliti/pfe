@@ -15,6 +15,8 @@ const initDatabase = async () => {
         full_name VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL,
         company_id INTEGER REFERENCES companies(id),
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        last_seen_at TIMESTAMP,
         reset_code VARCHAR(6),
         reset_code_expires TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -268,8 +270,8 @@ const seedData = async () => {
 
     for (const user of users) {
       await pool.query(
-        'INSERT INTO users (username, password, email, full_name, role, company_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO NOTHING',
-        [user.username, user.password, user.email, user.full_name, user.role, user.company_id]
+        'INSERT INTO users (username, password, email, full_name, role, company_id, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (username) DO NOTHING',
+        [user.username, user.password, user.email, user.full_name, user.role, user.company_id, true]
       );
     }
     console.log('Demo users seeded');
