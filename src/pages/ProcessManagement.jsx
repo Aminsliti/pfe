@@ -672,14 +672,33 @@ export function ProcessManagement({ publicView = false }) {
     return response.json();
   };
 
-  const openBpmnEditor = (process, initialSubprocessId = null) => {
+  const buildEditorRootProcess = (process) => ({
+    id: process?.id,
+    name: process?.name || 'Process',
+    bpmn_xml: process?.bpmn_xml || '',
+    version: process?.version || null,
+    category_id: process?.category_id ?? null,
+    description: process?.description || '',
+    status: process?.status || 'draft',
+  });
+
+  const openBpmnEditor = (process, initialSubprocessId = null, options = {}) => {
     if (publicView) {
       return;
     }
 
+    const rootProcess = buildEditorRootProcess(options.rootProcess || process);
+
     setBpmnTarget({
       ...process,
       initialSubprocessId,
+      rootProcessId: rootProcess.id,
+      rootProcessName: rootProcess.name,
+      rootProcessBpmnXml: rootProcess.bpmn_xml,
+      rootProcessVersion: rootProcess.version,
+      rootProcessCategoryId: rootProcess.category_id,
+      rootProcessDescription: rootProcess.description,
+      rootProcessStatus: rootProcess.status,
     });
   };
   const openCreate = (defaultCategoryId = '') => {
@@ -850,7 +869,16 @@ export function ProcessManagement({ publicView = false }) {
       throw new Error(error.error || 'Save failed');
     }
     const updated = await response.json();
-    setBpmnTarget((previous) => ({ ...previous, bpmn_xml: bpmnXml, version: updated.version }));
+    setBpmnTarget((previous) => {
+      const next = { ...previous, bpmn_xml: bpmnXml, version: updated.version };
+
+      if (Number(previous?.rootProcessId || 0) === Number(previous?.id || 0)) {
+        next.rootProcessBpmnXml = bpmnXml;
+        next.rootProcessVersion = updated.version;
+      }
+
+      return next;
+    });
     loadProcesses();
     loadProcessLinkOptions();
   };
@@ -875,7 +903,54 @@ export function ProcessManagement({ publicView = false }) {
     }
 
     const detail = await fetchProcessRecord(normalizedProcessId);
-    openBpmnEditor(detail);
+    const rootProcess = bpmnTarget
+      ? buildEditorRootProcess({
+          id: bpmnTarget.rootProcessId || bpmnTarget.id,
+          name: bpmnTarget.rootProcessName || bpmnTarget.name,
+          bpmn_xml: bpmnTarget.rootProcessBpmnXml || bpmnTarget.bpmn_xml || '',
+          version: bpmnTarget.rootProcessVersion || bpmnTarget.version || null,
+          category_id: bpmnTarget.rootProcessCategoryId ?? bpmnTarget.category_id ?? null,
+          description: bpmnTarget.rootProcessDescription || bpmnTarget.description || '',
+          status: bpmnTarget.rootProcessStatus || bpmnTarget.status || 'draft',
+        })
+      : buildEditorRootProcess(selectedProcessRecord || detail);
+
+    openBpmnEditor(detail, null, { rootProcess });
+  };
+
+  const handleReturnToMainProcessInEditor = () => {
+    if (!bpmnTarget) {
+      return;
+    }
+
+    const rootProcessId = Number(bpmnTarget.rootProcessId || bpmnTarget.id || 0);
+    if (!Number.isInteger(rootProcessId) || rootProcessId <= 0) {
+      return;
+    }
+
+    openBpmnEditor(
+      {
+        id: rootProcessId,
+        name: bpmnTarget.rootProcessName || bpmnTarget.name,
+        bpmn_xml: bpmnTarget.rootProcessBpmnXml || '',
+        version: bpmnTarget.rootProcessVersion || null,
+        category_id: bpmnTarget.rootProcessCategoryId ?? null,
+        description: bpmnTarget.rootProcessDescription || '',
+        status: bpmnTarget.rootProcessStatus || 'draft',
+      },
+      null,
+      {
+        rootProcess: {
+          id: rootProcessId,
+          name: bpmnTarget.rootProcessName || bpmnTarget.name,
+          bpmn_xml: bpmnTarget.rootProcessBpmnXml || '',
+          version: bpmnTarget.rootProcessVersion || null,
+          category_id: bpmnTarget.rootProcessCategoryId ?? null,
+          description: bpmnTarget.rootProcessDescription || '',
+          status: bpmnTarget.rootProcessStatus || 'draft',
+        },
+      }
+    );
   };
 
   const handleOpenLinkedProcessDetails = async (processId, fallbackProcess = null) => {
@@ -1742,6 +1817,7 @@ export function ProcessManagement({ publicView = false }) {
             .map((process) => ({ id: process.id, name: process.name, bpmn_xml: process.bpmn_xml || '' }))}
           onImportExisting={handleBpmnImportExisting}
           onOpenLinkedProcess={handleOpenLinkedProcessInEditor}
+          onReturnToMainProcess={handleReturnToMainProcessInEditor}
           initialSubprocessId={bpmnTarget.initialSubprocessId}
         />
       </Suspense>

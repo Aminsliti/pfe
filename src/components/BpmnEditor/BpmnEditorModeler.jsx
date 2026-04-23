@@ -967,6 +967,7 @@ const BpmnEditorModeler = ({
   importOptions = [],
   onImportExisting = null,
   onOpenLinkedProcess = null,
+  onReturnToMainProcess = null,
   readOnly = false,
   reviewActionLabel = 'Approve',
   onReviewAction = null,
@@ -990,7 +991,6 @@ const BpmnEditorModeler = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredElements, setFilteredElements] = useState([]);
-  const [actorSearchTerm, setActorSearchTerm] = useState('');
   const [actorOptions, setActorOptions] = useState([]);
   const [actorLoading, setActorLoading] = useState(false);
   const [actorError, setActorError] = useState('');
@@ -1105,15 +1105,6 @@ const BpmnEditorModeler = ({
     return groups;
   }, {});
 
-  const filteredActorOptions = useMemo(() => {
-    const normalizedSearch = actorSearchTerm.trim().toLowerCase();
-    const visibleActors = normalizedSearch
-      ? actorOptions.filter((actor) => actor.searchText.includes(normalizedSearch))
-      : actorOptions;
-
-    return visibleActors.slice(0, 10);
-  }, [actorOptions, actorSearchTerm]);
-
   const selectedActor = useMemo(
     () =>
       actorOptions.find((actor) => String(actor.nodeId) === String(properties.actorNodeId || '')) ||
@@ -1141,6 +1132,11 @@ const BpmnEditorModeler = ({
         : null),
     [callActivityOptions, properties.calledElement, properties.linkedProcessId, properties.linkedProcessName]
   );
+  const isLinkedProcessView =
+    Number(process?.rootProcessId || process?.id || 0) > 0 &&
+    Number(process?.rootProcessId || process?.id || 0) !== Number(process?.id || 0);
+  const canReturnToMainProcess = Boolean(currentSubprocess || isLinkedProcessView);
+  const mainProcessName = process?.rootProcessName || process?.name || 'Main Process';
 
   useEffect(() => {
     if (!modelerRef.current) {
@@ -1483,6 +1479,15 @@ const BpmnEditorModeler = ({
     openDiagramLevel(navigationStack[index - 1]?.id || null);
   };
 
+  const handleReturnToMainProcess = () => {
+    if (isLinkedProcessView && onReturnToMainProcess) {
+      onReturnToMainProcess();
+      return;
+    }
+
+    openDiagramLevel(null);
+  };
+
   const handleSave = async () => {
     if (readOnly || !modelerRef.current) return;
 
@@ -1575,38 +1580,6 @@ const BpmnEditorModeler = ({
       
     } catch (error) {
       console.error('Error adding element:', error);
-    }
-  };
-
-  const addActorToDiagram = (actor) => {
-    if (readOnly || !modelerRef.current || !actor) {
-      return;
-    }
-
-    try {
-      const modeler = modelerRef.current;
-      const canvas = modeler.get('canvas');
-      const modeling = modeler.get('modeling');
-      const selection = modeler.get('selection');
-
-      const rootElement = canvas.getRootElement();
-      const viewbox = canvas.viewbox();
-      const createdElement = createPaletteShape(modeler, { id: 'bpmn:Participant' });
-      const randomOffset = () => (Math.random() - 0.5) * 120;
-
-      modeling.createShape(
-        createdElement,
-        {
-          x: -viewbox.x + (viewbox.width / 2) + randomOffset(),
-          y: -viewbox.y + (viewbox.height / 2) + randomOffset(),
-        },
-        rootElement
-      );
-
-      applyActorAssignment(modeler, createdElement, actor, { syncLabel: true });
-      selection.select(createdElement);
-    } catch (error) {
-      console.error('Error adding actor to diagram:', error);
     }
   };
 
@@ -1843,6 +1816,11 @@ const BpmnEditorModeler = ({
               ← Back
             </button>
           )}
+          {canReturnToMainProcess && (
+            <button onClick={handleReturnToMainProcess} className="bpmn-modeler-btn-back">
+              Main: {mainProcessName}
+            </button>
+          )}
           <button onClick={handleSave} disabled={saving} className="bpmn-modeler-btn-save">
             {saving ? 'Saving...' : '💾 Save'}
           </button>
@@ -1921,37 +1899,6 @@ const BpmnEditorModeler = ({
             />
           </div>
           <div className="bpmn-modeler-palette-content">
-            <div className="palette-category">
-              <div className="palette-category-header">Org Chart Actors</div>
-              <div className="actor-palette-search">
-                <input
-                  type="text"
-                  placeholder="Search actors..."
-                  value={actorSearchTerm}
-                  onChange={(event) => setActorSearchTerm(event.target.value)}
-                />
-              </div>
-              {actorLoading ? (
-                <div className="actor-palette-empty">Loading actors...</div>
-              ) : actorError ? (
-                <div className="actor-palette-empty">{actorError}</div>
-              ) : filteredActorOptions.length ? (
-                filteredActorOptions.map((actor) => (
-                  <button
-                    key={actor.nodeId}
-                    type="button"
-                    onClick={() => addActorToDiagram(actor)}
-                    className="actor-palette-item"
-                    title={actor.path}
-                  >
-                    <span className="actor-palette-item__name">{actor.name}</span>
-                    <span className="actor-palette-item__meta">{actor.subtitle || actor.nodeType}</span>
-                  </button>
-                ))
-              ) : (
-                <div className="actor-palette-empty">No actors match this search.</div>
-              )}
-            </div>
             {Object.entries(groupedElements).map(([category, elements]) => (
               <div key={category} className="palette-category">
                 <div className="palette-category-header">{category}</div>
@@ -2074,16 +2021,21 @@ const BpmnEditorModeler = ({
                     <label>Actor From Org Chart</label>
                     <select
                       value={properties.actorNodeId || ''}
+                      disabled={actorLoading || (!!actorError && actorOptions.length === 0)}
                       onChange={(event) => handlePropertyChange('actorNodeId', event.target.value)}
                     >
-                      <option value="">No actor assigned</option>
+                      <option value="">
+                        {actorLoading ? 'Loading actors...' : actorError && actorOptions.length === 0 ? 'Actors unavailable' : 'No actor assigned'}
+                      </option>
                       {actorOptions.map((actor) => (
                         <option key={actor.nodeId} value={actor.nodeId}>
                           {actor.name} {actor.title ? `- ${actor.title}` : ''}
                         </option>
                       ))}
                     </select>
-                    {selectedActor ? (
+                    {actorError ? (
+                      <div className="actor-assignment-empty">{actorError}</div>
+                    ) : selectedActor ? (
                       <div className="actor-assignment-card">
                         <div className="actor-assignment-card__title">{selectedActor.name}</div>
                         <div className="actor-assignment-card__meta">{selectedActor.subtitle || selectedActor.nodeType}</div>
@@ -2236,7 +2188,7 @@ const BpmnEditorModeler = ({
                 ))
               ) : (
                 <div className="diagram-actors-panel__empty">
-                  No actors assigned yet. Add one from the left panel or bind one to a pool, lane, or task.
+                  No actors assigned yet. Create a pool, lane, or task, then choose its actor from the properties panel.
                 </div>
               )}
             </div>
@@ -2263,22 +2215,6 @@ const BpmnEditorModeler = ({
                 </div>
               )}
             </div>
-          </div>
-          <div className="properties-help">
-            <strong>Tips:</strong>
-            <ul>
-              <li>Double-click to edit names</li>
-              <li>Add actors from the organigram using the left actor panel</li>
-              <li>Select any activity, pool, lane, gateway, or subprocess to add managed risks</li>
-              <li>Risk badges appear on the canvas when an element has one or more risks</li>
-              <li>Use the floating BPMN palette for pools, lane actions, groups, and replace actions</li>
-              <li>Bind actors to pools, lanes, and tasks from the properties panel</li>
-              <li>Use the left palette to add Camunda subprocess variants like collapsed, expanded, event, ad-hoc, and call activities</li>
-              <li>Select a call activity to link it to an existing process from the properties panel</li>
-              <li>Once a call activity is linked, use the properties panel to open the called diagram directly</li>
-              <li>Click sub-processes to navigate in</li>
-              <li>Use Back button to navigate up</li>
-            </ul>
           </div>
         </div>
       </div>
