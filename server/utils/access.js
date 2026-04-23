@@ -550,11 +550,16 @@ export async function attachRequestUser(req, res, next) {
       return next();
     }
 
-    if (req.method === 'GET' && PUBLIC_READ_API_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
+    const rawUserId = req.header('x-user-id');
+
+    if (
+      req.method === 'GET' &&
+      PUBLIC_READ_API_PREFIXES.some((prefix) => req.path.startsWith(prefix)) &&
+      !rawUserId
+    ) {
       return next();
     }
 
-    const rawUserId = req.header('x-user-id');
     if (!rawUserId) {
       return res.status(401).json({ error: 'Missing user context. Please log in again.' });
     }

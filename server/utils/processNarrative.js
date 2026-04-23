@@ -11,12 +11,39 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
+function decodeXmlEntities(value = '') {
+  return String(value)
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function escapeRegExp(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function formatNumber(value, decimals = 0) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-';
   }
 
   return Number(value).toFixed(decimals);
+}
+
+function formatDisplayDate(value) {
+  if (!value) {
+    return '-';
+  }
+
+  const candidate = new Date(value);
+  if (Number.isNaN(candidate.getTime())) {
+    return '-';
+  }
+
+  return candidate.toLocaleString('fr-FR');
 }
 
 function matchNamedElements(bpmnXml = '', elementNames = []) {
@@ -47,6 +74,55 @@ function matchNamedElements(bpmnXml = '', elementNames = []) {
   return items;
 }
 
+function getXmlAttr(attrs = '', attrName = '') {
+  const pattern = new RegExp(`\\b${escapeRegExp(attrName)}=(["'])(.*?)\\1`, 'i');
+  const match = String(attrs || '').match(pattern);
+  return match ? decodeXmlEntities(match[2]) : '';
+}
+
+function parseNamedElementsWithAttrs(bpmnXml = '', elementNames = []) {
+  const items = [];
+  const seen = new Set();
+  const pattern = new RegExp(
+    `<(?:[\\w.-]+:)?(${elementNames.map((name) => escapeRegExp(name)).join('|')})\\b([^>]*)`,
+    'gi'
+  );
+  let match;
+
+  while ((match = pattern.exec(String(bpmnXml || ''))) !== null) {
+    const attrs = match[2] || '';
+    const id = getXmlAttr(attrs, 'id');
+    const name = getXmlAttr(attrs, 'name') || id || match[1];
+    const key = `${match[1]}:${id || name}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    items.push({
+      type: match[1],
+      id: id || null,
+      name,
+      attrs,
+    });
+  }
+
+  return items;
+}
+
+function uniqueValues(values = []) {
+  return [...new Set((Array.isArray(values) ? values : [values]).map((entry) => String(entry || '').trim()).filter(Boolean))];
+}
+
+function normalizeNameList(values = [], fallbackValue = null) {
+  if (Array.isArray(values) && values.length > 0) {
+    return uniqueValues(values);
+  }
+
+  return uniqueValues(fallbackValue ? [fallbackValue] : []);
+}
+
 function takeNames(items = [], limit = 6) {
   return items
     .map((item) => item?.name || item?.task_name || item?.label || item?.id || item?.task_id)
@@ -66,6 +142,182 @@ function humanJoin(items = []) {
     return `${values[0]} and ${values[1]}`;
   }
   return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
+}
+
+const PROCEDURE_ELEMENT_NAMES = [
+  'participant',
+  'lane',
+  'task',
+  'userTask',
+  'serviceTask',
+  'scriptTask',
+  'manualTask',
+  'sendTask',
+  'receiveTask',
+  'businessRuleTask',
+  'subProcess',
+  'callActivity',
+  'exclusiveGateway',
+  'parallelGateway',
+  'inclusiveGateway',
+  'eventBasedGateway',
+  'boundaryEvent',
+  'startEvent',
+  'endEvent',
+  'intermediateCatchEvent',
+  'intermediateThrowEvent',
+];
+
+function normalizeRiskRecord(risk = {}, index = 0, source = {}) {
+  return {
+    id: String(risk?.id || `risk_${index + 1}`),
+    title: String(risk?.title || '').trim() || `Risk ${index + 1}`,
+    severity: String(risk?.severity || 'medium').toLowerCase(),
+    category: String(risk?.category || 'operational').toLowerCase(),
+    status: String(risk?.status || 'open').toLowerCase(),
+    description: String(risk?.description || '').trim(),
+    mitigation: String(risk?.mitigation || '').trim(),
+    elementId: source.id || '',
+    elementName: source.name || source.id || 'Unnamed element',
+    elementType: source.type || '',
+  };
+}
+
+function extractActorAssignments(bpmnXml = '') {
+  const grouped = new Map();
+
+  parseNamedElementsWithAttrs(bpmnXml, PROCEDURE_ELEMENT_NAMES).forEach((element) => {
+    const actorNodeId = getXmlAttr(element.attrs, 'pfe:actorNodeId');
+    const actorName = getXmlAttr(element.attrs, 'pfe:actorName');
+
+    if (!actorNodeId && !actorName) {
+      return;
+    }
+
+    const actorType = getXmlAttr(element.attrs, 'pfe:actorType');
+    const actorPath = getXmlAttr(element.attrs, 'pfe:actorPath');
+    const key = actorNodeId || actorName;
+    const bucket = grouped.get(key) || {
+      actorNodeId: actorNodeId || '',
+      actorName: actorName || `Actor ${actorNodeId}`,
+      actorType: actorType || '',
+      actorPath: actorPath || '',
+      elements: [],
+    };
+
+    bucket.elements.push({
+      id: element.id || '',
+      name: element.name || element.id || element.type,
+      type: element.type,
+    });
+
+    grouped.set(key, bucket);
+  });
+
+  return [...grouped.values()]
+    .map((actor) => ({
+      ...actor,
+      elements: actor.elements.sort((left, right) => left.name.localeCompare(right.name)),
+      count: actor.elements.length,
+    }))
+    .sort((left, right) => left.actorName.localeCompare(right.actorName));
+}
+
+function extractRiskRegister(bpmnXml = '') {
+  const register = [];
+
+  parseNamedElementsWithAttrs(bpmnXml, PROCEDURE_ELEMENT_NAMES).forEach((element) => {
+    const rawRisks = getXmlAttr(element.attrs, 'pfe:risks');
+    if (!rawRisks) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(rawRisks);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      parsed.forEach((risk, index) => {
+        register.push(normalizeRiskRecord(risk, index, element));
+      });
+    } catch {
+      // Ignore malformed risk payloads so the export can still proceed.
+    }
+  });
+
+  return register.sort(
+    (left, right) =>
+      left.title.localeCompare(right.title) ||
+      left.elementName.localeCompare(right.elementName)
+  );
+}
+
+function buildControlPointRegister(bpmnXml = '', riskRegister = []) {
+  const controls = [];
+  const gateways = matchNamedElements(bpmnXml, ['exclusiveGateway', 'parallelGateway', 'inclusiveGateway', 'eventBasedGateway']);
+  const boundaryEvents = matchNamedElements(bpmnXml, ['boundaryEvent']);
+  const ruleTasks = matchNamedElements(bpmnXml, ['businessRuleTask', 'receiveTask']);
+  const reviewTasks = parseNamedElementsWithAttrs(bpmnXml, ['task', 'userTask', 'manualTask', 'serviceTask', 'receiveTask', 'businessRuleTask'])
+    .filter((task) => /(approve|review|validate|control|check|verify|reconcile|authorize)/i.test(task.name || ''));
+
+  gateways.forEach((gateway) => {
+    controls.push(`Decision gateway: ${gateway.name || gateway.id || gateway.type}.`);
+  });
+
+  boundaryEvents.forEach((event) => {
+    controls.push(`Exception or deadline guard: ${event.name || event.id || event.type}.`);
+  });
+
+  ruleTasks.forEach((task) => {
+    controls.push(`Rule or intake checkpoint: ${task.name || task.id || task.type}.`);
+  });
+
+  reviewTasks.forEach((task) => {
+    controls.push(`Approval or verification step: ${task.name || task.id || task.type}.`);
+  });
+
+  riskRegister
+    .filter((risk) => risk.mitigation)
+    .forEach((risk) => {
+      controls.push(`Risk mitigation on ${risk.elementName}: ${risk.mitigation}.`);
+    });
+
+  return uniqueValues(controls);
+}
+
+function buildProcedureManual(process = {}, workflow = null, explanation = null) {
+  const narrative = explanation || buildProcessExplanation(process, workflow);
+  const actors = extractActorAssignments(process.bpmn_xml || '');
+  const risks = extractRiskRegister(process.bpmn_xml || '');
+  const controlPoints = buildControlPointRegister(process.bpmn_xml || '', risks);
+  const responsible = uniqueValues(actors.map((actor) => actor.actorName));
+  const accountable = normalizeNameList(process.assigned_validator_names, process.assigned_validator_name || process.created_by_name);
+  const consulted = normalizeNameList(process.assigned_designer_names, process.assigned_designer_name);
+  const informed = uniqueValues([process.created_by_name, workflow?.approved_by_name, process.approved_by_name]);
+
+  return {
+    narrative,
+    actors,
+    risks,
+    controlPoints,
+    raci: {
+      responsible,
+      accountable,
+      consulted,
+      informed,
+    },
+    workflowBullets: [
+      `Status: ${normalizeProcessStatus(process.status, 'draft')}`,
+      process.version ? `Version: v${process.version}` : null,
+      process.company_name ? `Company: ${process.company_name}` : null,
+      process.category_name ? `Category: ${process.category_name}` : null,
+      process.created_by_name ? `Process owner record created by: ${process.created_by_name}` : null,
+      workflow?.submitted_at ? `Submitted on ${formatDisplayDate(workflow.submitted_at)}` : null,
+      workflow?.approved_at ? `Approved on ${formatDisplayDate(workflow.approved_at)}` : null,
+      workflow?.approved_by_name ? `Approved by ${workflow.approved_by_name}` : null,
+    ].filter(Boolean),
+  };
 }
 
 export function buildProcessExplanation(process = {}, workflow = null) {
@@ -304,28 +556,73 @@ export function buildProcessReportHtml(process = {}, explanation = null) {
 }
 
 export function buildProcessReportPdf(process = {}, explanation = null, options = {}) {
-  const narrative = explanation || buildProcessExplanation(process);
+  const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const actorBullets = manual.actors.length
+    ? manual.actors.map((actor) => {
+        const elementPreview = actor.elements.slice(0, 4).map((element) => element.name);
+        const remainder = actor.elements.length - elementPreview.length;
+        const suffix = remainder > 0 ? ` (+${remainder} more)` : '';
+        const actorLabel = actor.actorType ? `${actor.actorName} (${actor.actorType})` : actor.actorName;
+        const pathLabel = actor.actorPath ? ` | ${actor.actorPath}` : '';
+        return `${actorLabel}${pathLabel}: ${humanJoin(elementPreview)}${suffix}.`;
+      })
+    : ['No BPMN actor assignments were found in the current diagram.'];
+  const riskBullets = manual.risks.length
+    ? manual.risks.map((risk) => {
+        const riskPrefix = `[${risk.severity.toUpperCase()} / ${risk.status}] ${risk.title}`;
+        const riskDetails = [risk.elementName ? `Element: ${risk.elementName}` : null, risk.description || null, risk.mitigation ? `Mitigation: ${risk.mitigation}` : null]
+          .filter(Boolean)
+          .join(' | ');
+        return `${riskPrefix}${riskDetails ? ` - ${riskDetails}` : ''}`;
+      })
+    : ['No managed risks are currently attached to BPMN elements.'];
+  const taskBullets = (manual.narrative.details?.tasks || [])
+    .slice(0, 28)
+    .map((task) => `${task.task_name || task.task_id} (${task.task_id})`);
+
   return buildPdfDocument({
-    title: `Process explanation: ${process.name || `Process #${process.id}`}`,
-    subtitle: `Status: ${normalizeProcessStatus(process.status, 'draft')} | Version: ${process.version ? `v${process.version}` : '-'}`,
+    title: `Manuel de procedure: ${process.name || `Process #${process.id}`}`,
+    subtitle: `Status: ${normalizeProcessStatus(process.status, 'draft')} | Version: ${process.version ? `v${process.version}` : '-'} | Generated: ${formatDisplayDate(manual.narrative.generated_at)}`,
     heroImage: options.diagramImageDataUrl
       ? { dataUrl: options.diagramImageDataUrl }
       : null,
     sections: [
       {
-        title: 'Executive summary',
-        paragraphs: [narrative.summary || ''],
+        title: 'Overview',
+        paragraphs: [manual.narrative.summary || ''],
+        bullets: manual.workflowBullets,
       },
-      ...((narrative.sections || []).map((section) => ({
+      {
+        title: 'Actors and ownership',
+        bullets: actorBullets,
+      },
+      {
+        title: 'RACI snapshot',
+        bullets: [
+          `Responsible (R): ${humanJoin(manual.raci.responsible) || 'Not assigned'}`,
+          `Accountable (A): ${humanJoin(manual.raci.accountable) || 'Not assigned'}`,
+          `Consulted (C): ${humanJoin(manual.raci.consulted) || 'Not assigned'}`,
+          `Informed (I): ${humanJoin(manual.raci.informed) || 'Not assigned'}`,
+        ],
+      },
+      ...((manual.narrative.sections || []).map((section) => ({
         title: section.title,
         paragraphs: [section.body || ''],
         bullets: section.bullets || [],
       }))),
       {
-        title: 'Activities',
-        bullets: (narrative.details?.tasks || [])
-          .slice(0, 24)
-          .map((task) => `${task.task_name || task.task_id} (${task.task_id})`),
+        title: 'Activity inventory',
+        bullets: taskBullets.length ? taskBullets : ['No task inventory could be extracted from the BPMN definition.'],
+      },
+      {
+        title: 'Risk register',
+        bullets: riskBullets,
+      },
+      {
+        title: 'Control points',
+        bullets: manual.controlPoints.length
+          ? manual.controlPoints
+          : ['No explicit control points could be inferred from the current BPMN diagram.'],
       },
     ],
   });

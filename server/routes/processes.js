@@ -395,6 +395,30 @@ async function getProcessById(id) {
   return serializeProcessRecord(result.rows[0] || null);
 }
 
+async function loadUserNamesByIds(userIds = []) {
+  const normalizedIds = normalizeIntegerArray(userIds);
+  if (!normalizedIds.length) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, full_name
+      FROM users
+      WHERE id = ANY($1::int[])
+    `,
+    [normalizedIds]
+  );
+
+  const namesById = new Map(
+    result.rows.map((row) => [Number(row.id), row.full_name || `User ${row.id}`])
+  );
+
+  return normalizedIds
+    .map((userId) => namesById.get(Number(userId)))
+    .filter(Boolean);
+}
+
 async function getCategoryById(id) {
   const result = await pool.query(
     `
@@ -1673,7 +1697,12 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
     archived_at: process.archived_at,
     comments: await getWorkflowComments(process.id),
   };
-  const explanation = buildProcessExplanation(process, workflow);
+  const reportProcess = {
+    ...process,
+    assigned_designer_names: await loadUserNamesByIds(process.assigned_designer_ids),
+    assigned_validator_names: await loadUserNamesByIds(process.assigned_validator_ids),
+  };
+  const explanation = buildProcessExplanation(reportProcess, workflow);
   const filenameBase =
     String(process.name || `process-${process.id}`)
       .toLowerCase()
@@ -1682,14 +1711,14 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
 
   if (format === 'pdf') {
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-explanation.pdf"`);
-    res.send(buildProcessReportPdf(process, explanation, { diagramImageDataUrl }));
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.pdf"`);
+    res.send(buildProcessReportPdf(reportProcess, explanation, { diagramImageDataUrl, workflow }));
     return;
   }
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-explanation.html"`);
-  res.send(buildProcessReportHtml(process, explanation));
+  res.send(buildProcessReportHtml(reportProcess, explanation));
 }
 
 router.get('/processes/:id/report', async (req, res) => {

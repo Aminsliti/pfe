@@ -99,7 +99,7 @@ export function Layout() {
           background: linear-gradient(180deg, #fffdf8 0%, #f8fafc 100%);
         }
         .vbpm-sidebar {
-          width: 252px;
+          width: 268px;
           flex-shrink: 0;
           display: flex;
           flex-direction: column;
@@ -229,15 +229,16 @@ export function Layout() {
         .vbpm-side-link {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 10px;
           min-height: 46px;
           border-radius: 16px;
-          padding: 0 14px;
+          padding: 0 12px;
           color: #334155;
           text-decoration: none;
           font-weight: 600;
           position: relative;
           transition: all 0.16s ease;
+          min-width: 0;
         }
         .vbpm-side-link:hover,
         .vbpm-side-link:focus {
@@ -250,8 +251,8 @@ export function Layout() {
           box-shadow: inset 0 0 0 1px #fecdd3;
         }
         .vbpm-side-link i {
-          font-size: 1rem;
-          width: 18px;
+          font-size: 0.95rem;
+          width: 16px;
           text-align: center;
           flex-shrink: 0;
         }
@@ -259,12 +260,16 @@ export function Layout() {
           min-width: 0;
         }
         .vbpm-side-label {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          flex: 1 1 auto;
+          min-width: 0;
+          overflow: visible;
+          text-overflow: clip;
+          white-space: normal;
+          line-height: 1.15;
+          font-size: 0.96rem;
         }
         .vbpm-side-dot {
-          margin-left: auto;
+          margin-left: 4px;
           width: 8px;
           height: 8px;
           border-radius: 999px;

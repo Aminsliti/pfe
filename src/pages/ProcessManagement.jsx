@@ -317,6 +317,20 @@ export function ProcessManagement({ publicView = false }) {
     showSnackbar(text, type);
   };
 
+  const fetchProtectedProcessAsset = (url, init = undefined) => {
+    if (!user?.id) {
+      throw new Error('Your session expired. Please log in again.');
+    }
+
+    const headers = new Headers(init?.headers);
+    headers.set('x-user-id', String(user.id));
+
+    return fetch(url, {
+      ...init,
+      headers,
+    });
+  };
+
   const preserveScrollPosition = () => {
     scrollRestoreRef.current = window.scrollY;
   };
@@ -1316,13 +1330,16 @@ export function ProcessManagement({ publicView = false }) {
   const handleExport = async (id, version = null) => {
     try {
       const suffix = version ? `?version=${version}` : '';
-      const response = await fetch(`${API}/processes/${id}/export${suffix}`);
-      if (!response.ok) return showMsg('Export failed', 'danger');
+      const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
+      if (!response.ok) {
+        await readApiPayload(response, 'Export failed');
+        return;
+      }
       const blob = await response.blob();
       const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), 'process.bpmn');
       downloadBlob(blob, filename);
-    } catch {
-      showMsg('Network error', 'danger');
+    } catch (error) {
+      showMsg(error.message || 'Network error', 'danger');
     }
   };
 
@@ -1332,7 +1349,7 @@ export function ProcessManagement({ publicView = false }) {
     let svgUrl;
 
     const suffix = version ? `?version=${version}` : '';
-    const response = await fetch(`${API}/processes/${id}/export${suffix}`);
+    const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
     if (!response.ok) {
       await readApiPayload(response, 'Image export failed');
       return null;
@@ -1445,7 +1462,7 @@ export function ProcessManagement({ publicView = false }) {
             }
           : undefined;
 
-      const response = await fetch(
+      const response = await fetchProtectedProcessAsset(
         format === 'pdf' ? `${API}/processes/${id}/report` : `${API}/processes/${id}/report?format=${format}`,
         requestOptions
       );
@@ -1608,9 +1625,9 @@ export function ProcessManagement({ publicView = false }) {
       className="d-flex align-items-center gap-2 px-3 py-2"
       style={{
         borderBottom: '1px solid #f1f5f9',
-        paddingLeft: indentLevel > 0 ? 168 + (indentLevel * 68) : 16,
-        background: indentLevel > 0 ? '#fff1f2' : 'white',
-        boxShadow: indentLevel > 0 ? 'inset 8px 0 0 #fca5a5' : 'none',
+        paddingLeft: indentLevel > 0 ? 34 + (indentLevel * 34) : 16,
+        background: indentLevel > 0 ? '#fff7f7' : 'white',
+        boxShadow: indentLevel > 0 ? 'inset 4px 0 0 #fecdd3' : 'none',
         cursor: 'pointer',
       }}
       role="button"
@@ -1768,7 +1785,7 @@ export function ProcessManagement({ publicView = false }) {
               <CategoryBranch key={childCategory.id} category={childCategory} level={level + 1} />
             ))}
             {directProcesses.length === 0 && childCount === 0 ? (
-              <div style={{ padding: `6px 16px 6px ${132 + ((level + 1) * 58)}px`, fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #f8fafc', background: '#fff1f2', boxShadow: 'inset 8px 0 0 #fca5a5' }}>
+              <div style={{ padding: `6px 16px 6px ${34 + ((level + 1) * 34)}px`, fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #f8fafc', background: '#fff7f7', boxShadow: 'inset 4px 0 0 #fecdd3' }}>
                 No processes
               </div>
             ) : (
@@ -2054,6 +2071,7 @@ export function ProcessManagement({ publicView = false }) {
                         <div className="d-flex gap-2 flex-wrap">
                           {canApproveProcess(selectedProcessRecord) ? (
                             <Button
+                              type="button"
                               size="sm"
                               variant="success"
                               onClick={() => handleWorkflowAction('approve', editingProcess)}
@@ -2064,13 +2082,14 @@ export function ProcessManagement({ publicView = false }) {
                           ) : null}
                           {!publicView ? (
                             <>
-                              <Button size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess.id)}>
+                              <Button type="button" size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess.id)}>
                                 PNG
                               </Button>
-                              <Button size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess.id)}>
+                              <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess.id)}>
                                 BPMN
                               </Button>
                               <Button
+                                type="button"
                                 size="sm"
                                 variant="outline-dark"
                                 onClick={() => handleProcessReportDownload(editingProcess.id, 'html')}
@@ -2079,6 +2098,7 @@ export function ProcessManagement({ publicView = false }) {
                                 {processReportBusy === 'html' ? 'Exporting...' : 'HTML'}
                               </Button>
                               <Button
+                                type="button"
                                 size="sm"
                                 variant="outline-secondary"
                                 onClick={() => handleProcessReportDownload(editingProcess.id, 'pdf')}
@@ -2089,7 +2109,7 @@ export function ProcessManagement({ publicView = false }) {
                             </>
                           ) : null}
                           {canEditSelectedProcess ? (
-                            <Button size="sm" variant="primary" onClick={() => openBpmnEditor(editingProcess)}>
+                            <Button type="button" size="sm" variant="primary" onClick={() => openBpmnEditor(editingProcess)}>
                               Edit diagram
                             </Button>
                           ) : null}

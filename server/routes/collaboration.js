@@ -85,14 +85,16 @@ function buildTemplateXml(name, steps = []) {
 </bpmn:definitions>`;
 }
 
+function loadBundledTemplateXml(relativePath, fallbackXml) {
+  try {
+    return fs.readFileSync(path.resolve(process.cwd(), relativePath), 'utf8');
+  } catch {
+    return fallbackXml;
+  }
+}
+
 async function ensureDefaultTemplates() {
   if (seededTemplates || process.env.NODE_ENV === 'test') {
-    return;
-  }
-
-  const existing = await pool.query('SELECT COUNT(*)::integer AS count FROM process_templates');
-  if ((existing.rows[0]?.count || 0) > 0) {
-    seededTemplates = true;
     return;
   }
 
@@ -129,6 +131,31 @@ async function ensureDefaultTemplates() {
         },
         resources: [
           { name: 'Buyer', resource_type: 'human', quantity: 2, cost_per_hour: 35, availability: 100 },
+        ],
+      },
+    },
+    {
+      name: 'Purchase Request Control Demo',
+      description: 'Rich demo with pools, actors, risks, approvals, message flows, and control checkpoints.',
+      bpmn_xml: loadBundledTemplateXml(
+        path.join('public', 'samples', 'purchase-request-control-demo.bpmn'),
+        buildTemplateXml('Purchase Request Control Demo', ['Prepare Request', 'Manager Review', 'Control Check', 'Create Purchase Order'])
+      ),
+      simulation_defaults: {
+        calendar_settings: {
+          business_hours: { start: '08:30', end: '17:30' },
+          weekend_days: [0, 6],
+          holidays: [],
+          shifts: [
+            { start: '08:30', end: '12:30' },
+            { start: '13:30', end: '17:30' },
+          ],
+        },
+        resources: [
+          { name: 'Requester', resource_type: 'human', quantity: 3, cost_per_hour: 20, availability: 100 },
+          { name: 'Department Manager', resource_type: 'human', quantity: 1, cost_per_hour: 42, availability: 95 },
+          { name: 'Buyer', resource_type: 'human', quantity: 2, cost_per_hour: 35, availability: 100 },
+          { name: 'Control Officer', resource_type: 'human', quantity: 1, cost_per_hour: 38, availability: 100 },
         ],
       },
     },

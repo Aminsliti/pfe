@@ -9,6 +9,7 @@ import {
   getSubprocessIdFromPlaneId,
   toSubprocessPlaneId,
 } from '../../utils/bpmnSubprocesses';
+import { apiUrl } from '../../utils/api';
 
 const escapeXml = (value = '') => String(value)
   .replace(/&/g, '&amp;')
@@ -383,6 +384,8 @@ async function extractImportableDiagram(rawValue, processName = 'Imported Proces
         height: shape.height,
         name: shape.businessObject?.name || '',
         documentation: shape.businessObject?.documentation?.[0]?.text || '',
+        actorMetadata: getActorMetadata(shape.businessObject),
+        riskMetadata: getRiskMetadata(shape.businessObject),
       })),
       connections: connections.map((connection) => ({
         id: connection.id,
@@ -396,6 +399,400 @@ async function extractImportableDiagram(rawValue, processName = 'Imported Proces
     tempModeler.destroy();
     mountNode.remove();
   }
+}
+
+const PALETTE_ELEMENTS = [
+  { id: 'bpmn:StartEvent', name: 'Start Event', category: 'Events', icon: '○' },
+  { id: 'bpmn:EndEvent', name: 'End Event', category: 'Events', icon: '◎' },
+  { id: 'bpmn:IntermediateThrowEvent', name: 'Intermediate / Boundary Event', category: 'Events', icon: '◌' },
+  { id: 'bpmn:Task', name: 'Task', category: 'Tasks', icon: '□' },
+  { id: 'bpmn:UserTask', name: 'User Task', category: 'Tasks', icon: '👤' },
+  { id: 'bpmn:ServiceTask', name: 'Service Task', category: 'Tasks', icon: '⚙' },
+  { id: 'bpmn:ScriptTask', name: 'Script Task', category: 'Tasks', icon: '📝' },
+  { id: 'bpmn:ManualTask', name: 'Manual Task', category: 'Tasks', icon: '✋' },
+  { id: 'bpmn:SendTask', name: 'Send Task', category: 'Tasks', icon: '📤' },
+  { id: 'bpmn:ReceiveTask', name: 'Receive Task', category: 'Tasks', icon: '📥' },
+  { id: 'bpmn:BusinessRuleTask', name: 'Business Rule Task', category: 'Tasks', icon: '📋' },
+  { id: 'bpmn:ExclusiveGateway', name: 'Exclusive Gateway', category: 'Gateways', icon: '◇' },
+  { id: 'bpmn:ParallelGateway', name: 'Parallel Gateway', category: 'Gateways', icon: '◆' },
+  { id: 'bpmn:InclusiveGateway', name: 'Inclusive Gateway', category: 'Gateways', icon: '⬡' },
+  { id: 'bpmn:EventBasedGateway', name: 'Event-Based Gateway', category: 'Gateways', icon: '⬢' },
+  { id: 'bpmn:SubProcess', name: 'Expanded Sub Process', category: 'Containers', icon: '▣' },
+  { id: 'bpmn:CallActivity', name: 'Call Activity', category: 'Containers', icon: '↻' },
+  { id: 'bpmn:Participant', name: 'Pool / Participant', category: 'Collaboration', icon: '▭' },
+  { id: 'bpmn:DataObjectReference', name: 'Data Object', category: 'Data & Artifacts', icon: '📄' },
+  { id: 'bpmn:DataStoreReference', name: 'Data Store', category: 'Data & Artifacts', icon: '🗄' },
+  { id: 'bpmn:Group', name: 'Group', category: 'Data & Artifacts', icon: '▤' },
+  { id: 'bpmn:TextAnnotation', name: 'Text Annotation', category: 'Data & Artifacts', icon: '🗒' },
+];
+
+const createPaletteShape = (elementFactory, type) => {
+  if (type === 'bpmn:Participant') {
+    return elementFactory.createParticipantShape();
+  }
+
+  if (type === 'bpmn:SubProcess') {
+    return elementFactory.createShape({
+      type,
+      isExpanded: true,
+    });
+  }
+
+  return elementFactory.createShape({ type });
+};
+
+const PFE_NAMESPACE_PREFIX = 'pfe';
+const PFE_NAMESPACE_URI = 'https://pfe.local/schema/bpmn';
+const ACTOR_NODE_TYPES = new Set(['manager', 'function', 'org_unit', 'structure']);
+const ASSIGNABLE_ACTOR_TYPES = new Set([
+  'bpmn:Participant',
+  'bpmn:Lane',
+  'bpmn:Task',
+  'bpmn:UserTask',
+  'bpmn:ServiceTask',
+  'bpmn:ManualTask',
+  'bpmn:SendTask',
+  'bpmn:ReceiveTask',
+  'bpmn:BusinessRuleTask',
+  'bpmn:CallActivity',
+  'bpmn:SubProcess',
+]);
+const RISK_SEVERITY_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+];
+const RISK_CATEGORY_OPTIONS = [
+  { value: 'operational', label: 'Operational' },
+  { value: 'compliance', label: 'Compliance' },
+  { value: 'financial', label: 'Financial' },
+  { value: 'security', label: 'Security' },
+  { value: 'quality', label: 'Quality' },
+  { value: 'other', label: 'Other' },
+];
+const RISK_STATUS_OPTIONS = [
+  { value: 'open', label: 'Open' },
+  { value: 'monitoring', label: 'Monitoring' },
+  { value: 'mitigated', label: 'Mitigated' },
+  { value: 'accepted', label: 'Accepted' },
+];
+const RISK_SEVERITY_RANK = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+};
+
+const pfeAttrKey = (key) => `${PFE_NAMESPACE_PREFIX}:${key}`;
+
+const isActorAssignableElement = (element) => ASSIGNABLE_ACTOR_TYPES.has(element?.type);
+const isRiskAssignableElement = (element) =>
+  Boolean(element?.businessObject) &&
+  Boolean(element?.parent) &&
+  !element?.labelTarget &&
+  !Array.isArray(element?.waypoints);
+
+const shouldSyncActorNameToLabel = (element) => ['bpmn:Participant', 'bpmn:Lane'].includes(element?.type);
+const createEmptyRiskDraft = () => ({
+  title: '',
+  severity: 'medium',
+  category: 'operational',
+  status: 'open',
+  description: '',
+  mitigation: '',
+});
+const createRiskId = () => `risk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+function getActorMetadata(businessObject) {
+  const attrs = businessObject?.$attrs || {};
+  return {
+    actorNodeId: String(attrs[pfeAttrKey('actorNodeId')] || ''),
+    actorUserId: String(attrs[pfeAttrKey('actorUserId')] || ''),
+    actorName: attrs[pfeAttrKey('actorName')] || '',
+    actorType: attrs[pfeAttrKey('actorType')] || '',
+    actorPath: attrs[pfeAttrKey('actorPath')] || '',
+  };
+}
+
+function buildActorOptions(nodes = []) {
+  const byId = new Map(nodes.map((node) => [Number(node.id), node]));
+
+  const toPath = (node) => {
+    const lineage = [];
+    let current = node;
+
+    while (current) {
+      lineage.unshift(current.name || current.userName || current.title || `Node ${current.id}`);
+      current = current.parentId ? byId.get(Number(current.parentId)) : null;
+    }
+
+    return lineage.join(' / ');
+  };
+
+  return nodes
+    .filter((node) => node?.userId || ACTOR_NODE_TYPES.has(node?.nodeType))
+    .map((node) => {
+      const name = node.name || node.userName || `Actor ${node.id}`;
+      const subtitle = [node.title, node.userRole].filter(Boolean).join(' - ');
+
+      return {
+        id: String(node.id),
+        nodeId: Number(node.id),
+        userId: Number.isInteger(Number(node.userId)) ? Number(node.userId) : null,
+        name,
+        title: node.title || '',
+        userName: node.userName || '',
+        userRole: node.userRole || '',
+        nodeType: node.nodeType || 'function',
+        isVacant: Boolean(node.isVacant),
+        path: toPath(node),
+        subtitle,
+        searchText: [name, node.title, node.userName, node.userRole, node.nodeType, toPath(node)]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase(),
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path) || left.name.localeCompare(right.name));
+}
+
+function buildDiagramActorSummary(elementRegistry, actorOptions = []) {
+  if (!elementRegistry) {
+    return [];
+  }
+
+  const actorById = new Map(actorOptions.map((actor) => [String(actor.nodeId), actor]));
+  const grouped = new Map();
+
+  elementRegistry
+    .filter((element) => !element.labelTarget && element.businessObject)
+    .forEach((element) => {
+      const metadata = getActorMetadata(element.businessObject);
+      if (!metadata.actorNodeId) {
+        return;
+      }
+
+      const actor = actorById.get(metadata.actorNodeId);
+      const actorKey = metadata.actorNodeId;
+      const bucket = grouped.get(actorKey) || {
+        actorNodeId: metadata.actorNodeId,
+        actorName: actor?.name || metadata.actorName || `Actor ${metadata.actorNodeId}`,
+        actorType: actor?.nodeType || metadata.actorType || '',
+        actorPath: actor?.path || metadata.actorPath || '',
+        elements: [],
+      };
+
+      bucket.elements.push({
+        id: element.id,
+        type: element.type,
+        label: element.businessObject?.name || element.id,
+      });
+
+      grouped.set(actorKey, bucket);
+    });
+
+  return [...grouped.values()]
+    .map((entry) => ({
+      ...entry,
+      count: entry.elements.length,
+      elements: entry.elements.sort((left, right) => left.label.localeCompare(right.label)),
+    }))
+    .sort((left, right) => left.actorName.localeCompare(right.actorName));
+}
+
+function normalizeRiskEntry(risk = {}, index = 0) {
+  const severity = RISK_SEVERITY_OPTIONS.some((option) => option.value === risk?.severity) ? risk.severity : 'medium';
+  const category = RISK_CATEGORY_OPTIONS.some((option) => option.value === risk?.category) ? risk.category : 'operational';
+  const status = RISK_STATUS_OPTIONS.some((option) => option.value === risk?.status) ? risk.status : 'open';
+  const title = String(risk?.title || '').trim() || `Risk ${index + 1}`;
+
+  return {
+    id: String(risk?.id || `risk_${index + 1}`),
+    title,
+    severity,
+    category,
+    status,
+    description: String(risk?.description || ''),
+    mitigation: String(risk?.mitigation || ''),
+  };
+}
+
+function serializeRiskMetadata(risks = []) {
+  if (!Array.isArray(risks) || !risks.length) {
+    return '';
+  }
+
+  return JSON.stringify(risks.map((risk, index) => normalizeRiskEntry(risk, index)));
+}
+
+function getRiskMetadata(businessObject) {
+  const attrs = businessObject?.$attrs || {};
+  const raw = attrs[pfeAttrKey('risks')];
+
+  if (!raw) {
+    return { risks: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return { risks: [] };
+    }
+
+    return {
+      risks: parsed.map((risk, index) => normalizeRiskEntry(risk, index)),
+    };
+  } catch {
+    return { risks: [] };
+  }
+}
+
+function buildDiagramRiskSummary(elementRegistry) {
+  if (!elementRegistry) {
+    return [];
+  }
+
+  const diagramRisks = [];
+
+  elementRegistry
+    .filter((element) => isRiskAssignableElement(element))
+    .forEach((element) => {
+      const { risks } = getRiskMetadata(element.businessObject);
+
+      risks.forEach((risk, index) => {
+        const normalizedRisk = normalizeRiskEntry(risk, index);
+        diagramRisks.push({
+          ...normalizedRisk,
+          elementId: element.id,
+          elementType: element.type,
+          elementLabel: element.businessObject?.name || element.id,
+        });
+      });
+    });
+
+  return diagramRisks.sort(
+    (left, right) =>
+      (RISK_SEVERITY_RANK[right.severity] || 0) - (RISK_SEVERITY_RANK[left.severity] || 0) ||
+      left.title.localeCompare(right.title) ||
+      left.elementLabel.localeCompare(right.elementLabel)
+  );
+}
+
+function getHighestRiskSeverity(risks = []) {
+  return risks.reduce((highest, risk) => {
+    if ((RISK_SEVERITY_RANK[risk.severity] || 0) > (RISK_SEVERITY_RANK[highest] || 0)) {
+      return risk.severity;
+    }
+
+    return highest;
+  }, 'low');
+}
+
+function ensurePfeNamespace(modeler) {
+  const definitions = modeler?.getDefinitions?.();
+  if (!definitions) {
+    return;
+  }
+
+  const attrs = definitions.$attrs || {};
+  attrs[`xmlns:${PFE_NAMESPACE_PREFIX}`] = PFE_NAMESPACE_URI;
+}
+
+function applyActorAssignment(modeler, element, actor, options = {}) {
+  if (!modeler || !element?.businessObject) {
+    return;
+  }
+
+  ensurePfeNamespace(modeler);
+
+  const nextAttrs = element.businessObject.$attrs || {};
+
+  if (actor) {
+    nextAttrs[pfeAttrKey('actorNodeId')] = String(actor.nodeId);
+    nextAttrs[pfeAttrKey('actorName')] = actor.name;
+    nextAttrs[pfeAttrKey('actorType')] = actor.nodeType || '';
+    nextAttrs[pfeAttrKey('actorPath')] = actor.path || '';
+
+    if (actor.userId) {
+      nextAttrs[pfeAttrKey('actorUserId')] = String(actor.userId);
+    } else {
+      delete nextAttrs[pfeAttrKey('actorUserId')];
+    }
+  } else {
+    delete nextAttrs[pfeAttrKey('actorNodeId')];
+    delete nextAttrs[pfeAttrKey('actorUserId')];
+    delete nextAttrs[pfeAttrKey('actorName')];
+    delete nextAttrs[pfeAttrKey('actorType')];
+    delete nextAttrs[pfeAttrKey('actorPath')];
+  }
+
+  if (actor && options.syncLabel && shouldSyncActorNameToLabel(element)) {
+    modeler.get('modeling').updateLabel(element, actor.name);
+  } else {
+    modeler.get('eventBus').fire('elements.changed', { elements: [element] });
+  }
+}
+
+function applyRiskAssignment(modeler, element, risks = []) {
+  if (!modeler || !element?.businessObject) {
+    return;
+  }
+
+  ensurePfeNamespace(modeler);
+
+  const nextAttrs = element.businessObject.$attrs || {};
+  const serializedRisks = serializeRiskMetadata(risks);
+
+  if (serializedRisks) {
+    nextAttrs[pfeAttrKey('risks')] = serializedRisks;
+  } else {
+    delete nextAttrs[pfeAttrKey('risks')];
+  }
+
+  modeler.get('eventBus').fire('elements.changed', { elements: [element] });
+}
+
+function syncRiskOverlays(modeler, overlayIdsRef) {
+  if (!modeler || !overlayIdsRef) {
+    return;
+  }
+
+  const overlays = modeler.get('overlays');
+  const elementRegistry = modeler.get('elementRegistry');
+
+  if (!overlays || !elementRegistry) {
+    return;
+  }
+
+  overlayIdsRef.current.forEach((overlayId) => overlays.remove(overlayId));
+  overlayIdsRef.current = [];
+
+  elementRegistry
+    .filter((element) => isRiskAssignableElement(element))
+    .forEach((element) => {
+      const { risks } = getRiskMetadata(element.businessObject);
+
+      if (!risks.length) {
+        return;
+      }
+
+      const highestSeverity = getHighestRiskSeverity(risks);
+      const badge = document.createElement('div');
+      badge.className = `bpmn-risk-overlay bpmn-risk-overlay--${highestSeverity}`;
+      badge.textContent = String(risks.length);
+      badge.title = `${risks.length} risk${risks.length > 1 ? 's' : ''}: ${risks
+        .slice(0, 3)
+        .map((risk) => risk.title)
+        .join(', ')}${risks.length > 3 ? '...' : ''}`;
+
+      const overlayId = overlays.add(element, {
+        position: { top: -10, right: -10 },
+        html: badge,
+      });
+
+      overlayIdsRef.current.push(overlayId);
+    });
 }
 
 const BpmnEditorModeler = ({
@@ -415,6 +812,7 @@ const BpmnEditorModeler = ({
   const mainContainerRef = useRef(null);
   const mainRootIdRef = useRef(null);
   const fileInputRef = useRef(null);
+  const riskOverlayIdsRef = useRef([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [xml, setXml] = useState(() => normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
@@ -426,13 +824,21 @@ const BpmnEditorModeler = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredElements, setFilteredElements] = useState([]);
+  const [actorSearchTerm, setActorSearchTerm] = useState('');
+  const [actorOptions, setActorOptions] = useState([]);
+  const [actorLoading, setActorLoading] = useState(false);
+  const [actorError, setActorError] = useState('');
+  const [diagramActors, setDiagramActors] = useState([]);
+  const [diagramRisks, setDiagramRisks] = useState([]);
+  const [riskDraft, setRiskDraft] = useState(createEmptyRiskDraft);
+  const [editingRiskId, setEditingRiskId] = useState('');
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [selectedImportId, setSelectedImportId] = useState('');
   const [importing, setImporting] = useState(false);
   const editorSubprocesses = useMemo(() => getBpmnSubprocesses(xml), [xml]);
 
-  // BPMN elements database
-  const bpmnElements = [
+  const bpmnElements = PALETTE_ELEMENTS;
+  /*
     { id: 'bpmn:StartEvent', name: 'Start Event', category: 'Events', icon: '⭕' },
     { id: 'bpmn:EndEvent', name: 'End Event', category: 'Events', icon: '⭕' },
     { id: 'bpmn:IntermediateThrowEvent', name: 'Intermediate Event', category: 'Events', icon: '⭕' },
@@ -449,7 +855,7 @@ const BpmnEditorModeler = ({
     { id: 'bpmn:SubProcess', name: 'Sub Process', category: 'Sub Processes', icon: '📦' },
     { id: 'bpmn:CallActivity', name: 'Call Activity', category: 'Sub Processes', icon: '🔄' },
     { id: 'bpmn:BoundaryEvent', name: 'Boundary Event', category: 'Events', icon: '⭕' },
-  ];
+  */
 
   // Set XML from process
   useEffect(() => {
@@ -460,6 +866,42 @@ const BpmnEditorModeler = ({
     setShowImportPanel(false);
     setSelectedImportId('');
   }, [process?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadActors = async () => {
+      setActorLoading(true);
+      setActorError('');
+
+      try {
+        const response = await fetch(apiUrl('/orgchart/nodes'));
+        if (!response.ok) {
+          throw new Error('Failed to load actors from the organigram.');
+        }
+
+        const nodes = await response.json();
+        if (!cancelled) {
+          setActorOptions(buildActorOptions(Array.isArray(nodes) ? nodes : []));
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setActorError(loadError.message || 'Failed to load actors from the organigram.');
+          setActorOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setActorLoading(false);
+        }
+      }
+    };
+
+    loadActors();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Filter elements based on search
   useEffect(() => {
@@ -482,6 +924,46 @@ const BpmnEditorModeler = ({
     groups[element.category].push(element);
     return groups;
   }, {});
+
+  const filteredActorOptions = useMemo(() => {
+    const normalizedSearch = actorSearchTerm.trim().toLowerCase();
+    const visibleActors = normalizedSearch
+      ? actorOptions.filter((actor) => actor.searchText.includes(normalizedSearch))
+      : actorOptions;
+
+    return visibleActors.slice(0, 10);
+  }, [actorOptions, actorSearchTerm]);
+
+  const selectedActor = useMemo(
+    () =>
+      actorOptions.find((actor) => String(actor.nodeId) === String(properties.actorNodeId || '')) ||
+      (properties.actorNodeId
+        ? {
+            nodeId: properties.actorNodeId,
+            name: properties.actorName || `Actor ${properties.actorNodeId}`,
+            subtitle: properties.actorType || '',
+            nodeType: properties.actorType || '',
+            path: properties.actorPath || '',
+          }
+        : null),
+    [actorOptions, properties.actorNodeId, properties.actorName, properties.actorPath, properties.actorType]
+  );
+
+  useEffect(() => {
+    if (!modelerRef.current) {
+      return;
+    }
+
+    const elementRegistry = modelerRef.current.get('elementRegistry');
+    setDiagramActors(buildDiagramActorSummary(elementRegistry, actorOptions));
+    setDiagramRisks(buildDiagramRiskSummary(elementRegistry));
+    syncRiskOverlays(modelerRef.current, riskOverlayIdsRef);
+  }, [actorOptions, xml]);
+
+  useEffect(() => {
+    setEditingRiskId('');
+    setRiskDraft(createEmptyRiskDraft());
+  }, [selectedElement?.id]);
 
   const syncNavigationFromRoot = (rootElement) => {
     const activeSubprocessId = getSubprocessIdFromPlaneId(rootElement?.id);
@@ -563,24 +1045,45 @@ const BpmnEditorModeler = ({
 
         const canvas = modeler.get('canvas');
         const eventBus = modeler.get('eventBus');
+        const elementRegistry = modeler.get('elementRegistry');
+
+        const refreshDiagramActors = () => {
+          setDiagramActors(buildDiagramActorSummary(elementRegistry, actorOptions));
+        };
+        const refreshDiagramRisks = () => {
+          setDiagramRisks(buildDiagramRiskSummary(elementRegistry));
+          syncRiskOverlays(modeler, riskOverlayIdsRef);
+        };
+        const refreshDerivedPanels = () => {
+          refreshDiagramActors();
+          refreshDiagramRisks();
+        };
 
         if (canvas) {
           mainRootIdRef.current = canvas.getRootElement()?.id || null;
         }
 
         setLoading(false);
+        refreshDerivedPanels();
 
         // Listen for selection changes
         eventBus.on('selection.changed', (event) => {
           const selection = event.newSelection;
           if (selection.length === 1) {
             const el = selection[0];
+            const actorMetadata = getActorMetadata(el.businessObject);
+            const riskMetadata = getRiskMetadata(el.businessObject);
             setSelectedElement(el);
             setProperties({
               id: el.id,
               name: el.businessObject?.name || '',
               type: el.type,
-              documentation: el.businessObject?.documentation?.[0]?.text || ''
+              documentation: el.businessObject?.documentation?.[0]?.text || '',
+              actorNodeId: actorMetadata.actorNodeId,
+              actorName: actorMetadata.actorName,
+              actorType: actorMetadata.actorType,
+              actorPath: actorMetadata.actorPath,
+              risks: riskMetadata.risks,
             });
           } else {
             setSelectedElement(null);
@@ -592,6 +1095,9 @@ const BpmnEditorModeler = ({
           syncNavigationFromRoot(event.element);
         });
 
+        eventBus.on('commandStack.changed', refreshDerivedPanels);
+        eventBus.on('elements.changed', refreshDerivedPanels);
+
         if (initialSubprocessId && canvas) {
           const initialRoot = canvas.findRoot(toSubprocessPlaneId(initialSubprocessId));
           if (initialRoot) {
@@ -601,6 +1107,7 @@ const BpmnEditorModeler = ({
 
         canvas?.zoom('fit-viewport');
         syncNavigationFromRoot(canvas?.getRootElement());
+        refreshDerivedPanels();
 
       } catch (initErr) {
         if (!disposed) {
@@ -618,6 +1125,7 @@ const BpmnEditorModeler = ({
         modelerRef.current.destroy();
         modelerRef.current = null;
       }
+      riskOverlayIdsRef.current = [];
     };
   }, [xml, process?.name, readOnly, initialSubprocessId, editorSubprocesses]);
 
@@ -634,8 +1142,90 @@ const BpmnEditorModeler = ({
         element: selectedElement,
         properties: { documentation: [{ text: value }] }
       });
+    } else if (key === 'actorNodeId') {
+      const actor = actorOptions.find((option) => String(option.nodeId) === String(value)) || null;
+      applyActorAssignment(modelerRef.current, selectedElement, actor, {
+        syncLabel: shouldSyncActorNameToLabel(selectedElement),
+      });
     }
+
+    if (key === 'actorNodeId') {
+      const actor = actorOptions.find((option) => String(option.nodeId) === String(value)) || null;
+      setProperties((prev) => ({
+        ...prev,
+        actorNodeId: actor ? String(actor.nodeId) : '',
+        actorName: actor?.name || '',
+        actorType: actor?.nodeType || '',
+        actorPath: actor?.path || '',
+        name: shouldSyncActorNameToLabel(selectedElement) && actor ? actor.name : prev.name,
+      }));
+      return;
+    }
+
     setProperties(prev => ({ ...prev, [key]: value }));
+  };
+
+  const resetRiskEditor = () => {
+    setEditingRiskId('');
+    setRiskDraft(createEmptyRiskDraft());
+  };
+
+  const startRiskEdit = (risk) => {
+    setEditingRiskId(risk.id);
+    setRiskDraft({
+      title: risk.title || '',
+      severity: risk.severity || 'medium',
+      category: risk.category || 'operational',
+      status: risk.status || 'open',
+      description: risk.description || '',
+      mitigation: risk.mitigation || '',
+    });
+  };
+
+  const saveRiskForSelectedElement = () => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    const title = riskDraft.title.trim();
+    if (!title) {
+      alert('Please enter a risk title before saving.');
+      return;
+    }
+
+    const currentRisks = Array.isArray(properties.risks) ? properties.risks : [];
+    const nextRisk = normalizeRiskEntry(
+      {
+        id: editingRiskId || createRiskId(),
+        ...riskDraft,
+        title,
+      },
+      currentRisks.length
+    );
+
+    const nextRisks = editingRiskId
+      ? currentRisks.map((risk) => (risk.id === editingRiskId ? nextRisk : risk))
+      : [...currentRisks, nextRisk];
+
+    applyRiskAssignment(modelerRef.current, selectedElement, nextRisks);
+    setProperties((prev) => ({ ...prev, risks: nextRisks }));
+    resetRiskEditor();
+  };
+
+  const removeRiskFromSelectedElement = (riskId) => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    const currentRisks = Array.isArray(properties.risks) ? properties.risks : [];
+    const nextRisks = currentRisks.filter((risk) => risk.id !== riskId);
+
+    applyRiskAssignment(modelerRef.current, selectedElement, nextRisks);
+    setProperties((prev) => ({ ...prev, risks: nextRisks }));
+
+    if (editingRiskId === riskId) {
+      resetRiskEditor();
+    }
   };
 
   const navigateBack = () => {
@@ -721,7 +1311,8 @@ const BpmnEditorModeler = ({
       const modeler = modelerRef.current;
       const elementFactory = modeler.get('elementFactory');
       const canvas = modeler.get('canvas');
-      const moddle = modeler.get('moddle');
+      const modeling = modeler.get('modeling');
+      const selection = modeler.get('selection');
       
       const rootElement = canvas.getRootElement();
       const viewbox = canvas.viewbox();
@@ -729,46 +1320,54 @@ const BpmnEditorModeler = ({
       const centerY = -viewbox.y + viewbox.height / 2;
       const randomOffset = () => (Math.random() - 0.5) * 100;
 
-      const businessObject = moddle.create(element.id, {
-        id: `${element.id.replace(':', '_')}_${Date.now()}`,
-        name: element.name
-      });
+      const createdElement = createPaletteShape(elementFactory, element.id);
 
-      const widths = {
-        'bpmn:StartEvent': 36, 'bpmn:EndEvent': 36, 'bpmn:IntermediateThrowEvent': 36,
-        'bpmn:UserTask': 100, 'bpmn:ServiceTask': 100, 'bpmn:ScriptTask': 100,
-        'bpmn:ManualTask': 100, 'bpmn:SendTask': 100, 'bpmn:ReceiveTask': 100,
-        'bpmn:BusinessRuleTask': 100,
-        'bpmn:ExclusiveGateway': 50, 'bpmn:ParallelGateway': 50, 'bpmn:InclusiveGateway': 50,
-        'bpmn:SubProcess': 120, 'bpmn:CallActivity': 100, 'bpmn:BoundaryEvent': 36,
-      };
+      modeling.createShape(
+        createdElement,
+        {
+          x: centerX + randomOffset(),
+          y: centerY + randomOffset(),
+        },
+        rootElement
+      );
 
-      const heights = {
-        'bpmn:StartEvent': 36, 'bpmn:EndEvent': 36, 'bpmn:IntermediateThrowEvent': 36,
-        'bpmn:UserTask': 80, 'bpmn:ServiceTask': 80, 'bpmn:ScriptTask': 80,
-        'bpmn:ManualTask': 80, 'bpmn:SendTask': 80, 'bpmn:ReceiveTask': 80,
-        'bpmn:BusinessRuleTask': 80,
-        'bpmn:ExclusiveGateway': 50, 'bpmn:ParallelGateway': 50, 'bpmn:InclusiveGateway': 50,
-        'bpmn:SubProcess': 80, 'bpmn:CallActivity': 80, 'bpmn:BoundaryEvent': 36,
-      };
-
-      const createdElement = elementFactory.createShape({
-        id: businessObject.id,
-        type: element.id,
-        businessObject: businessObject,
-        x: centerX + randomOffset(),
-        y: centerY + randomOffset(),
-        width: widths[element.id] || 100,
-        height: heights[element.id] || 80
-      });
-
-      canvas.addShape(createdElement, rootElement);
-      
-      const selection = modeler.get('selection');
       selection.select(createdElement);
       
     } catch (error) {
       console.error('Error adding element:', error);
+    }
+  };
+
+  const addActorToDiagram = (actor) => {
+    if (readOnly || !modelerRef.current || !actor) {
+      return;
+    }
+
+    try {
+      const modeler = modelerRef.current;
+      const elementFactory = modeler.get('elementFactory');
+      const canvas = modeler.get('canvas');
+      const modeling = modeler.get('modeling');
+      const selection = modeler.get('selection');
+
+      const rootElement = canvas.getRootElement();
+      const viewbox = canvas.viewbox();
+      const createdElement = createPaletteShape(elementFactory, 'bpmn:Participant');
+      const randomOffset = () => (Math.random() - 0.5) * 120;
+
+      modeling.createShape(
+        createdElement,
+        {
+          x: -viewbox.x + (viewbox.width / 2) + randomOffset(),
+          y: -viewbox.y + (viewbox.height / 2) + randomOffset(),
+        },
+        rootElement
+      );
+
+      applyActorAssignment(modeler, createdElement, actor, { syncLabel: true });
+      selection.select(createdElement);
+    } catch (error) {
+      console.error('Error adding actor to diagram:', error);
     }
   };
 
@@ -813,6 +1412,30 @@ const BpmnEditorModeler = ({
 
       if (shape.documentation) {
         businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
+      }
+
+      const importedActorMetadata = shape.actorMetadata || {};
+      if (importedActorMetadata.actorNodeId) {
+        ensurePfeNamespace(modeler);
+        const nextAttrs = businessObject.$attrs || {};
+
+        nextAttrs[pfeAttrKey('actorNodeId')] = importedActorMetadata.actorNodeId;
+        nextAttrs[pfeAttrKey('actorName')] = importedActorMetadata.actorName || '';
+        nextAttrs[pfeAttrKey('actorType')] = importedActorMetadata.actorType || '';
+        nextAttrs[pfeAttrKey('actorPath')] = importedActorMetadata.actorPath || '';
+
+        if (importedActorMetadata.actorUserId) {
+          nextAttrs[pfeAttrKey('actorUserId')] = importedActorMetadata.actorUserId;
+        } else {
+          delete nextAttrs[pfeAttrKey('actorUserId')];
+        }
+      }
+
+      const importedRiskMetadata = shape.riskMetadata || {};
+      if (Array.isArray(importedRiskMetadata.risks) && importedRiskMetadata.risks.length) {
+        ensurePfeNamespace(modeler);
+        const nextAttrs = businessObject.$attrs || {};
+        nextAttrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
       }
 
       const createdShape = elementFactory.createShape({
@@ -892,6 +1515,8 @@ const BpmnEditorModeler = ({
     }
   };
 
+  const selectedElementRisks = Array.isArray(properties.risks) ? properties.risks : [];
+
   if (error) {
     return (
       <div className="bpmn-modeler-error">
@@ -903,7 +1528,7 @@ const BpmnEditorModeler = ({
   }
 
   return (
-    <div ref={mainContainerRef} className="bpmn-modeler-container">
+    <div ref={mainContainerRef} className={`bpmn-modeler-container${readOnly ? ' is-read-only' : ''}`}>
       {/* Header */}
       <header className="bpmn-modeler-header">
         <div className="bpmn-modeler-header-left">
@@ -1020,6 +1645,37 @@ const BpmnEditorModeler = ({
             />
           </div>
           <div className="bpmn-modeler-palette-content">
+            <div className="palette-category">
+              <div className="palette-category-header">Org Chart Actors</div>
+              <div className="actor-palette-search">
+                <input
+                  type="text"
+                  placeholder="Search actors..."
+                  value={actorSearchTerm}
+                  onChange={(event) => setActorSearchTerm(event.target.value)}
+                />
+              </div>
+              {actorLoading ? (
+                <div className="actor-palette-empty">Loading actors...</div>
+              ) : actorError ? (
+                <div className="actor-palette-empty">{actorError}</div>
+              ) : filteredActorOptions.length ? (
+                filteredActorOptions.map((actor) => (
+                  <button
+                    key={actor.nodeId}
+                    type="button"
+                    onClick={() => addActorToDiagram(actor)}
+                    className="actor-palette-item"
+                    title={actor.path}
+                  >
+                    <span className="actor-palette-item__name">{actor.name}</span>
+                    <span className="actor-palette-item__meta">{actor.subtitle || actor.nodeType}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="actor-palette-empty">No actors match this search.</div>
+              )}
+            </div>
             {Object.entries(groupedElements).map(([category, elements]) => (
               <div key={category} className="palette-category">
                 <div className="palette-category-header">{category}</div>
@@ -1071,6 +1727,139 @@ const BpmnEditorModeler = ({
                     placeholder="Element name..."
                   />
                 </div>
+                {isActorAssignableElement(selectedElement) ? (
+                  <div className="property-field">
+                    <label>Actor From Org Chart</label>
+                    <select
+                      value={properties.actorNodeId || ''}
+                      onChange={(event) => handlePropertyChange('actorNodeId', event.target.value)}
+                    >
+                      <option value="">No actor assigned</option>
+                      {actorOptions.map((actor) => (
+                        <option key={actor.nodeId} value={actor.nodeId}>
+                          {actor.name} {actor.title ? `- ${actor.title}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedActor ? (
+                      <div className="actor-assignment-card">
+                        <div className="actor-assignment-card__title">{selectedActor.name}</div>
+                        <div className="actor-assignment-card__meta">{selectedActor.subtitle || selectedActor.nodeType}</div>
+                        <div className="actor-assignment-card__path">{selectedActor.path}</div>
+                        <button type="button" className="actor-clear-btn" onClick={() => handlePropertyChange('actorNodeId', '')}>
+                          Clear actor
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="actor-assignment-empty">
+                        Assign an org chart actor to keep ownership visible in the diagram.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {isRiskAssignableElement(selectedElement) ? (
+                  <div className="property-field">
+                    <label>Risks</label>
+                    {selectedElementRisks.length ? (
+                      <div className="risk-assignment-list">
+                        {selectedElementRisks.map((risk) => (
+                          <div key={risk.id} className={`risk-card risk-card--${risk.severity}`}>
+                            <div className="risk-card__header">
+                              <span>{risk.title}</span>
+                              <span className={`risk-pill risk-pill--${risk.severity}`}>{risk.severity}</span>
+                            </div>
+                            <div className="risk-card__meta">
+                              {risk.category} · {risk.status}
+                            </div>
+                            {risk.description ? <div className="risk-card__text">{risk.description}</div> : null}
+                            {risk.mitigation ? (
+                              <div className="risk-card__text">Mitigation: {risk.mitigation}</div>
+                            ) : null}
+                            <div className="risk-card__actions">
+                              <button type="button" className="risk-action-btn" onClick={() => startRiskEdit(risk)}>
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="risk-action-btn risk-action-btn--danger"
+                                onClick={() => removeRiskFromSelectedElement(risk.id)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="risk-empty">
+                        No risks linked yet. Add one below to keep the diagram’s exposures visible.
+                      </div>
+                    )}
+                    <div className="risk-editor">
+                      <input
+                        type="text"
+                        value={riskDraft.title}
+                        onChange={(event) => setRiskDraft((prev) => ({ ...prev, title: event.target.value }))}
+                        placeholder="Risk title..."
+                      />
+                      <div className="risk-editor__grid">
+                        <select
+                          value={riskDraft.severity}
+                          onChange={(event) => setRiskDraft((prev) => ({ ...prev, severity: event.target.value }))}
+                        >
+                          {RISK_SEVERITY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={riskDraft.status}
+                          onChange={(event) => setRiskDraft((prev) => ({ ...prev, status: event.target.value }))}
+                        >
+                          {RISK_STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={riskDraft.category}
+                          onChange={(event) => setRiskDraft((prev) => ({ ...prev, category: event.target.value }))}
+                          className="risk-editor__grid-full"
+                        >
+                          {RISK_CATEGORY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <textarea
+                        value={riskDraft.description}
+                        onChange={(event) => setRiskDraft((prev) => ({ ...prev, description: event.target.value }))}
+                        placeholder="Describe the risk..."
+                        rows={3}
+                      />
+                      <textarea
+                        value={riskDraft.mitigation}
+                        onChange={(event) => setRiskDraft((prev) => ({ ...prev, mitigation: event.target.value }))}
+                        placeholder="Mitigation or control plan..."
+                        rows={3}
+                      />
+                      <div className="risk-card__actions">
+                        <button type="button" className="risk-action-btn risk-action-btn--primary" onClick={saveRiskForSelectedElement}>
+                          {editingRiskId ? 'Update risk' : 'Add risk'}
+                        </button>
+                        {editingRiskId ? (
+                          <button type="button" className="risk-action-btn" onClick={resetRiskEditor}>
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="property-field">
                   <label>Documentation</label>
                   <textarea
@@ -1087,12 +1876,62 @@ const BpmnEditorModeler = ({
                 <p>Select an element to edit properties</p>
               </div>
             )}
+            <div className="diagram-actors-panel">
+              <div className="diagram-actors-panel__title">Diagram Actors</div>
+              {diagramActors.length ? (
+                diagramActors.map((actor) => (
+                  <div key={actor.actorNodeId} className="diagram-actor-item">
+                    <div className="diagram-actor-item__header">
+                      <span>{actor.actorName}</span>
+                      <span>{actor.count}</span>
+                    </div>
+                    <div className="diagram-actor-item__meta">{actor.actorType || 'actor'}</div>
+                    <div className="diagram-actor-item__path">{actor.actorPath}</div>
+                    <div className="diagram-actor-item__elements">
+                      {actor.elements.map((element) => element.label).join(', ')}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="diagram-actors-panel__empty">
+                  No actors assigned yet. Add one from the left panel or bind one to a pool, lane, or task.
+                </div>
+              )}
+            </div>
+            <div className="diagram-risks-panel">
+              <div className="diagram-actors-panel__title">Diagram Risks</div>
+              {diagramRisks.length ? (
+                diagramRisks.map((risk) => (
+                  <div key={`${risk.elementId}-${risk.id}`} className={`diagram-risk-item diagram-risk-item--${risk.severity}`}>
+                    <div className="diagram-risk-item__header">
+                      <span>{risk.title}</span>
+                      <span className={`risk-pill risk-pill--${risk.severity}`}>{risk.severity}</span>
+                    </div>
+                    <div className="diagram-risk-item__meta">
+                      {risk.category} · {risk.status}
+                    </div>
+                    <div className="diagram-risk-item__path">{risk.elementLabel}</div>
+                    {risk.description ? <div className="diagram-risk-item__body">{risk.description}</div> : null}
+                    {risk.mitigation ? <div className="diagram-risk-item__body">Mitigation: {risk.mitigation}</div> : null}
+                  </div>
+                ))
+              ) : (
+                <div className="diagram-actors-panel__empty">
+                  No risks added yet. Select a diagram element and register a risk from the properties panel.
+                </div>
+              )}
+            </div>
           </div>
           <div className="properties-help">
             <strong>Tips:</strong>
             <ul>
               <li>Double-click to edit names</li>
-              <li>Click elements from palette to add</li>
+              <li>Add actors from the organigram using the left actor panel</li>
+              <li>Select any activity, pool, lane, gateway, or subprocess to add managed risks</li>
+              <li>Risk badges appear on the canvas when an element has one or more risks</li>
+              <li>Use the floating BPMN palette for pools, lane actions, groups, and replace actions</li>
+              <li>Bind actors to pools, lanes, and tasks from the properties panel</li>
+              <li>Use the left palette to quick-add common BPMN elements</li>
               <li>Click sub-processes to navigate in</li>
               <li>Use Back button to navigate up</li>
             </ul>
