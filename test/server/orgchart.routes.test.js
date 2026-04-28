@@ -36,7 +36,9 @@ describe('org chart routes', () => {
       createQueryMock([
         { match: 'CREATE TABLE IF NOT EXISTS org_chart_nodes', result: makeResult([]) },
         { match: 'ALTER TABLE org_chart_nodes', result: makeResult([]) },
+        { match: 'UPDATE org_chart_nodes', result: makeResult([]) },
         { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+        { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
         {
           match: 'FROM users u ORDER BY u.full_name',
           result: makeResult([{ id: 9, full_name: 'Ops Lead', email: 'lead@pfe.com', role: 'Admin' }]),
@@ -65,7 +67,7 @@ describe('org chart routes', () => {
     );
     pool.connect.mockResolvedValue(
       createClientMock([
-        { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+        { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
       ])
     );
 
@@ -89,12 +91,14 @@ describe('org chart routes', () => {
       createQueryMock([
         { match: 'CREATE TABLE IF NOT EXISTS org_chart_nodes', result: makeResult([]) },
         { match: 'ALTER TABLE org_chart_nodes', result: makeResult([]) },
+        { match: 'UPDATE org_chart_nodes', result: makeResult([]) },
         { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+        { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
       ])
     );
 
     const seedClient = createClientMock([
-      { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+      { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
     ]);
 
     const client = createClientMock([
@@ -148,12 +152,14 @@ describe('org chart routes', () => {
       createQueryMock([
         { match: 'CREATE TABLE IF NOT EXISTS org_chart_nodes', result: makeResult([]) },
         { match: 'ALTER TABLE org_chart_nodes', result: makeResult([]) },
+        { match: 'UPDATE org_chart_nodes', result: makeResult([]) },
         { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+        { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
       ])
     );
 
     const seedClient = createClientMock([
-      { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+      { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
     ]);
 
     const baseNode = {
@@ -247,12 +253,14 @@ describe('org chart routes', () => {
       createQueryMock([
         { match: 'CREATE TABLE IF NOT EXISTS org_chart_nodes', result: makeResult([]) },
         { match: 'ALTER TABLE org_chart_nodes', result: makeResult([]) },
+        { match: 'UPDATE org_chart_nodes', result: makeResult([]) },
         { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+        { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
       ])
     );
 
     const seedClient = createClientMock([
-      { match: 'SELECT COUNT(*)::int AS count FROM org_chart_nodes', result: makeResult([{ count: 1 }]) },
+      { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
     ]);
 
     const client = createClientMock([

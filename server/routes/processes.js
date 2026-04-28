@@ -21,6 +21,7 @@ import {
 } from '../utils/processDiff.js';
 import { createNotification } from '../utils/collaboration.js';
 import {
+  buildProcedureManual,
   buildProcessExplanation,
   buildProcessReportHtml,
   buildProcessReportPdf,
@@ -64,6 +65,36 @@ function normalizeIntegerArray(value, fallbackValue = []) {
 
   const values = Array.isArray(value) ? value : [value];
   return [...new Set(values.map((entry) => normalizeInteger(entry, null)).filter(Number.isInteger))];
+}
+
+function normalizeManualData(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalizeText = (entry) => String(entry || '').trim();
+  const normalizeTextList = (entry) => {
+    if (Array.isArray(entry)) {
+      return [...new Set(entry.map((item) => normalizeText(item)).filter(Boolean))];
+    }
+    if (typeof entry === 'string') {
+      return [...new Set(entry.split(/[\r\n;,]+/u).map((item) => item.trim()).filter(Boolean))];
+    }
+    return [];
+  };
+
+  return {
+    code: normalizeText(source.code),
+    objective: normalizeText(source.objective),
+    owner: normalizeText(source.owner),
+    scope: normalizeText(source.scope),
+    trigger: normalizeText(source.trigger),
+    expected_result: normalizeText(source.expected_result || source.expectedResult),
+    frequency: normalizeText(source.frequency),
+    context: normalizeText(source.context),
+    kpis: normalizeTextList(source.kpis),
+    controls: normalizeTextList(source.controls),
+    support_systems: normalizeTextList(source.support_systems || source.supportSystems),
+    support_documents: normalizeTextList(source.support_documents || source.supportDocuments),
+    support_data: normalizeTextList(source.support_data || source.supportData),
+  };
 }
 
 function normalizeProcessSection(value, fallbackValue = DEFAULT_PROCESS_SECTION) {
@@ -188,6 +219,16 @@ async function ensureProcessEnhancements() {
       await pool.query(`
         ALTER TABLE process_versions
         ADD COLUMN IF NOT EXISTS status VARCHAR(50)
+      `);
+
+      await pool.query(`
+        ALTER TABLE processes
+        ADD COLUMN IF NOT EXISTS manual_data JSONB NOT NULL DEFAULT '{}'::jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE process_versions
+        ADD COLUMN IF NOT EXISTS manual_data JSONB NOT NULL DEFAULT '{}'::jsonb
       `);
 
       await pool.query(`
@@ -884,6 +925,7 @@ function serializeProcessRecord(process) {
 
   return {
     ...process,
+    manual_data: normalizeManualData(process.manual_data),
     assigned_designer_id: assignedDesignerIds[0] ?? null,
     assigned_validator_id: assignedValidatorIds[0] ?? null,
     assigned_designer_ids: assignedDesignerIds,
@@ -924,6 +966,7 @@ function buildVersionInsertValues(process, createdBy, changeDescription) {
     normalizeInteger(snapshot.category_id, null),
     normalizeInteger(snapshot.company_id, null),
     snapshot.status || 'draft',
+    normalizeManualData(snapshot.manual_data),
   ];
 }
 
@@ -940,9 +983,10 @@ async function insertProcessVersion(process, createdBy, changeDescription) {
         description,
         category_id,
         company_id,
-        status
+        status,
+        manual_data
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     `,
     buildVersionInsertValues(process, createdBy, changeDescription)
   );
@@ -1174,6 +1218,7 @@ router.post('/processes', async (req, res) => {
       category_id,
       company_id,
       status = 'draft',
+      manual_data,
       assigned_designer_ids,
       assigned_validator_ids,
       assigned_designer_id,
@@ -1227,6 +1272,7 @@ router.post('/processes', async (req, res) => {
     const resolvedName = await buildNextAvailableProcessName(name, { categoryId });
     const bpmnXml = bpmn_xml || buildDefaultBpmnXml(resolvedName);
     const initialStatus = normalizeProcessStatus(status, 'draft');
+    const manualData = normalizeManualData(manual_data);
     const result = await pool.query(
       `
         INSERT INTO processes (
@@ -1237,13 +1283,14 @@ router.post('/processes', async (req, res) => {
           company_id,
           created_by,
           status,
+          manual_data,
           assigned_designer_id,
           assigned_validator_id,
           assigned_designer_ids,
           assigned_validator_ids
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING id, name, description, bpmn_xml, category_id, company_id, created_by, status, version, created_at, updated_at, manual_data, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
       `,
       [
         resolvedName,
@@ -1253,6 +1300,7 @@ router.post('/processes', async (req, res) => {
         processCompanyId,
         createdBy,
         initialStatus,
+        manualData,
         governanceAssignments.assignedDesignerId,
         governanceAssignments.assignedValidatorId,
         governanceAssignments.assignedDesignerIds,
@@ -1315,6 +1363,7 @@ router.put('/processes/:id', async (req, res) => {
       company_id,
       status,
       change_description,
+      manual_data,
       assigned_designer_ids,
       assigned_validator_ids,
       assigned_designer_id,
@@ -1323,6 +1372,9 @@ router.put('/processes/:id', async (req, res) => {
 
     const nextName = name || currentProcess.name;
     const nextDescription = description !== undefined ? description : currentProcess.description;
+    const nextManualData = manual_data !== undefined
+      ? normalizeManualData(manual_data)
+      : normalizeManualData(currentProcess.manual_data);
     const nextCategoryId = normalizeInteger(category_id, currentProcess.category_id);
     if (!nextCategoryId) {
       return res.status(400).json({ error: 'A category is required for every process.' });
@@ -1381,13 +1433,14 @@ router.put('/processes/:id', async (req, res) => {
           company_id = $5,
           status = $6,
           version = $7,
-          assigned_designer_id = $8,
-          assigned_validator_id = $9,
-          assigned_designer_ids = $10,
-          assigned_validator_ids = $11,
+          manual_data = $8,
+          assigned_designer_id = $9,
+          assigned_validator_id = $10,
+          assigned_designer_ids = $11,
+          assigned_validator_ids = $12,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $12
-        RETURNING id, name, description, category_id, company_id, status, version, updated_at, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
+        WHERE id = $13
+        RETURNING id, name, description, bpmn_xml, category_id, company_id, status, version, updated_at, manual_data, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
       `,
       [
         nextName,
@@ -1397,6 +1450,7 @@ router.put('/processes/:id', async (req, res) => {
         nextCompanyId,
         nextStatus,
         nextVersion,
+        nextManualData,
         governanceAssignments.assignedDesignerId,
         governanceAssignments.assignedValidatorId,
         governanceAssignments.assignedDesignerIds,
@@ -1586,13 +1640,14 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
           company_id,
           created_by,
           status,
+          manual_data,
           assigned_designer_id,
           assigned_validator_id,
           assigned_designer_ids,
           assigned_validator_ids
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        RETURNING id, name, description, category_id, company_id, created_by, status, version, created_at, updated_at, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING id, name, description, bpmn_xml, category_id, company_id, created_by, status, version, created_at, updated_at, manual_data, assigned_designer_id, assigned_validator_id, assigned_designer_ids, assigned_validator_ids
       `,
       [
         resolvedName,
@@ -1602,6 +1657,7 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
         processCompanyId,
         req.user.id,
         initialStatus,
+        normalizeManualData(req.body?.manual_data),
         governanceAssignments.assignedDesignerId,
         governanceAssignments.assignedValidatorId,
         governanceAssignments.assignedDesignerIds,
@@ -1752,11 +1808,20 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
     assigned_validator_names: await loadUserNamesByIds(process.assigned_validator_ids),
   };
   const explanation = buildProcessExplanation(reportProcess, workflow);
+  const manual = buildProcedureManual(reportProcess, workflow, explanation);
   const filenameBase =
     String(process.name || `process-${process.id}`)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || `process-${process.id}`;
+
+  if (format === 'json') {
+    res.json({
+      process: serializeProcessRecord(process),
+      manual,
+    });
+    return;
+  }
 
   if (format === 'pdf') {
     res.setHeader('Content-Type', 'application/pdf');
@@ -1766,9 +1831,39 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
   }
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-explanation.html"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.html"`);
   res.send(buildProcessReportHtml(reportProcess, explanation));
 }
+
+router.get('/processes/:id/manual', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+    await sendProcessReport(req, res, {
+      format: String(req.query.format || 'json').toLowerCase(),
+    });
+  } catch (error) {
+    console.error('Get process manual error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/processes/:id/manual', async (req, res) => {
+  try {
+    if (!ensureAuthenticated(req, res)) {
+      return;
+    }
+
+    await sendProcessReport(req, res, {
+      format: String(req.body?.format || 'pdf').toLowerCase(),
+      diagramImageDataUrl: typeof req.body?.diagramImageDataUrl === 'string' ? req.body.diagramImageDataUrl : null,
+    });
+  } catch (error) {
+    console.error('Create process manual error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 router.get('/processes/:id/report', async (req, res) => {
   try {

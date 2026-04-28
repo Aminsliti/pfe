@@ -16,6 +16,21 @@ const PROCESS_SECTION_CONFIG = [
   { key: 'support', label: 'Processus support', icon: 'bi-life-preserver' },
 ];
 const DEFAULT_PROCESS_SECTION = 'metiers';
+const DEFAULT_MANUAL_DATA = {
+  code: '',
+  objective: '',
+  owner: '',
+  scope: '',
+  trigger: '',
+  expected_result: '',
+  frequency: '',
+  context: '',
+  kpis: [],
+  controls: [],
+  support_systems: [],
+  support_documents: [],
+  support_data: [],
+};
 
 function ModelerFallback() {
   return (
@@ -174,6 +189,42 @@ function toggleFormIdSelection(values, value, checked) {
   return normalizedValues.filter((entry) => entry !== normalizedValue);
 }
 
+function normalizeManualList(value) {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))];
+  }
+
+  if (typeof value === 'string') {
+    return [...new Set(value.split(/[\r\n;,]+/u).map((entry) => entry.trim()).filter(Boolean))];
+  }
+
+  return [];
+}
+
+function normalizeManualDataForForm(value = null) {
+  const source = value && typeof value === 'object' ? value : {};
+
+  return {
+    code: String(source.code || '').trim(),
+    objective: String(source.objective || '').trim(),
+    owner: String(source.owner || '').trim(),
+    scope: String(source.scope || '').trim(),
+    trigger: String(source.trigger || '').trim(),
+    expected_result: String(source.expected_result || source.expectedResult || '').trim(),
+    frequency: String(source.frequency || '').trim(),
+    context: String(source.context || '').trim(),
+    kpis: normalizeManualList(source.kpis),
+    controls: normalizeManualList(source.controls),
+    support_systems: normalizeManualList(source.support_systems || source.supportSystems),
+    support_documents: normalizeManualList(source.support_documents || source.supportDocuments),
+    support_data: normalizeManualList(source.support_data || source.supportData),
+  };
+}
+
+function manualListToTextarea(value) {
+  return normalizeManualList(value).join('\n');
+}
+
 function normalizeCategorySection(value, fallbackValue = DEFAULT_PROCESS_SECTION) {
   const normalized = String(value || '').trim().toLowerCase();
   return PROCESS_SECTION_CONFIG.some((section) => section.key === normalized) ? normalized : fallbackValue;
@@ -279,6 +330,7 @@ export function ProcessManagement({ publicView = false }) {
     bpmn_xml: '',
     category_id: '',
     status: 'draft',
+    manual_data: DEFAULT_MANUAL_DATA,
     assigned_designer_ids: [],
     assigned_validator_ids: toFormIds(user?.id ? [user.id] : []),
   });
@@ -463,6 +515,20 @@ export function ProcessManagement({ publicView = false }) {
     </div>
   );
 
+  const updateManualDataField = (key, value) => {
+    setFormData((current) => ({
+      ...current,
+      manual_data: {
+        ...normalizeManualDataForForm(current.manual_data),
+        [key]: value,
+      },
+    }));
+  };
+
+  const updateManualDataListField = (key, value) => {
+    updateManualDataField(key, normalizeManualList(value));
+  };
+
   const loadProcesses = async () => {
     if (!canViewWorkspace) return;
     setLoading(true);
@@ -642,14 +708,32 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
-  const openBpmnEditor = (process, initialSubprocessId = null) => {
+  const buildEditorRootProcess = (process) => ({
+    id: process?.id,
+    name: process?.name || 'Process',
+    bpmn_xml: process?.bpmn_xml || '',
+    version: process?.version || null,
+    category_id: process?.category_id ?? null,
+    description: process?.description || '',
+    status: process?.status || 'draft',
+  });
+
+  const openBpmnEditor = (process, initialSubprocessId = null, options = {}) => {
     if (publicView) {
       return;
     }
 
+    const rootProcess = buildEditorRootProcess(options.rootProcess || process);
     setBpmnTarget({
       ...process,
       initialSubprocessId,
+      rootProcessId: rootProcess.id,
+      rootProcessName: rootProcess.name,
+      rootProcessBpmnXml: rootProcess.bpmn_xml,
+      rootProcessVersion: rootProcess.version,
+      rootProcessCategoryId: rootProcess.category_id,
+      rootProcessDescription: rootProcess.description,
+      rootProcessStatus: rootProcess.status,
     });
   };
   const openCreate = (defaultCategoryId = '') => {
@@ -672,6 +756,7 @@ export function ProcessManagement({ publicView = false }) {
       bpmn_xml: '',
       category_id: resolvedCategoryId,
       status: 'draft',
+      manual_data: normalizeManualDataForForm(),
       assigned_designer_ids: [],
       assigned_validator_ids: toFormIds(user?.id ? [user.id] : []),
     });
@@ -697,6 +782,7 @@ export function ProcessManagement({ publicView = false }) {
       bpmn_xml: process?.bpmn_xml || '',
       category_id: toFormId(process?.category_id || ''),
       status: normalizeUiStatus(process?.status),
+      manual_data: normalizeManualDataForForm(process?.manual_data),
       assigned_designer_ids: getAssignedDesignerIds(process),
       assigned_validator_ids: getAssignedValidatorIds(process),
     });
@@ -820,7 +906,14 @@ export function ProcessManagement({ publicView = false }) {
       throw new Error(error.error || 'Save failed');
     }
     const updated = await response.json();
-    setBpmnTarget((previous) => ({ ...previous, bpmn_xml: bpmnXml, version: updated.version }));
+    setBpmnTarget((previous) => {
+      const next = { ...previous, bpmn_xml: bpmnXml, version: updated.version };
+      if (Number(previous?.rootProcessId || 0) === Number(previous?.id || 0)) {
+        next.rootProcessBpmnXml = bpmnXml;
+        next.rootProcessVersion = updated.version;
+      }
+      return next;
+    });
     loadProcesses();
   };
 
@@ -835,6 +928,76 @@ export function ProcessManagement({ publicView = false }) {
       xml: detail?.bpmn_xml || '',
       name: detail?.name || 'Process',
     };
+  };
+
+  const fetchProcessRecord = async (processId) => {
+    const response = await fetch(`${API}/processes/${processId}`);
+    if (!response.ok) {
+      throw new Error('Failed to load the selected process.');
+    }
+
+    return response.json();
+  };
+
+  const handleOpenLinkedProcessInEditor = async (processId, fallbackProcess = null) => {
+    const normalizedProcessId = Number(processId || fallbackProcess?.id || 0);
+    if (!Number.isInteger(normalizedProcessId) || normalizedProcessId <= 0) {
+      return;
+    }
+
+    const detail =
+      fallbackProcess && Number(fallbackProcess.id) === normalizedProcessId
+        ? fallbackProcess
+        : await fetchProcessRecord(normalizedProcessId);
+
+    const rootProcess = bpmnTarget
+      ? buildEditorRootProcess({
+          id: bpmnTarget.rootProcessId || bpmnTarget.id,
+          name: bpmnTarget.rootProcessName || bpmnTarget.name,
+          bpmn_xml: bpmnTarget.rootProcessBpmnXml || bpmnTarget.bpmn_xml || '',
+          version: bpmnTarget.rootProcessVersion || bpmnTarget.version || null,
+          category_id: bpmnTarget.rootProcessCategoryId ?? bpmnTarget.category_id ?? null,
+          description: bpmnTarget.rootProcessDescription || bpmnTarget.description || '',
+          status: bpmnTarget.rootProcessStatus || bpmnTarget.status || 'draft',
+        })
+      : buildEditorRootProcess(selectedProcessRecord || detail);
+
+    openBpmnEditor(detail, null, { rootProcess });
+  };
+
+  const handleReturnToMainProcessInEditor = () => {
+    if (!bpmnTarget) {
+      return;
+    }
+
+    const rootProcessId = Number(bpmnTarget.rootProcessId || bpmnTarget.id || 0);
+    if (!Number.isInteger(rootProcessId) || rootProcessId <= 0) {
+      return;
+    }
+
+    openBpmnEditor(
+      {
+        id: rootProcessId,
+        name: bpmnTarget.rootProcessName || bpmnTarget.name,
+        bpmn_xml: bpmnTarget.rootProcessBpmnXml || '',
+        version: bpmnTarget.rootProcessVersion || null,
+        category_id: bpmnTarget.rootProcessCategoryId ?? null,
+        description: bpmnTarget.rootProcessDescription || '',
+        status: bpmnTarget.rootProcessStatus || 'draft',
+      },
+      null,
+      {
+        rootProcess: {
+          id: rootProcessId,
+          name: bpmnTarget.rootProcessName || bpmnTarget.name,
+          bpmn_xml: bpmnTarget.rootProcessBpmnXml || '',
+          version: bpmnTarget.rootProcessVersion || null,
+          category_id: bpmnTarget.rootProcessCategoryId ?? null,
+          description: bpmnTarget.rootProcessDescription || '',
+          status: bpmnTarget.rootProcessStatus || 'draft',
+        },
+      }
+    );
   };
 
   const buildDuplicateProcessName = (sourceProcess) => {
@@ -863,6 +1026,7 @@ export function ProcessManagement({ publicView = false }) {
         bpmn_xml: detail.bpmn_xml || '',
         category_id: detail.category_id || process.category_id,
         status: 'draft',
+        manual_data: normalizeManualDataForForm(detail.manual_data),
         assigned_designer_id: getAssignedDesignerIds(detail)[0] || null,
         assigned_validator_id: getAssignedValidatorIds(detail)[0] || null,
         assigned_designer_ids: getAssignedDesignerIds(detail),
@@ -1246,6 +1410,7 @@ export function ProcessManagement({ publicView = false }) {
       const method = editingProcess ? 'PUT' : 'POST';
       const payload = {
         ...formData,
+        manual_data: normalizeManualDataForForm(formData.manual_data),
         assigned_designer_id: formData.assigned_designer_ids[0] || null,
         assigned_validator_id: formData.assigned_validator_ids[0] || null,
         assigned_designer_ids: formData.assigned_designer_ids,
@@ -1458,7 +1623,7 @@ export function ProcessManagement({ publicView = false }) {
           : undefined;
 
       const response = await fetchProtectedProcessAsset(
-        format === 'pdf' ? `${API}/processes/${id}/report` : `${API}/processes/${id}/report?format=${format}`,
+        format === 'pdf' ? `${API}/processes/${id}/manual` : `${API}/processes/${id}/manual?format=${format}`,
         requestOptions
       );
       if (!response.ok) {
@@ -1468,7 +1633,7 @@ export function ProcessManagement({ publicView = false }) {
       const blob = await response.blob();
       const filename =
         response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') ||
-        `process-${id}-explanation.${format === 'pdf' ? 'pdf' : 'html'}`;
+        `process-${id}-manuel-de-procedure.${format === 'pdf' ? 'pdf' : 'html'}`;
       const link = Object.assign(document.createElement('a'), {
         href: URL.createObjectURL(blob),
         download: filename,
@@ -1606,6 +1771,8 @@ export function ProcessManagement({ publicView = false }) {
             .filter((process) => Number(process.id) !== Number(bpmnTarget.id))
             .map((process) => ({ id: process.id, name: process.name }))}
           onImportExisting={handleBpmnImportExisting}
+          onOpenLinkedProcess={handleOpenLinkedProcessInEditor}
+          onReturnToMainProcess={handleReturnToMainProcessInEditor}
           initialSubprocessId={bpmnTarget.initialSubprocessId}
         />
       </Suspense>
@@ -1738,9 +1905,15 @@ export function ProcessManagement({ publicView = false }) {
           </Dropdown.Item>
         ) : null}
         {!version ? (
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'html')}>
+            <i className="bi bi-file-earmark-text me-2" />
+            Manuel HTML
+          </Dropdown.Item>
+        ) : null}
+        {!version ? (
           <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'pdf')}>
             <i className="bi bi-file-earmark-pdf me-2" />
-            PDF
+            Manuel PDF
           </Dropdown.Item>
         ) : null}
       </Dropdown.Menu>
@@ -2121,7 +2294,7 @@ export function ProcessManagement({ publicView = false }) {
                                 onClick={() => handleProcessReportDownload(editingProcess.id, 'html')}
                                 disabled={processReportBusy === 'html'}
                               >
-                                {processReportBusy === 'html' ? 'Exporting...' : 'HTML'}
+                                {processReportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
                               </Button>
                               <Button
                                 type="button"
@@ -2130,7 +2303,7 @@ export function ProcessManagement({ publicView = false }) {
                                 onClick={() => handleProcessReportDownload(editingProcess.id, 'pdf')}
                                 disabled={processReportBusy === 'pdf'}
                               >
-                                {processReportBusy === 'pdf' ? 'Exporting...' : 'PDF'}
+                                {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
                               </Button>
                             </>
                           ) : null}
@@ -2270,6 +2443,177 @@ export function ProcessManagement({ publicView = false }) {
                             </Form.Group>
                           </Col>
                         </Row>
+                        <div className="border rounded-4 p-3 mb-3" style={{ background: '#fffdfa' }}>
+                          <div className="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                              <h6 className="mb-1">Manuel de procedure</h6>
+                              <div className="text-muted small">Champs standard utilises pour generer automatiquement les matrices du manuel.</div>
+                            </div>
+                          </div>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Code</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.code || ''}
+                                  onChange={(event) => updateManualDataField('code', event.target.value)}
+                                  placeholder="Ex: MP-CRT-001"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Owner</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.owner || ''}
+                                  onChange={(event) => updateManualDataField('owner', event.target.value)}
+                                  placeholder="Responsable du processus"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Form.Group className="mb-3">
+                            <Form.Label>Objectif</Form.Label>
+                            <Form.Control
+                              as="textarea"
+                              rows={2}
+                              disabled={!canEditSelectedProcess}
+                              value={formData.manual_data?.objective || ''}
+                              onChange={(event) => updateManualDataField('objective', event.target.value)}
+                              placeholder="Objectif principal du processus"
+                            />
+                          </Form.Group>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Perimetre</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.scope || ''}
+                                  onChange={(event) => updateManualDataField('scope', event.target.value)}
+                                  placeholder="Perimetre fonctionnel ou organisationnel"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Frequence</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.frequency || ''}
+                                  onChange={(event) => updateManualDataField('frequency', event.target.value)}
+                                  placeholder="Ex: Quotidienne / Hebdomadaire / A la demande"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Declencheur</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.trigger || ''}
+                                  onChange={(event) => updateManualDataField('trigger', event.target.value)}
+                                  placeholder="Evenement de demarrage du processus"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Resultat attendu</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.expected_result || ''}
+                                  onChange={(event) => updateManualDataField('expected_result', event.target.value)}
+                                  placeholder="Livrable ou resultat final"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Form.Group className="mb-3">
+                            <Form.Label>Contexte</Form.Label>
+                            <Form.Control
+                              as="textarea"
+                              rows={2}
+                              disabled={!canEditSelectedProcess}
+                              value={formData.manual_data?.context || ''}
+                              onChange={(event) => updateManualDataField('context', event.target.value)}
+                              placeholder="Contexte, limites ou remarques"
+                            />
+                          </Form.Group>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>KPI cles</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.kpis)}
+                                  onChange={(event) => updateManualDataListField('kpis', event.target.value)}
+                                  placeholder="Une ligne par KPI"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Controles cles</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.controls)}
+                                  onChange={(event) => updateManualDataListField('controls', event.target.value)}
+                                  placeholder="Un controle par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Row>
+                            <Col md={4}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Systemes supports</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.support_systems)}
+                                  onChange={(event) => updateManualDataListField('support_systems', event.target.value)}
+                                  placeholder="Un systeme par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Documents supports</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.support_documents)}
+                                  onChange={(event) => updateManualDataListField('support_documents', event.target.value)}
+                                  placeholder="Un document par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Donnees supports</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.support_data)}
+                                  onChange={(event) => updateManualDataListField('support_data', event.target.value)}
+                                  placeholder="Une donnee par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                        </div>
                         <Row>
                           <Col md={6}>
                             <Form.Group className="mb-3">

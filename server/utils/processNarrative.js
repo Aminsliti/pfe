@@ -25,6 +25,10 @@ function escapeRegExp(value = '') {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function normalizeText(value = '') {
+  return String(value || '').trim();
+}
+
 function formatNumber(value, decimals = 0) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-';
@@ -144,6 +148,57 @@ function humanJoin(items = []) {
   return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
 }
 
+function stripXmlTags(value = '') {
+  return decodeXmlEntities(String(value || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeTextList(value) {
+  if (Array.isArray(value)) {
+    return uniqueValues(value);
+  }
+
+  if (typeof value === 'string') {
+    return uniqueValues(
+      value
+        .split(/[\r\n;,]+/u)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    );
+  }
+
+  return [];
+}
+
+function normalizeManualData(value = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+
+  return {
+    code: normalizeText(source.code),
+    objective: normalizeText(source.objective),
+    owner: normalizeText(source.owner),
+    scope: normalizeText(source.scope),
+    trigger: normalizeText(source.trigger),
+    expected_result: normalizeText(source.expected_result || source.expectedResult),
+    frequency: normalizeText(source.frequency),
+    context: normalizeText(source.context),
+    kpis: normalizeTextList(source.kpis),
+    controls: normalizeTextList(source.controls),
+    support_systems: normalizeTextList(source.support_systems || source.supportSystems),
+    support_documents: normalizeTextList(source.support_documents || source.supportDocuments),
+    support_data: normalizeTextList(source.support_data || source.supportData),
+  };
+}
+
+function displayValue(value, fallback = 'Non renseigne') {
+  const normalized = normalizeText(value);
+  return normalized || fallback;
+}
+
+function buildDisplayList(values = [], fallback = 'Non renseigne') {
+  const normalized = normalizeTextList(values);
+  return normalized.length ? normalized : [fallback];
+}
+
 const PROCEDURE_ELEMENT_NAMES = [
   'participant',
   'lane',
@@ -166,6 +221,25 @@ const PROCEDURE_ELEMENT_NAMES = [
   'endEvent',
   'intermediateCatchEvent',
   'intermediateThrowEvent',
+];
+
+const ACTIVITY_ELEMENT_NAMES = [
+  'task',
+  'userTask',
+  'serviceTask',
+  'scriptTask',
+  'manualTask',
+  'sendTask',
+  'receiveTask',
+  'businessRuleTask',
+  'subProcess',
+  'callActivity',
+];
+
+const SUPPORT_ELEMENT_NAMES = [
+  'dataObject',
+  'dataObjectReference',
+  'dataStoreReference',
 ];
 
 function normalizeRiskRecord(risk = {}, index = 0, source = {}) {
@@ -286,26 +360,266 @@ function buildControlPointRegister(bpmnXml = '', riskRegister = []) {
   return uniqueValues(controls);
 }
 
-function buildProcedureManual(process = {}, workflow = null, explanation = null) {
+function extractDocumentationByElementId(bpmnXml = '', elementNames = ACTIVITY_ELEMENT_NAMES) {
+  const documentationById = new Map();
+  const pattern = new RegExp(
+    `<(?:[\\w.-]+:)?(${elementNames.map((name) => escapeRegExp(name)).join('|')})\\b([^>]*)>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?\\1>`,
+    'gi'
+  );
+  let match;
+
+  while ((match = pattern.exec(String(bpmnXml || ''))) !== null) {
+    const attrs = match[2] || '';
+    const innerXml = match[3] || '';
+    const id = getXmlAttr(attrs, 'id');
+    if (!id) {
+      continue;
+    }
+
+    const documentationMatch = innerXml.match(
+      /<(?:[\w.-]+:)?documentation\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?documentation>/i
+    );
+    if (!documentationMatch) {
+      continue;
+    }
+
+    const text = stripXmlTags(documentationMatch[1] || '');
+    if (text) {
+      documentationById.set(id, text);
+    }
+  }
+
+  return documentationById;
+}
+
+function extractStartEndSummary(bpmnXml = '') {
+  const startEvents = matchNamedElements(bpmnXml, ['startEvent']);
+  const endEvents = matchNamedElements(bpmnXml, ['endEvent']);
+
+  return {
+    trigger:
+      startEvents.map((event) => normalizeText(event.name)).filter(Boolean)[0] ||
+      '',
+    expectedResult:
+      endEvents.map((event) => normalizeText(event.name)).filter(Boolean)[0] ||
+      '',
+    startEvents,
+    endEvents,
+  };
+}
+
+function buildActivityRows(process = {}, documentationById = new Map(), actorAssignments = []) {
+  const actorByElementId = new Map();
+  actorAssignments.forEach((actor) => {
+    actor.elements.forEach((element) => {
+      actorByElementId.set(String(element.id || ''), actor);
+    });
+  });
+
+  return parseNamedElementsWithAttrs(process.bpmn_xml || '', ACTIVITY_ELEMENT_NAMES).map((element, index) => {
+    const actor = actorByElementId.get(String(element.id || ''));
+    const isSystemActivity = element.type === 'serviceTask' || /system|core banking|swift|api|application/i.test(element.name || '');
+
+    return {
+      order: index + 1,
+      activity: element.name || element.id || `Activity ${index + 1}`,
+      element_id: element.id || '',
+      type: element.type,
+      actor: actor?.actorName || 'Non assigne',
+      description: documentationById.get(String(element.id || '')) || 'Non renseigne',
+      inputs: 'Non renseigne',
+      outputs: 'Non renseigne',
+      systems: isSystemActivity ? element.name || element.id || 'Interaction systeme' : 'Non renseigne',
+      rules: 'Non renseigne',
+      exceptions: 'Non renseigne',
+    };
+  });
+}
+
+function buildProcedureStepRows(activityRows = [], controlPoints = []) {
+  return activityRows.map((activity, index) => {
+    const relatedControls = controlPoints.filter((control) =>
+      activity.activity && control.toLowerCase().includes(activity.activity.toLowerCase())
+    );
+
+    return {
+      step_number: index + 1,
+      activity: activity.activity,
+      actor: activity.actor,
+      steps: activity.description !== 'Non renseigne' ? activity.description : `Executer ${activity.activity}.`,
+      validations: relatedControls.length ? humanJoin(relatedControls.slice(0, 3)) : 'Non renseigne',
+      exceptions: activity.exceptions || 'Non renseigne',
+      systems: activity.systems || 'Non renseigne',
+    };
+  });
+}
+
+function buildSupportObjectRows(process = {}, manualData = {}, activityRows = []) {
+  const rows = [];
+  const seen = new Set();
+
+  const pushRow = (type, label, attachedTo = '', source = 'manuel') => {
+    const normalizedLabel = normalizeText(label);
+    if (!normalizedLabel) {
+      return;
+    }
+
+    const key = `${type}:${normalizedLabel.toLowerCase()}:${normalizeText(attachedTo).toLowerCase()}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    rows.push({
+      type,
+      label: normalizedLabel,
+      attached_to: normalizeText(attachedTo) || 'Processus',
+      source,
+    });
+  };
+
+  manualData.support_systems.forEach((label) => pushRow('Systeme', label));
+  manualData.support_documents.forEach((label) => pushRow('Document', label));
+  manualData.support_data.forEach((label) => pushRow('Donnee', label));
+
+  activityRows
+    .filter((activity) => activity.systems && activity.systems !== 'Non renseigne')
+    .forEach((activity) => pushRow('Systeme', activity.systems, activity.activity, 'diagramme'));
+
+  matchNamedElements(process.bpmn_xml || '', SUPPORT_ELEMENT_NAMES).forEach((item) => {
+    const label = normalizeText(item.name || item.id || '');
+    if (!label) {
+      return;
+    }
+
+    if (/(document|dossier|formulaire|contrat|piece|justificatif|fiche|demande|report)/i.test(label)) {
+      pushRow('Document', label, 'Diagramme', 'diagramme');
+      return;
+    }
+
+    pushRow('Donnee', label, 'Diagramme', 'diagramme');
+  });
+
+  return rows.length
+    ? rows
+    : [{
+        type: 'Support',
+        label: 'Non renseigne',
+        attached_to: 'Processus',
+        source: 'manuel',
+      }];
+}
+
+function buildKpiRows(manualData = {}) {
+  const rows = normalizeTextList(manualData.kpis).map((label) => ({
+    name: label,
+    target: 'A definir',
+    source: 'Saisie manuelle',
+  }));
+
+  return rows.length
+    ? rows
+    : [
+        { name: 'Delai de traitement', target: 'Non renseigne', source: 'A definir' },
+        { name: 'Volume traite', target: 'Non renseigne', source: 'A definir' },
+        { name: 'Taux de conformite', target: 'Non renseigne', source: 'A definir' },
+      ];
+}
+
+function buildRiskRows(risks = []) {
+  return risks.length
+    ? risks.map((risk) => ({
+        title: risk.title,
+        severity: risk.severity,
+        status: risk.status,
+        category: risk.category,
+        element: risk.elementName || '-',
+        description: risk.description || 'Non renseigne',
+        mitigation: risk.mitigation || 'Non renseigne',
+      }))
+    : [{
+        title: 'Aucun risque rattache',
+        severity: '-',
+        status: '-',
+        category: '-',
+        element: '-',
+        description: 'Aucun risque n est attache au diagramme.',
+        mitigation: 'Non renseigne',
+      }];
+}
+
+function buildControlRows(controlPoints = [], manualData = {}) {
+  const rows = [
+    ...normalizeTextList(manualData.controls).map((label) => ({
+      control: label,
+      source: 'Saisie manuelle',
+    })),
+    ...uniqueValues(controlPoints).map((label) => ({
+      control: label,
+      source: 'Inference BPMN',
+    })),
+  ];
+
+  return rows.length
+    ? rows
+    : [{
+        control: 'Aucun controle explicite detecte',
+        source: 'Inference BPMN',
+      }];
+}
+
+export function buildProcedureManual(process = {}, workflow = null, explanation = null) {
   const narrative = explanation || buildProcessExplanation(process, workflow);
   const actors = extractActorAssignments(process.bpmn_xml || '');
   const risks = extractRiskRegister(process.bpmn_xml || '');
   const controlPoints = buildControlPointRegister(process.bpmn_xml || '', risks);
+  const manualData = normalizeManualData(process.manual_data);
+  const startEnd = extractStartEndSummary(process.bpmn_xml || '');
+  const documentationById = extractDocumentationByElementId(process.bpmn_xml || '');
+  const activityRows = buildActivityRows(process, documentationById, actors);
+  const procedureRows = buildProcedureStepRows(activityRows, controlPoints);
+  const supportRows = buildSupportObjectRows(process, manualData, activityRows);
+  const kpiRows = buildKpiRows(manualData);
+  const riskRows = buildRiskRows(risks);
+  const controlRows = buildControlRows(controlPoints, manualData);
   const responsible = uniqueValues(actors.map((actor) => actor.actorName));
-  const accountable = normalizeNameList(process.assigned_validator_names, process.assigned_validator_name || process.created_by_name);
+  const accountable = normalizeNameList(
+    manualData.owner ? [manualData.owner] : process.assigned_validator_names,
+    manualData.owner || process.assigned_validator_name || process.created_by_name
+  );
   const consulted = normalizeNameList(process.assigned_designer_names, process.assigned_designer_name);
   const informed = uniqueValues([process.created_by_name, workflow?.approved_by_name, process.approved_by_name]);
+  const identityRows = [
+    { label: 'Code', value: displayValue(manualData.code, `PROC-${process.id || '-'}`) },
+    { label: 'Nom du processus', value: displayValue(process.name) },
+    { label: 'Objectif', value: displayValue(manualData.objective, process.description || 'Non renseigne') },
+    { label: 'Owner', value: displayValue(manualData.owner, accountable[0] || process.created_by_name || 'Non renseigne') },
+    { label: 'Perimetre', value: displayValue(manualData.scope, process.category_name || 'Non renseigne') },
+    { label: 'Declencheur', value: displayValue(manualData.trigger, startEnd.trigger || 'Non renseigne') },
+    { label: 'Resultat attendu', value: displayValue(manualData.expected_result, startEnd.expectedResult || 'Non renseigne') },
+    { label: 'Frequence', value: displayValue(manualData.frequency) },
+    { label: 'Contexte', value: displayValue(manualData.context, process.description || 'Non renseigne') },
+  ];
 
   return {
     narrative,
+    manualData,
     actors,
     risks,
     controlPoints,
+    matrices: {
+      identity: identityRows,
+      activities: activityRows,
+      procedures: procedureRows,
+      supportObjects: supportRows,
+      kpis: kpiRows,
+      risks: riskRows,
+      controls: controlRows,
+    },
     raci: {
-      responsible,
+      responsible: buildDisplayList(responsible),
       accountable,
-      consulted,
-      informed,
+      consulted: buildDisplayList(consulted),
+      informed: buildDisplayList(informed),
     },
     workflowBullets: [
       `Status: ${normalizeProcessStatus(process.status, 'draft')}`,
@@ -446,8 +760,8 @@ function buildRows(rows = [], columns = []) {
 }
 
 export function buildProcessReportHtml(process = {}, explanation = null) {
-  const narrative = explanation || buildProcessExplanation(process);
-  const sectionsHtml = (narrative.sections || [])
+  const manual = buildProcedureManual(process, null, explanation);
+  const sectionsHtml = (manual.narrative.sections || [])
     .map(
       (section) => `
         <div class="section">
@@ -463,11 +777,25 @@ export function buildProcessReportHtml(process = {}, explanation = null) {
     )
     .join('');
 
+  const renderTable = (title, columns, rows) => `
+    <div class="section">
+      <h2>${escapeHtml(title)}</h2>
+      <table>
+        <thead>
+          <tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${buildRows(rows, columns)}
+        </tbody>
+      </table>
+    </div>
+  `;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(process.name || 'Process')} - Diagram Explanation</title>
+  <title>${escapeHtml(process.name || 'Process')} - Manuel de procedure</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 28px; color: #111827; background: #f8fafc; }
     .report-shell { background: #ffffff; border-radius: 18px; padding: 28px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08); }
@@ -494,7 +822,7 @@ export function buildProcessReportHtml(process = {}, explanation = null) {
   <div class="report-shell">
     <div class="hero">
       <div>
-        <span class="eyebrow">Process explanation</span>
+        <span class="eyebrow">Manuel de procedure</span>
         <h1>${escapeHtml(process.name || `Process #${process.id || ''}`)}</h1>
         <div class="hero-meta">
           Status: ${escapeHtml(normalizeProcessStatus(process.status, 'draft'))}<br />
@@ -503,22 +831,22 @@ export function buildProcessReportHtml(process = {}, explanation = null) {
         </div>
       </div>
       <div class="hero-meta">
-        Generated at: ${escapeHtml(narrative.generated_at || '-') }
+        Generated at: ${escapeHtml(manual.narrative.generated_at || '-') }
       </div>
     </div>
 
-    <p style="font-size:15px;line-height:1.8;color:#334155;">${escapeHtml(narrative.summary || '')}</p>
+    <p style="font-size:15px;line-height:1.8;color:#334155;">${escapeHtml(manual.narrative.summary || '')}</p>
 
     <div class="metrics">
       ${[
-        ['Participants', narrative.metrics?.participants],
-        ['Lanes', narrative.metrics?.lanes],
-        ['Activities', narrative.metrics?.activities],
-        ['Gateways', narrative.metrics?.gateways],
-        ['Events', narrative.metrics?.events],
-        ['Sub-processes', narrative.metrics?.subprocesses],
-        ['Seq. flows', narrative.metrics?.sequence_flows],
-        ['Msg. flows', narrative.metrics?.message_flows],
+        ['Participants', manual.narrative.metrics?.participants],
+        ['Lanes', manual.narrative.metrics?.lanes],
+        ['Activities', manual.narrative.metrics?.activities],
+        ['Gateways', manual.narrative.metrics?.gateways],
+        ['Events', manual.narrative.metrics?.events],
+        ['Sub-processes', manual.narrative.metrics?.subprocesses],
+        ['Seq. flows', manual.narrative.metrics?.sequence_flows],
+        ['Msg. flows', manual.narrative.metrics?.message_flows],
       ]
         .map(
           ([label, value]) => `
@@ -531,25 +859,61 @@ export function buildProcessReportHtml(process = {}, explanation = null) {
         .join('')}
     </div>
 
+    ${renderTable('1. Identite du processus', [
+      { key: 'label', label: 'Champ' },
+      { key: 'value', label: 'Valeur' },
+    ], manual.matrices.identity)}
+
     ${sectionsHtml}
 
-    <div class="section">
-      <h2>Activity inventory</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${buildRows(narrative.details?.tasks || [], [
-            { key: 'task_id' },
-            { key: 'task_name' },
-          ])}
-        </tbody>
-      </table>
-    </div>
+    ${renderTable('2. Matrice des activites', [
+      { key: 'order', label: '#' },
+      { key: 'activity', label: 'Activite' },
+      { key: 'type', label: 'Type BPMN' },
+      { key: 'actor', label: 'Acteur' },
+      { key: 'description', label: 'Description' },
+      { key: 'inputs', label: 'Entrees' },
+      { key: 'outputs', label: 'Sorties' },
+      { key: 'systems', label: 'SI' },
+    ], manual.matrices.activities)}
+
+    ${renderTable('3. Matrice des procedures detaillees', [
+      { key: 'step_number', label: 'Etape' },
+      { key: 'activity', label: 'Activite' },
+      { key: 'actor', label: 'Acteur' },
+      { key: 'steps', label: 'Procedure' },
+      { key: 'validations', label: 'Validations / Controles' },
+      { key: 'exceptions', label: 'Exceptions' },
+      { key: 'systems', label: 'SI' },
+    ], manual.matrices.procedures)}
+
+    ${renderTable('4. Matrice des objets supports', [
+      { key: 'type', label: 'Type' },
+      { key: 'label', label: 'Libelle' },
+      { key: 'attached_to', label: 'Rattachement' },
+      { key: 'source', label: 'Source' },
+    ], manual.matrices.supportObjects)}
+
+    ${renderTable('5.1 Matrice KPI', [
+      { key: 'name', label: 'KPI' },
+      { key: 'target', label: 'Cible' },
+      { key: 'source', label: 'Source' },
+    ], manual.matrices.kpis)}
+
+    ${renderTable('5.2 Matrice des risques', [
+      { key: 'title', label: 'Risque' },
+      { key: 'severity', label: 'Severite' },
+      { key: 'status', label: 'Statut' },
+      { key: 'category', label: 'Categorie' },
+      { key: 'element', label: 'Element BPMN' },
+      { key: 'description', label: 'Description' },
+      { key: 'mitigation', label: 'Mitigation / Controle' },
+    ], manual.matrices.risks)}
+
+    ${renderTable('5.3 Matrice des controles', [
+      { key: 'control', label: 'Controle' },
+      { key: 'source', label: 'Source' },
+    ], manual.matrices.controls)}
   </div>
 </body>
 </html>`;
@@ -588,7 +952,28 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
       : null,
     sections: [
       {
-        title: 'Overview',
+        title: '1. Identite du processus',
+        paragraphs: [manual.narrative.summary || ''],
+        bullets: manual.matrices.identity.map((row) => `${row.label}: ${row.value}`),
+      },
+      {
+        title: '2. Matrice des activites',
+        bullets: manual.matrices.activities.length
+          ? manual.matrices.activities.map((row) => `${row.order}. ${row.activity} | Acteur: ${row.actor} | Description: ${row.description}`)
+          : ['Aucune activite extraite du diagramme.'],
+      },
+      {
+        title: '3. Procedures detaillees',
+        bullets: manual.matrices.procedures.length
+          ? manual.matrices.procedures.map((row) => `Etape ${row.step_number}: ${row.activity} | ${row.steps}`)
+          : ['Aucune procedure detaillee disponible.'],
+      },
+      {
+        title: '4. Objets supports',
+        bullets: manual.matrices.supportObjects.map((row) => `${row.type}: ${row.label} (${row.attached_to})`),
+      },
+      {
+        title: '5. Pilotage et gouvernance',
         paragraphs: [manual.narrative.summary || ''],
         bullets: manual.workflowBullets,
       },
@@ -620,9 +1005,13 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
       },
       {
         title: 'Control points',
-        bullets: manual.controlPoints.length
-          ? manual.controlPoints
+        bullets: manual.matrices.controls.length
+          ? manual.matrices.controls.map((row) => `${row.control} (${row.source})`)
           : ['No explicit control points could be inferred from the current BPMN diagram.'],
+      },
+      {
+        title: 'KPI',
+        bullets: manual.matrices.kpis.map((row) => `${row.name}: ${row.target} (${row.source})`),
       },
     ],
   });

@@ -10,12 +10,180 @@ const router = express.Router();
 
 const NODE_TYPES = new Set(['company', 'institute', 'structure', 'manager', 'function', 'org_unit']);
 const TYPE_COLORS = {
-  company: '#4338ca',
-  institute: '#0f766e',
-  structure: '#1d4ed8',
-  manager: '#9a3412',
-  function: '#a16207',
-  org_unit: '#0891b2',
+  company: '#0f766e',
+  institute: '#059669',
+  structure: '#10b981',
+  manager: '#0284c7',
+  function: '#d97706',
+  org_unit: '#14b8a6',
+};
+
+const BNA_ORG_CHART_TEMPLATE = {
+  name: 'BNA Bank',
+  title: 'Entite racine legale',
+  node_type: 'company',
+  description:
+    'Organigramme BNA inspire de la structure de gouvernance et des poles visibles dans la reference partagee.',
+  children: [
+    {
+      name: 'Conseil d Administration',
+      title: 'Division ou branche',
+      node_type: 'institute',
+      description: 'Instance de gouvernance et de decision de la banque.',
+      children: [
+        {
+          name: 'Secretariat du Conseil d Administration',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Support administratif et suivi des travaux du conseil.',
+        },
+        {
+          name: 'Commission des Marches',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Commission de pilotage et de validation des marches.',
+        },
+        {
+          name: 'Comite de Recours',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Traitement des recours et arbitrages associes.',
+        },
+        {
+          name: 'Comite des Risques',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Comite de supervision et de suivi des risques.',
+        },
+        {
+          name: 'Comite Permanent d Audit Interne',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Comite de suivi des missions et recommandations d audit interne.',
+        },
+        {
+          name: 'Comite des Nominations & des Remunerations',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Comite en charge des nominations et des remunerations.',
+        },
+        {
+          name: 'Comite Strategique Suivi & Evaluation du Contrat Programme',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Suivi strategique des engagements et objectifs du contrat programme.',
+        },
+        {
+          name: 'Comite de Recouvrement',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Comite de supervision des activites de recouvrement.',
+        },
+        {
+          name: 'Comite de Suivi de la Performance des Filiales',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Pilotage et suivi de la performance des filiales.',
+        },
+      ],
+    },
+    {
+      name: 'Directeur General',
+      title: 'Division ou branche',
+      node_type: 'institute',
+      description: 'Direction generale et coordination executive des poles BNA.',
+      children: [
+        {
+          name: 'Direction Centrale du Controle Permanent & de la Conformite',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Controle permanent et conformite reglementaire.',
+        },
+        {
+          name: 'Direction Centrale de l Audit et de l Inspection',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Audit interne et inspection des activites.',
+        },
+        {
+          name: 'Direction Communication Interne',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Communication interne et accompagnement institutionnel.',
+        },
+        {
+          name: 'Secretariat Permanent de la Commission des Marches',
+          title: 'Unite operationnelle',
+          node_type: 'structure',
+          description: 'Coordination permanente de la commission des marches.',
+        },
+        {
+          name: 'DGA Exploitation',
+          title: 'Division ou branche',
+          node_type: 'institute',
+          description: 'Direction generale adjointe en charge de l exploitation.',
+          children: [
+            {
+              name: 'Pole Commercial',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Animation et developpement commercial.',
+            },
+            {
+              name: 'Pole Risques',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Analyse et pilotage des risques.',
+            },
+            {
+              name: 'Pole Operations & Services Client',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Operations bancaires et qualite de service client.',
+            },
+          ],
+        },
+        {
+          name: 'DGA Support & Transformation Digitale',
+          title: 'Division ou branche',
+          node_type: 'institute',
+          description: 'Direction generale adjointe en charge du support et de la transformation.',
+          children: [
+            {
+              name: 'Division PMO Transformation',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Pilotage du portefeuille de transformation.',
+            },
+            {
+              name: 'Direction Centrale Strategie & Transformation',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Strategie, transformation et pilotage des evolutions.',
+            },
+            {
+              name: 'Pole Finances comptabilite & Pilotage de la Performance',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Finances, comptabilite et pilotage de la performance.',
+            },
+            {
+              name: 'Pole Organisation & Systeme d Informations',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Organisation, architecture et systemes d informations.',
+            },
+            {
+              name: 'Pole Ressources & Support',
+              title: 'Unite operationnelle',
+              node_type: 'structure',
+              description: 'Ressources humaines, moyens generaux et support transversal.',
+            },
+          ],
+        },
+      ],
+    },
+  ],
 };
 
 let schemaPromise = null;
@@ -55,6 +223,26 @@ function normalizeNodeType(value) {
 
 function defaultColorForType(nodeType) {
   return TYPE_COLORS[nodeType] || TYPE_COLORS.function;
+}
+
+function looksLikeLegacyDemoOrgChart(rows = []) {
+  const names = rows.map((row) => String(row.name || '').trim().toLowerCase());
+  const legacyMarkers = [
+    'company',
+    'governance institute',
+    'operations institute',
+    'control institute',
+    'shared institute',
+    'hopex aquila',
+    'gouvernance et direction generale',
+    'pole finances, comptabilite et pilotage de la performance',
+    'pole ressources et support',
+    'pole organisation et systeme d information',
+    'pole commercial',
+    'pole operations et services clients',
+  ];
+
+  return legacyMarkers.some((marker) => names.includes(marker));
 }
 
 function serializeNode(row) {
@@ -190,155 +378,18 @@ async function seedDefaultOrgChart() {
   try {
     await client.query('BEGIN');
 
-    const existing = await client.query('SELECT COUNT(*)::int AS count FROM org_chart_nodes');
-    if (existing.rows[0].count > 0) {
+    const existingNodes = await client.query('SELECT id, name, node_type FROM org_chart_nodes ORDER BY id');
+    if (existingNodes.rows.length > 0 && !looksLikeLegacyDemoOrgChart(existingNodes.rows)) {
       await client.query('COMMIT');
       return;
     }
 
-    const usersResult = await client.query(`
-      SELECT id, full_name, role
-      FROM users
-      ORDER BY id
-    `);
-    const users = usersResult.rows;
-
-    if (users.length === 0) {
-      await client.query('COMMIT');
-      return;
+    if (existingNodes.rows.length > 0) {
+      await client.query('TRUNCATE TABLE org_chart_nodes RESTART IDENTITY CASCADE');
     }
 
-    const rootResult = await client.query(
-      `
-        INSERT INTO org_chart_nodes (
-          parent_id,
-          company_id,
-          user_id,
-          name,
-          title,
-          node_type,
-          description,
-          color,
-          sort_order,
-          is_vacant
-        )
-        VALUES (NULL, NULL, NULL, $1, $2, 'company', $3, $4, 0, FALSE)
-        RETURNING id
-      `,
-      [
-        'Company',
-        'Entite racine legale',
-        'Root legal entity for the organisation chart',
-        defaultColorForType('company'),
-      ]
-    );
-
-    const rootId = rootResult.rows[0].id;
-    const roleBuckets = {
-      Admin: {
-        key: 'leadership',
-        instituteLabel: 'Governance Institute',
-        instituteTitle: 'Division ou branche',
-        structureLabel: 'Executive Structure',
-        structureTitle: 'Unite operationnelle',
-      },
-      Designer: {
-        key: 'design',
-        instituteLabel: 'Operations Institute',
-        instituteTitle: 'Division ou branche',
-        structureLabel: 'Process Design Structure',
-        structureTitle: 'Unite operationnelle',
-      },
-      Validator: {
-        key: 'management',
-        instituteLabel: 'Control Institute',
-        instituteTitle: 'Division ou branche',
-        structureLabel: 'Validation Structure',
-        structureTitle: 'Unite operationnelle',
-      },
-    };
-    const institutes = new Map();
-    const structures = new Map();
-
-    for (const user of users) {
-      const bucket = roleBuckets[user.role] || {
-        key: 'shared',
-        instituteLabel: 'Shared Institute',
-        instituteTitle: 'Division ou branche',
-        structureLabel: 'Shared Structure',
-        structureTitle: 'Unite operationnelle',
-      };
-      const instituteKey = `${rootId}:${bucket.key}`;
-
-      let instituteId = institutes.get(instituteKey);
-      if (!instituteId) {
-        const insertInstitute = await client.query(
-          `
-            INSERT INTO org_chart_nodes (
-              parent_id,
-              company_id,
-              user_id,
-              name,
-              title,
-              node_type,
-              description,
-              color,
-              sort_order,
-              is_vacant
-            )
-            VALUES ($1, NULL, NULL, $2, $3, 'institute', $4, $5, $6, FALSE)
-            RETURNING id
-          `,
-          [
-            rootId,
-            bucket.instituteLabel,
-            bucket.instituteTitle,
-            `Auto-generated institute for ${bucket.key}`,
-            defaultColorForType('institute'),
-            institutes.size,
-          ]
-        );
-
-        instituteId = insertInstitute.rows[0].id;
-        institutes.set(instituteKey, instituteId);
-      }
-
-      const structureKey = `${instituteId}:${bucket.key}`;
-      let structureId = structures.get(structureKey);
-      if (!structureId) {
-        const insertStructure = await client.query(
-          `
-            INSERT INTO org_chart_nodes (
-              parent_id,
-              company_id,
-              user_id,
-              name,
-              title,
-              node_type,
-              description,
-              color,
-              sort_order,
-              is_vacant
-            )
-            VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, $7, FALSE)
-            RETURNING id
-          `,
-          [
-            instituteId,
-            bucket.structureLabel,
-            bucket.structureTitle,
-            'structure',
-            `Auto-generated structure for ${bucket.key}`,
-            defaultColorForType('structure'),
-            structures.size,
-          ]
-        );
-
-        structureId = insertStructure.rows[0].id;
-        structures.set(structureKey, structureId);
-      }
-
-      await client.query(
+    const insertNodeTree = async (node, parentId = null, sortOrder = 0) => {
+      const insertResult = await client.query(
         `
           INSERT INTO org_chart_nodes (
             parent_id,
@@ -352,20 +403,28 @@ async function seedDefaultOrgChart() {
             sort_order,
             is_vacant
           )
-          VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, FALSE)
+          VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING id
         `,
         [
-          structureId,
-          user.id,
-          user.full_name,
-          user.role === 'Admin' ? 'Responsable humain' : 'Role ou poste metier',
-          `Auto-generated actor node for ${user.full_name}`,
-          user.role === 'Admin' ? 'manager' : 'function',
-          user.role === 'Admin' ? defaultColorForType('manager') : defaultColorForType('function'),
-          user.id,
+          parentId,
+          node.name,
+          node.title || null,
+          normalizeNodeType(node.node_type),
+          node.description || null,
+          defaultColorForType(normalizeNodeType(node.node_type)),
+          sortOrder,
+          Boolean(node.is_vacant),
         ]
       );
-    }
+
+      const insertedId = insertResult.rows[0].id;
+      for (let index = 0; index < (node.children || []).length; index += 1) {
+        await insertNodeTree(node.children[index], insertedId, index);
+      }
+    };
+
+    await insertNodeTree(BNA_ORG_CHART_TEMPLATE, null, 0);
 
     await client.query('COMMIT');
   } catch (error) {

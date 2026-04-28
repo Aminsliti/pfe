@@ -441,14 +441,25 @@ router.post('/notifications/:id/read', async (req, res) => {
       return res.json({ message: 'Dynamic notification acknowledged.' });
     }
 
-    await pool.query(
-      `
-        UPDATE notifications
-        SET read_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
-      `,
-      [notificationId, req.user.id]
-    );
+    if (isGlobalAdmin(req.user)) {
+      await pool.query(
+        `
+          UPDATE notifications
+          SET read_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+        `,
+        [notificationId]
+      );
+    } else {
+      await pool.query(
+        `
+          UPDATE notifications
+          SET read_at = CURRENT_TIMESTAMP
+          WHERE id = $1 AND user_id = $2
+        `,
+        [notificationId, req.user.id]
+      );
+    }
 
     res.json({ message: 'Notification marked as read.' });
   } catch (error) {
@@ -463,14 +474,24 @@ router.post('/notifications/read-all', async (req, res) => {
       return;
     }
 
-    await pool.query(
-      `
-        UPDATE notifications
-        SET read_at = CURRENT_TIMESTAMP
-        WHERE read_at IS NULL AND (user_id = $1 OR user_id IS NULL)
-      `,
-      [req.user.id]
-    );
+    if (isGlobalAdmin(req.user)) {
+      await pool.query(
+        `
+          UPDATE notifications
+          SET read_at = CURRENT_TIMESTAMP
+          WHERE read_at IS NULL
+        `
+      );
+    } else {
+      await pool.query(
+        `
+          UPDATE notifications
+          SET read_at = CURRENT_TIMESTAMP
+          WHERE read_at IS NULL AND user_id = $1
+        `,
+        [req.user.id]
+      );
+    }
 
     res.json({ message: 'Notifications marked as read.' });
   } catch (error) {

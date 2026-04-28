@@ -26,6 +26,12 @@ const SECTION_CONFIG = {
   },
 };
 
+const CATEGORY_CARD_THEME = {
+  background: 'linear-gradient(135deg,#0f766e 0%,#14b8a6 100%)',
+  color: '#ffffff',
+  border: '#5eead4',
+};
+
 const STATUS_META = {
   active: { label: 'Actif', bg: '#dcfce7', color: '#166534' },
   approved: { label: 'Approuve', bg: '#dcfce7', color: '#166534' },
@@ -206,7 +212,13 @@ function CategoryCard({ category, onOpen, compact = false }) {
         type="button"
         className="card border-0 shadow-sm text-start"
         onClick={() => onOpen(category)}
-        style={{ width: '100%', background: 'linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%)', color: '#7f1d1d', borderRadius: 16, border: '1px solid #fecdd3' }}
+        style={{
+          width: '100%',
+          background: CATEGORY_CARD_THEME.background,
+          color: CATEGORY_CARD_THEME.color,
+          borderRadius: 16,
+          border: `1px solid ${CATEGORY_CARD_THEME.border}`,
+        }}
       >
         <div className="card-body p-2 d-flex align-items-center justify-content-between gap-2">
           <div className="d-flex align-items-center gap-2" style={{ minWidth: 0 }}>
@@ -227,7 +239,14 @@ function CategoryCard({ category, onOpen, compact = false }) {
       type="button"
       className="card border-0 shadow-sm text-start"
       onClick={() => onOpen(category)}
-      style={{ width: '100%', minHeight: compact ? 100 : 132, background: 'linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%)', color: '#7f1d1d', borderRadius: 20, border: '1px solid #fecdd3' }}
+      style={{
+        width: '100%',
+        minHeight: compact ? 100 : 132,
+        background: CATEGORY_CARD_THEME.background,
+        color: CATEGORY_CARD_THEME.color,
+        borderRadius: 20,
+        border: `1px solid ${CATEGORY_CARD_THEME.border}`,
+      }}
     >
       <div className="card-body d-flex flex-column gap-2 p-3">
         <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-diagram-3 me-2" />Categorie</div>

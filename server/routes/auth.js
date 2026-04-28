@@ -19,6 +19,7 @@ import {
 } from '../utils/access.js';
 import { logAuditEvent } from '../utils/auditLog.js';
 import { createNotification } from '../utils/collaboration.js';
+import { sendPlatformEmail } from '../utils/mailer.js';
 
 const router = express.Router();
 
@@ -890,12 +891,25 @@ router.post('/forgot-password', async (req, res) => {
       [resetCode, expiresAt, email]
     );
 
-    // In a real application, you would send an email here
-    // For demo purposes, we'll just log the code
-    console.log(`Password reset code for ${email}: ${resetCode}`);
-    
-    // Simulate email sending delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await sendPlatformEmail({
+      to: email,
+      subject: '[vBPM] Password reset verification code',
+      text: [
+        'A password reset was requested for your vBPM account.',
+        '',
+        `Your verification code is: ${resetCode}`,
+        '',
+        'This code expires in 10 minutes.',
+      ].join('\n'),
+      html: `
+        <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.6;color:#0f172a">
+          <h2 style="margin:0 0 12px">Password reset request</h2>
+          <p style="margin:0 0 12px">A password reset was requested for your vBPM account.</p>
+          <p style="margin:0 0 16px;font-size:18px;font-weight:700">Verification code: ${resetCode}</p>
+          <p style="margin:0;color:#64748b">This code expires in 10 minutes.</p>
+        </div>
+      `,
+    });
 
     res.json({ message: 'Verification code sent to your email' });
   } catch (error) {

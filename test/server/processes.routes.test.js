@@ -60,10 +60,12 @@ describe('process routes', () => {
       .mockResolvedValueOnce(makeResult([{ id: 4, name: 'Operations', company_id: null, assigned_validator_id: 1, section: 'metiers' }]))
       .mockResolvedValueOnce(makeResult([{ id: 1, username: 'admin', full_name: 'System Administrator', role: 'Admin', company_id: null }]))
       .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([{
         id: 21,
         name: 'Admin Created',
         description: null,
+        bpmn_xml: '<bpmn:definitions></bpmn:definitions>',
         category_id: 4,
         company_id: null,
         created_by: 1,
@@ -71,6 +73,7 @@ describe('process routes', () => {
         version: 1,
         created_at: '2026-04-08T00:00:00.000Z',
         updated_at: '2026-04-08T00:00:00.000Z',
+        manual_data: {},
         assigned_designer_id: null,
         assigned_validator_id: 1,
       }]))
@@ -106,10 +109,12 @@ describe('process routes', () => {
         { id: 5, username: 'manager-2', full_name: 'Manager Two', role: 'Validator', company_id: 2 },
       ]))
       .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([{
         id: 41,
         name: 'Multi Governance',
         description: null,
+        bpmn_xml: '<bpmn:definitions></bpmn:definitions>',
         category_id: 4,
         company_id: 2,
         created_by: 1,
@@ -117,6 +122,7 @@ describe('process routes', () => {
         version: 1,
         created_at: '2026-04-08T00:00:00.000Z',
         updated_at: '2026-04-08T00:00:00.000Z',
+        manual_data: {},
         assigned_designer_id: 2,
         assigned_validator_id: 1,
         assigned_designer_ids: [2, 3],
@@ -150,10 +156,12 @@ describe('process routes', () => {
       .mockResolvedValueOnce(makeResult([{ id: 4, name: 'Operations', company_id: 2 }]))
       .mockResolvedValueOnce(makeResult([{ id: 1, username: 'admin', full_name: 'System Administrator', role: 'Admin', company_id: 2 }]))
       .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([{
         id: 5,
         name: 'Claims Intake',
         description: 'Claims process',
+        bpmn_xml: '<bpmn:definitions></bpmn:definitions>',
         category_id: 4,
         company_id: 2,
         created_by: 1,
@@ -161,6 +169,7 @@ describe('process routes', () => {
         version: 1,
         created_at: '2026-03-20T00:00:00.000Z',
         updated_at: '2026-03-20T00:00:00.000Z',
+        manual_data: {},
       }]))
       .mockResolvedValueOnce(makeResult([]));
 
@@ -226,10 +235,12 @@ describe('process routes', () => {
       .mockResolvedValueOnce(makeResult([{ id: 4, name: 'Operations', company_id: 2, assigned_validator_id: 1, section: 'metiers' }]))
       .mockResolvedValueOnce(makeResult([{ id: 1, username: 'admin', full_name: 'System Administrator', role: 'Admin', company_id: 2 }]))
       .mockResolvedValueOnce(makeResult([]))
+      .mockResolvedValueOnce(makeResult([]))
       .mockResolvedValueOnce(makeResult([{
         id: 8,
         name: 'Imported Process',
         description: 'Imported',
+        bpmn_xml: '<bpmn:definitions></bpmn:definitions>',
         category_id: 4,
         company_id: 2,
         created_by: 1,
@@ -237,6 +248,7 @@ describe('process routes', () => {
         version: 1,
         created_at: '2026-03-20T00:00:00.000Z',
         updated_at: '2026-03-20T00:00:00.000Z',
+        manual_data: {},
       }]))
       .mockResolvedValueOnce(makeResult([]));
     const imported = await request(app)
@@ -316,7 +328,7 @@ describe('process routes', () => {
     expect(deletedCategory.status).toBe(200);
   });
 
-  it('returns a process explanation and exports the explanation as PDF', async () => {
+  it('returns a process explanation and exports the procedure manual as PDF', async () => {
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser({ companyId: 2 })) });
     const processRow = {
       id: 9,
@@ -372,7 +384,7 @@ describe('process routes', () => {
     const report = await request(app).get('/api/processes/9/report?format=pdf');
     expect(report.status).toBe(200);
     expect(report.headers['content-type']).toContain('application/pdf');
-    expect(report.headers['content-disposition']).toContain('card-dispute-handling-explanation.pdf');
+    expect(report.headers['content-disposition']).toContain('card-dispute-handling-manuel-de-procedure.pdf');
   });
 
   it('returns workflow history, applies workflow actions, and compares versions', async () => {

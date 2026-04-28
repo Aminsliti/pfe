@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -18,19 +18,19 @@ import './OrgChart.css';
 import { API_BASE } from '../utils/api';
 
 const API = API_BASE;
-const CARD_WIDTH = 280;
-const CARD_HEIGHT = 164;
-const H_GAP = 40;
-const V_GAP = 108;
-const CANVAS_PADDING = 40;
+const CARD_WIDTH = 300;
+const CARD_HEIGHT = 126;
+const H_GAP = 44;
+const V_GAP = 82;
+const CANVAS_PADDING = 52;
 
 const TYPE_META = {
-  org_unit: { label: 'Org-Unit', icon: 'bi-diagram-3', color: '#0891b2' },
-  company: { label: 'Company', icon: 'bi-house-door-fill', color: '#4338ca' },
-  institute: { label: 'Institute', icon: 'bi-bank', color: '#0f766e' },
-  structure: { label: 'Structure', icon: 'bi-diagram-2-fill', color: '#1d4ed8' },
-  manager: { label: 'Manager', icon: 'bi-person-workspace', color: '#9a3412' },
-  function: { label: 'Function', icon: 'bi-people-fill', color: '#a16207' },
+  org_unit: { label: 'Org-Unit', icon: 'bi-diagram-3', color: '#14b8a6' },
+  company: { label: 'Company', icon: 'bi-house-door-fill', color: '#0f766e' },
+  institute: { label: 'Institute', icon: 'bi-bank', color: '#059669' },
+  structure: { label: 'Structure', icon: 'bi-diagram-2-fill', color: '#10b981' },
+  manager: { label: 'Manager', icon: 'bi-person-workspace', color: '#0284c7' },
+  function: { label: 'Function', icon: 'bi-people-fill', color: '#d97706' },
 };
 
 const EMPTY_FORM = {
@@ -98,6 +98,82 @@ function buildVisibleIds(nodes, search) {
     }
   });
   return visible;
+}
+
+function sortNodes(items = []) {
+  return [...items].sort(
+    (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || String(left.name).localeCompare(String(right.name))
+  );
+}
+
+function buildNodeIndexes(nodes) {
+  const byId = new Map();
+  const childrenByParent = new Map();
+
+  nodes.forEach((node) => {
+    const normalized = {
+      ...node,
+      id: Number(node.id),
+      parentId: node.parentId === null || node.parentId === undefined ? null : Number(node.parentId),
+    };
+
+    byId.set(normalized.id, normalized);
+    const key = normalized.parentId ?? 0;
+    const bucket = childrenByParent.get(key) || [];
+    bucket.push(normalized);
+    childrenByParent.set(key, bucket);
+  });
+
+  childrenByParent.forEach((children, key) => {
+    childrenByParent.set(key, sortNodes(children));
+  });
+
+  return { byId, childrenByParent };
+}
+
+function collectSubtreeNodes(rootId, byId, childrenByParent) {
+  if (!rootId || !byId.has(rootId)) {
+    const rootLevelNodes = sortNodes(childrenByParent.get(0) || []);
+    const summaryNodes = [];
+
+    rootLevelNodes.forEach((rootNode) => {
+      summaryNodes.push(rootNode);
+      (childrenByParent.get(rootNode.id) || []).forEach((childNode) => {
+        summaryNodes.push(childNode);
+      });
+    });
+
+    return summaryNodes;
+  }
+
+  const scopedNodes = [];
+  const visit = (nodeId) => {
+    const node = byId.get(nodeId);
+    if (!node) {
+      return;
+    }
+
+    scopedNodes.push(node);
+    (childrenByParent.get(nodeId) || []).forEach((child) => visit(child.id));
+  };
+
+  (childrenByParent.get(rootId) || []).forEach((child) => visit(child.id));
+  return scopedNodes;
+}
+
+function buildNodeTrail(nodeId, byId) {
+  if (!nodeId || !byId.has(nodeId)) {
+    return [];
+  }
+
+  const trail = [];
+  let current = byId.get(nodeId) || null;
+  while (current) {
+    trail.push(current);
+    current = current.parentId ? byId.get(current.parentId) || null : null;
+  }
+
+  return trail.reverse();
 }
 
 function buildLayout(nodes) {
@@ -298,6 +374,7 @@ export function OrgChart({ publicView = false }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [focusedNodeId, setFocusedNodeId] = useState(null);
   const [inspectorForm, setInspectorForm] = useState(EMPTY_FORM);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -310,6 +387,7 @@ export function OrgChart({ publicView = false }) {
   const boardRef = useRef(null);
   const canvasRef = useRef(null);
   const fullscreenZoomRef = useRef(1);
+  const autoFitEnabledRef = useRef(true);
 
   const deferredSearch = useDeferredValue(searchTerm.trim().toLowerCase());
 
@@ -351,6 +429,14 @@ export function OrgChart({ publicView = false }) {
     setInspectorForm(selected ? toForm(selected) : EMPTY_FORM);
   }, [nodes, selectedId]);
 
+  const nodeIndexes = useMemo(() => buildNodeIndexes(nodes), [nodes]);
+
+  useEffect(() => {
+    if (focusedNodeId && !nodeIndexes.byId.has(focusedNodeId)) {
+      setFocusedNodeId(null);
+    }
+  }, [focusedNodeId, nodeIndexes]);
+
   useEffect(() => {
     const syncFullscreenState = () => {
       setBoardFullscreen(document.fullscreenElement === boardRef.current);
@@ -361,40 +447,54 @@ export function OrgChart({ publicView = false }) {
   }, []);
 
   const selectedNode = nodes.find((node) => node.id === selectedId) || null;
-  const visibleIds = buildVisibleIds(nodes, deferredSearch);
-  const visibleNodes = nodes.filter((node) => visibleIds.has(node.id));
+  const focusTrail = useMemo(() => buildNodeTrail(focusedNodeId, nodeIndexes.byId), [focusedNodeId, nodeIndexes]);
+  const focusedRootNode = focusedNodeId ? nodeIndexes.byId.get(focusedNodeId) || null : null;
+  const scopedNodes = useMemo(
+    () => collectSubtreeNodes(focusedNodeId, nodeIndexes.byId, nodeIndexes.childrenByParent),
+    [focusedNodeId, nodeIndexes]
+  );
+  const visibleIds = useMemo(() => buildVisibleIds(scopedNodes, deferredSearch), [scopedNodes, deferredSearch]);
+  const visibleNodes = scopedNodes.filter((node) => visibleIds.has(node.id));
   const layout = buildLayout(visibleNodes);
+
+  const fitCanvasToViewport = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const horizontalPadding = boardFullscreen ? 56 : 40;
+    const verticalPadding = boardFullscreen ? 56 : 40;
+    const widthScale = (canvas.clientWidth - horizontalPadding) / layout.width;
+    const heightScale = (canvas.clientHeight - verticalPadding) / layout.height;
+    const nextZoom = Math.min(widthScale, heightScale);
+
+    if (!Number.isFinite(nextZoom) || nextZoom <= 0) {
+      return;
+    }
+
+    const minReadableZoom = focusedNodeId ? 0.2 : 0.3;
+    setZoom(Math.max(minReadableZoom, Math.min(1.8, Number(nextZoom.toFixed(2)))));
+  }, [boardFullscreen, focusedNodeId, layout.height, layout.width]);
 
   useEffect(() => {
     if (loading || !visibleNodes.length || !canvasRef.current) {
       return undefined;
     }
 
-    const fitToBoard = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        return;
+    autoFitEnabledRef.current = true;
+
+    const runFit = () => {
+      if (autoFitEnabledRef.current) {
+        fitCanvasToViewport();
       }
-
-      const horizontalPadding = boardFullscreen ? 48 : 36;
-      const verticalPadding = boardFullscreen ? 48 : 36;
-      const widthScale = (canvas.clientWidth - horizontalPadding) / layout.width;
-      const heightScale = (canvas.clientHeight - verticalPadding) / layout.height;
-      const nextZoom = Math.min(widthScale, heightScale);
-
-      if (!Number.isFinite(nextZoom) || nextZoom <= 0) {
-        return;
-      }
-
-      setZoom(Math.max(0.1, Math.min(1.8, Number(nextZoom.toFixed(2)))));
     };
 
-    const rafId = window.requestAnimationFrame(() => {
-      fitToBoard();
-    });
-
+    const rafId = window.requestAnimationFrame(runFit);
     const resizeObserver = new ResizeObserver(() => {
-      fitToBoard();
+      if (autoFitEnabledRef.current) {
+        window.requestAnimationFrame(runFit);
+      }
     });
 
     resizeObserver.observe(canvasRef.current);
@@ -403,7 +503,7 @@ export function OrgChart({ publicView = false }) {
       window.cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
     };
-  }, [boardFullscreen, loading, visibleNodes.length, layout.width, layout.height]);
+  }, [fitCanvasToViewport, focusedNodeId, loading, visibleNodes.length]);
 
   const parentOptions = selectedNode
     ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
@@ -415,6 +515,31 @@ export function OrgChart({ publicView = false }) {
     setSelectedId(nodeId);
     setShowDetailsModal(true);
   };
+
+  const enterSubOrganization = useCallback((nodeId, { closeModal = false } = {}) => {
+    const normalizedNodeId = Number(nodeId);
+    if (!Number.isInteger(normalizedNodeId) || !nodeIndexes.byId.has(normalizedNodeId)) {
+      return;
+    }
+
+    autoFitEnabledRef.current = true;
+    setFocusedNodeId(normalizedNodeId);
+    setSelectedId(normalizedNodeId);
+    if (closeModal) {
+      setShowDetailsModal(false);
+    }
+  }, [nodeIndexes]);
+
+  const jumpToFocusedTrailIndex = useCallback((index) => {
+    autoFitEnabledRef.current = true;
+    if (index < 0) {
+      setFocusedNodeId(null);
+      return;
+    }
+
+    const nextNode = focusTrail[index];
+    setFocusedNodeId(nextNode?.id || null);
+  }, [focusTrail]);
 
   const openCreateModal = (parentNode = null) => {
     const suggestedType = parentNode
@@ -553,6 +678,19 @@ export function OrgChart({ publicView = false }) {
     }
   };
 
+  const handleManualZoom = (direction) => {
+    autoFitEnabledRef.current = false;
+    setZoom((current) => {
+      const nextZoom = direction === 'in' ? current + 0.1 : current - 0.1;
+      return Math.max(0.16, Math.min(1.8, +nextZoom.toFixed(2)));
+    });
+  };
+
+  const handleFitZoom = () => {
+    autoFitEnabledRef.current = true;
+    fitCanvasToViewport();
+  };
+
   return (
     <Container fluid className="org-page">
       {error && <Alert variant="danger">{error}</Alert>}
@@ -573,12 +711,38 @@ export function OrgChart({ publicView = false }) {
                   {boardFullscreen ? 'Exit full screen' : 'Full screen'}
                 </Button>
                 <div className="org-zoom">
-                  <button onClick={() => setZoom((current) => Math.max(0.1, +(current - 0.1).toFixed(1)))}>-</button>
+                  <button onClick={() => handleManualZoom('out')}>-</button>
                   <span>{Math.round(zoom * 100)}%</span>
-                  <button onClick={() => setZoom((current) => Math.min(1.8, +(current + 0.1).toFixed(1)))}>+</button>
+                  <button onClick={() => handleManualZoom('in')}>+</button>
+                  <button type="button" className="org-zoom__fit" onClick={handleFitZoom}>Fit</button>
                 </div>
                 <Badge bg="light" text="dark" className="org-badge">{visibleNodes.length} visible</Badge>
               </div>
+            </div>
+
+            <div className="org-board__scope">
+              <button
+                type="button"
+                className={`org-scope-chip ${focusTrail.length ? '' : 'is-active'}`}
+                onClick={() => jumpToFocusedTrailIndex(-1)}
+              >
+                Organigramme complet
+              </button>
+              {focusTrail.map((node, index) => (
+                <button
+                  key={node.id}
+                  type="button"
+                  className={`org-scope-chip ${index === focusTrail.length - 1 ? 'is-active' : ''}`}
+                  onClick={() => jumpToFocusedTrailIndex(index)}
+                >
+                  {node.name}
+                </button>
+              ))}
+              {focusedRootNode ? (
+                <Badge bg="light" text="dark" className="org-badge">
+                  Sous-organisation: {focusedRootNode.name}
+                </Badge>
+              ) : null}
             </div>
 
             {loading ? (
@@ -600,18 +764,33 @@ export function OrgChart({ publicView = false }) {
                         const fromY = from.top + CARD_HEIGHT + CANVAS_PADDING;
                         const toX = to.left + CARD_WIDTH / 2 + CANVAS_PADDING;
                         const toY = to.top + CANVAS_PADDING;
-                        const midY = (fromY + toY) / 2;
-                        return <path key={`${from.id}-${to.id}`} d={`M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`} fill="none" stroke="rgba(100, 116, 139, 0.45)" strokeWidth="2" />;
+                        const midY = fromY + Math.max(18, (toY - fromY) / 2);
+                        return (
+                          <path
+                            key={`${from.id}-${to.id}`}
+                            d={`M ${fromX} ${fromY} V ${midY} H ${toX} V ${toY}`}
+                            fill="none"
+                            stroke="rgba(148, 163, 184, 0.55)"
+                            strokeWidth="2"
+                          />
+                        );
                       })}
                     </svg>
 
                     {layout.nodes.map((node) => {
                       const meta = nodeMeta(node.nodeType);
+                      const directChildren = nodeIndexes.childrenByParent.get(node.id) || [];
                       const dropAllowed = draggedId !== null && draggedId !== node.id && !wouldCycle(nodes, draggedId, node.id);
                       return (
                         <div
                           key={node.id}
-                          className={['org-card-node', selectedId === node.id ? 'is-selected' : '', dropTargetId === node.id ? 'is-drop-target' : '', deferredSearch && matchesSearch(node, deferredSearch) ? 'is-match' : ''].filter(Boolean).join(' ')}
+                          className={[
+                            'org-card-node',
+                            ['company', 'institute'].includes(node.nodeType) ? 'is-solid' : 'is-outline',
+                            selectedId === node.id ? 'is-selected' : '',
+                            dropTargetId === node.id ? 'is-drop-target' : '',
+                            deferredSearch && matchesSearch(node, deferredSearch) ? 'is-match' : '',
+                          ].filter(Boolean).join(' ')}
                           style={{ left: node.left + CANVAS_PADDING, top: node.top + CANVAS_PADDING, '--node-accent': meta.color }}
                           role="button"
                           tabIndex={0}
@@ -650,11 +829,30 @@ export function OrgChart({ publicView = false }) {
                             <h3>{node.name}</h3>
                             <p>{node.title || 'No title defined yet'}</p>
                           </div>
-                          <div className="org-card-node__footer"><span>{meta.label}</span><span>{descendantCount(nodes, node.id)} nested</span></div>
-                          {canEdit && (
+                          <div className="org-card-node__footer">
+                            <span>{meta.label}</span>
+                            <span>{descendantCount(nodes, node.id)} nested</span>
+                          </div>
+                          {(directChildren.length > 0 || canEdit) && (
                             <div className="org-card-node__actions">
-                              <span className="org-card-node__drag"><i className="bi bi-grip-vertical"></i>Drag</span>
-                              <button type="button" className="org-card-node__add" onClick={(event) => { event.stopPropagation(); openCreateModal(node); }}><i className="bi bi-plus-lg"></i></button>
+                              {directChildren.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className="org-card-node__navigate"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    enterSubOrganization(node.id);
+                                  }}
+                                >
+                                  <i className="bi bi-diagram-3-fill"></i>Sous-structure
+                                </button>
+                              ) : <span></span>}
+                              {canEdit ? (
+                                <div className="d-flex align-items-center gap-2">
+                                  <span className="org-card-node__drag"><i className="bi bi-grip-vertical"></i>Drag</span>
+                                  <button type="button" className="org-card-node__add" onClick={(event) => { event.stopPropagation(); openCreateModal(node); }}><i className="bi bi-plus-lg"></i></button>
+                                </div>
+                              ) : null}
                             </div>
                           )}
                         </div>
@@ -690,6 +888,17 @@ export function OrgChart({ publicView = false }) {
                 <div><span>Direct reports</span><strong>{childCount(nodes, selectedNode.id)}</strong></div>
                 <div><span>All descendants</span><strong>{descendantCount(nodes, selectedNode.id)}</strong></div>
               </div>
+
+              {childCount(nodes, selectedNode.id) > 0 ? (
+                <div className="d-flex flex-wrap gap-2">
+                  <Button
+                    variant="outline-secondary"
+                    onClick={() => enterSubOrganization(selectedNode.id, { closeModal: true })}
+                  >
+                    <i className="bi bi-diagram-3-fill me-2"></i>Ouvrir la sous-structure
+                  </Button>
+                </div>
+              ) : null}
 
               {canEdit ? (
                 <Form onSubmit={saveSelectedNode}>

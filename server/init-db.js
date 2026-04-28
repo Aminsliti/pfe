@@ -102,6 +102,7 @@ const initDatabase = async () => {
         created_by INTEGER REFERENCES users(id),
         version INTEGER DEFAULT 1,
         status VARCHAR(50) DEFAULT 'draft',
+        manual_data JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -117,6 +118,7 @@ const initDatabase = async () => {
         bpmn_xml TEXT NOT NULL,
         created_by INTEGER REFERENCES users(id),
         change_description TEXT,
+        manual_data JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(process_id, version_number)
       )
@@ -135,6 +137,7 @@ const initDatabase = async () => {
         created_by INTEGER REFERENCES users(id),
         status VARCHAR(20) DEFAULT 'draft',
         version INTEGER DEFAULT 1,
+        manual_data JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )

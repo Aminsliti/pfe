@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import pool from '../db.js';
-import { ensureCompanyAccess } from './access.js';
+import { ensureCompanyAccess, ROLES } from './access.js';
 import { ensureOrgChartSchema } from '../routes/orgchart.js';
+import { sendPlatformEmail } from './mailer.js';
 
 let collaborationSchemaPromise = null;
 
@@ -12,6 +13,165 @@ export const ATTACHMENTS_DIR = path.resolve(process.cwd(), 'server', 'uploads', 
 function normalizeEntityType(entityType) {
   const normalized = String(entityType || '').trim().toLowerCase();
   return SUPPORTED_ENTITY_TYPES.has(normalized) ? normalized : null;
+}
+
+function trimTrailingSlash(value = '') {
+  return String(value || '').replace(/\/+$/, '');
+}
+
+function buildNotificationUrl(entityType, entityId) {
+  const appBaseUrl = trimTrailingSlash(process.env.APP_BASE_URL || process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL || '');
+  if (!appBaseUrl) {
+    return null;
+  }
+
+  const normalizedEntityId = entityId === null || entityId === undefined ? null : String(entityId);
+  if (!normalizedEntityId) {
+    return appBaseUrl;
+  }
+
+  switch (entityType) {
+    case 'process':
+      return `${appBaseUrl}/processes?processId=${normalizedEntityId}`;
+    case 'simulation':
+      return `${appBaseUrl}/simulations`;
+    case 'orgchart_node':
+      return `${appBaseUrl}/orgchart`;
+    case 'user':
+      return `${appBaseUrl}/users`;
+    default:
+      return appBaseUrl;
+  }
+}
+
+async function getNotificationRecipient(userId) {
+  const parsedUserId = Number(userId);
+  if (!Number.isInteger(parsedUserId) || parsedUserId <= 0) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, email, full_name, is_active
+      FROM users
+      WHERE id = $1
+    `,
+    [parsedUserId]
+  );
+
+  const recipient = result.rows[0] || null;
+  if (!recipient?.email || recipient.is_active === false) {
+    return null;
+  }
+
+  return recipient;
+}
+
+async function getAdminNotificationRecipients() {
+  try {
+    const result = await pool.query(
+      `
+        SELECT DISTINCT u.id, u.email, u.full_name, u.is_active
+        FROM users u
+        LEFT JOIN user_role_assignments ura
+          ON ura.user_id = u.id
+          AND ura.role_name = $1
+          AND (ura.starts_on IS NULL OR ura.starts_on <= CURRENT_DATE)
+          AND (ura.expires_on IS NULL OR ura.expires_on >= CURRENT_DATE)
+        WHERE u.is_active = TRUE
+          AND u.email IS NOT NULL
+          AND (
+            u.role = $1
+            OR ura.id IS NOT NULL
+          )
+      `,
+      [ROLES.ADMIN]
+    );
+
+    return result.rows;
+  } catch (error) {
+    if (error?.code === '42P01') {
+      const fallbackResult = await pool.query(
+        `
+          SELECT id, email, full_name, is_active
+          FROM users
+          WHERE is_active = TRUE
+            AND email IS NOT NULL
+            AND role = $1
+        `,
+        [ROLES.ADMIN]
+      );
+
+      return fallbackResult.rows;
+    }
+
+    throw error;
+  }
+}
+
+async function deliverNotificationEmail({
+  userId,
+  type,
+  title,
+  message,
+  entityType = null,
+  entityId = null,
+  severity = 'info',
+}) {
+  const directRecipient = userId ? await getNotificationRecipient(userId) : null;
+  const adminRecipients = await getAdminNotificationRecipients();
+  const recipients = new Map();
+
+  if (directRecipient?.email) {
+    recipients.set(String(directRecipient.email).toLowerCase(), directRecipient);
+  }
+
+  adminRecipients.forEach((adminRecipient) => {
+    if (adminRecipient?.email) {
+      recipients.set(String(adminRecipient.email).toLowerCase(), adminRecipient);
+    }
+  });
+
+  const resolvedRecipients = [...recipients.values()];
+  if (!resolvedRecipients.length) {
+    return;
+  }
+
+  const destinationUrl = buildNotificationUrl(entityType, entityId);
+  const subjectPrefix = severity === 'warning'
+    ? '[vBPM Warning]'
+    : severity === 'danger'
+      ? '[vBPM Action Needed]'
+      : '[vBPM Alert]';
+  const subject = `${subjectPrefix} ${title}`;
+  const textParts = [
+    title,
+    '',
+    message,
+  ];
+
+  if (destinationUrl) {
+    textParts.push('', `Open in platform: ${destinationUrl}`);
+  }
+
+  textParts.push('', `Notification type: ${type}`);
+
+  const html = `
+    <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.6;color:#0f172a">
+      <h2 style="margin:0 0 12px">${title}</h2>
+      <p style="margin:0 0 12px">Bonjour,</p>
+      <p style="margin:0 0 16px">${message}</p>
+      ${destinationUrl ? `<p style="margin:0 0 16px"><a href="${destinationUrl}" style="display:inline-block;padding:10px 16px;border-radius:999px;background:#dc2626;color:#fff;text-decoration:none;font-weight:700">Open alert in the platform</a></p>` : ''}
+      <p style="margin:0;color:#64748b;font-size:13px">Notification type: ${type}</p>
+    </div>
+  `;
+
+  await sendPlatformEmail({
+    to: resolvedRecipients.map((recipient) => recipient.email),
+    subject,
+    text: textParts.join('\n'),
+    html,
+  });
 }
 
 export async function ensureCollaborationSchema() {
@@ -228,6 +388,16 @@ export async function createNotification({
         expiresAt,
       ]
     );
+
+    await deliverNotificationEmail({
+      userId,
+      type,
+      title,
+      message,
+      entityType,
+      entityId,
+      severity,
+    });
   } catch (error) {
     console.error('createNotification error:', error);
   }
@@ -244,42 +414,50 @@ export async function listNotificationsForUser(user) {
   `;
   let paramIndex = 1;
 
-  query += ` AND (user_id = $${paramIndex} OR user_id IS NULL)`;
-  params.push(user.id);
-  paramIndex += 1;
+  const isAdmin = Array.isArray(user?.activeRoles)
+    ? user.activeRoles.includes(ROLES.ADMIN)
+    : user?.role === ROLES.ADMIN;
+
+  if (!isAdmin) {
+    query += ` AND user_id = $${paramIndex}`;
+    params.push(user.id);
+    paramIndex += 1;
+  }
 
   query += ' ORDER BY created_at DESC LIMIT 40';
   const result = await pool.query(query, params);
 
   const dynamicNotifications = [];
-  try {
-    const expiredDrafts = await pool.query(`
-      SELECT 'process' AS entity_type, p.id, p.name, p.updated_at
-      FROM processes p
-      WHERE p.status = 'draft' AND p.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
-      UNION ALL
-      SELECT 'simulation' AS entity_type, s.id, s.name, s.updated_at
-      FROM simulation_scenarios s
-      WHERE s.status = 'draft' AND s.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
-    `);
+  if (isAdmin) {
+    try {
+      const expiredDrafts = await pool.query(`
+        SELECT 'process' AS entity_type, p.id, p.name, p.updated_at
+        FROM processes p
+        WHERE p.status = 'draft' AND p.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
+        UNION ALL
+        SELECT 'simulation' AS entity_type, s.id, s.name, s.updated_at
+        FROM simulation_scenarios s
+        WHERE s.status = 'draft' AND s.updated_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
+      `);
 
-    expiredDrafts.rows.forEach((entry) => {
-      dynamicNotifications.push({
-        id: `draft-${entry.entity_type}-${entry.id}`,
-        type: 'expired_draft',
-        title: 'Draft overdue',
-        message: `${entry.name} is still in draft after 14 days.`,
-        entity_type: entry.entity_type,
-        entity_id: String(entry.id),
-        severity: 'warning',
-        created_at: entry.updated_at,
-        read_at: null,
-        dynamic: true,
+      expiredDrafts.rows.forEach((entry) => {
+        dynamicNotifications.push({
+          id: `draft-${entry.entity_type}-${entry.id}`,
+          type: 'expired_draft',
+          title: 'Draft overdue',
+          message: `${entry.name} is still in draft after 14 days.`,
+          entity_type: entry.entity_type,
+          entity_id: String(entry.id),
+          severity: 'warning',
+          created_at: entry.updated_at,
+          read_at: null,
+          dynamic: true,
+        });
       });
-    });
-  } catch (error) {
-    if (error?.code !== '42P01') {
-      throw error;
+    } catch (error) {
+      if (error?.code !== '42P01') {
+        throw error;
+      }
     }
   }
 
