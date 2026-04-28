@@ -208,6 +208,11 @@ function normalizeInteger(value) {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
+function normalizeColor(value, fallbackValue = null) {
+  const normalized = String(value || '').trim();
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/u.test(normalized) ? normalized : fallbackValue;
+}
+
 function normalizeNodeType(value) {
   if (NODE_TYPES.has(value)) {
     return value;
@@ -223,6 +228,14 @@ function normalizeNodeType(value) {
 
 function defaultColorForType(nodeType) {
   return TYPE_COLORS[nodeType] || TYPE_COLORS.function;
+}
+
+function normalizePlacementMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['nested', 'inside', 'internal', 'interne', 'expand'].includes(normalized)) {
+    return 'nested';
+  }
+  return 'direct';
 }
 
 function looksLikeLegacyDemoOrgChart(rows = []) {
@@ -258,6 +271,9 @@ function serializeNode(row) {
     nodeType: row.node_type,
     description: row.description,
     color: row.color,
+    placementMode: row.placement_mode || 'direct',
+    posX: row.pos_x,
+    posY: row.pos_y,
     sortOrder: row.sort_order,
     isVacant: row.is_vacant,
     createdAt: row.created_at,
@@ -279,6 +295,9 @@ export async function ensureOrgChartSchema() {
           node_type VARCHAR(40) NOT NULL DEFAULT 'function',
           description TEXT,
           color VARCHAR(20) NOT NULL DEFAULT '#475569',
+          placement_mode VARCHAR(20) NOT NULL DEFAULT 'direct',
+          pos_x INTEGER,
+          pos_y INTEGER,
           sort_order INTEGER NOT NULL DEFAULT 0,
           is_vacant BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -301,6 +320,18 @@ export async function ensureOrgChartSchema() {
       await pool.query(`
         ALTER TABLE org_chart_nodes
         ADD COLUMN IF NOT EXISTS color VARCHAR(20) NOT NULL DEFAULT '#475569'
+      `);
+      await pool.query(`
+        ALTER TABLE org_chart_nodes
+        ADD COLUMN IF NOT EXISTS placement_mode VARCHAR(20) NOT NULL DEFAULT 'direct'
+      `);
+      await pool.query(`
+        ALTER TABLE org_chart_nodes
+        ADD COLUMN IF NOT EXISTS pos_x INTEGER
+      `);
+      await pool.query(`
+        ALTER TABLE org_chart_nodes
+        ADD COLUMN IF NOT EXISTS pos_y INTEGER
       `);
       await pool.query(`
         ALTER TABLE org_chart_nodes
@@ -400,10 +431,13 @@ async function seedDefaultOrgChart() {
             node_type,
             description,
             color,
+            placement_mode,
+            pos_x,
+            pos_y,
             sort_order,
             is_vacant
           )
-          VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, $7, $8)
+          VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, 'direct', NULL, NULL, $7, $8)
           RETURNING id
         `,
         [
@@ -446,6 +480,9 @@ async function getNodes(client = pool) {
       n.node_type,
       n.description,
       n.color,
+      n.placement_mode,
+      n.pos_x,
+      n.pos_y,
       n.sort_order,
       n.is_vacant,
       n.created_at,
@@ -473,6 +510,9 @@ async function getNodeById(client, id) {
         n.node_type,
         n.description,
         n.color,
+        n.placement_mode,
+        n.pos_x,
+        n.pos_y,
         n.sort_order,
         n.is_vacant,
         n.created_at,
@@ -602,13 +642,14 @@ router.post('/orgchart/nodes', async (req, res) => {
     }
 
     const parentId = normalizeInteger(req.body.parentId);
-    const userId = normalizeInteger(req.body.userId);
     const nodeType = normalizeNodeType(req.body.nodeType);
     const name = normalizeText(req.body.name);
     const title = normalizeText(req.body.title);
     const description = normalizeText(req.body.description);
-    const color = defaultColorForType(nodeType);
-    const isVacant = Boolean(req.body.isVacant);
+    const color = normalizeColor(req.body.color, defaultColorForType(nodeType));
+    const placementMode = parentId === null ? 'direct' : normalizePlacementMode(req.body.placementMode);
+    const posX = normalizeInteger(req.body.posX);
+    const posY = normalizeInteger(req.body.posY);
 
     if (!name) {
       return res.status(400).json({ error: 'Node name is required.' });
@@ -624,12 +665,6 @@ router.post('/orgchart/nodes', async (req, res) => {
       }
     }
 
-    const assignedUser = await getAssignableUser(client, isVacant ? null : userId);
-    if (userId !== null && !assignedUser) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Assigned user not found.' });
-    }
-
     const sortOrder = await getNextSortOrder(client, parentId);
 
     const insertResult = await client.query(
@@ -643,24 +678,33 @@ router.post('/orgchart/nodes', async (req, res) => {
           node_type,
           description,
           color,
+          placement_mode,
+          pos_x,
+          pos_y,
           sort_order,
           is_vacant
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE)
         RETURNING id
       `,
       [
         parentId,
         null,
-        isVacant ? null : userId,
         name,
         title,
         nodeType,
         description,
         color,
+        placementMode,
+        posX,
+        posY,
         sortOrder,
-        isVacant,
       ]
+    );
+
+    await client.query(
+      'UPDATE org_chart_nodes SET color = $1, updated_at = CURRENT_TIMESTAMP WHERE node_type = $2',
+      [color, nodeType]
     );
 
     const createdNode = await getNodeById(client, insertResult.rows[0].id);
@@ -676,7 +720,9 @@ router.post('/orgchart/nodes', async (req, res) => {
       details: {
         parentId: createdNode.parentId,
         nodeType: createdNode.nodeType,
-        userId: createdNode.userId,
+        posX: createdNode.posX,
+        posY: createdNode.posY,
+        placementMode: createdNode.placementMode,
       },
     });
 
@@ -703,9 +749,6 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
     const parentId = req.body.parentId === undefined
       ? undefined
       : normalizeInteger(req.body.parentId);
-    const requestedUserId = req.body.userId === undefined
-      ? undefined
-      : normalizeInteger(req.body.userId);
 
     await client.query('BEGIN');
 
@@ -733,18 +776,14 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
     const nextType = req.body.nodeType === undefined
       ? existing.nodeType
       : normalizeNodeType(req.body.nodeType);
-    const nextColor = defaultColorForType(nextType);
-    const nextVacant = req.body.isVacant === undefined
-      ? existing.isVacant
-      : Boolean(req.body.isVacant);
-    const nextUserId = nextVacant
-      ? null
-      : (requestedUserId === undefined ? existing.userId : requestedUserId);
-    const assignedUser = await getAssignableUser(client, nextUserId);
-    if (nextUserId !== null && !assignedUser) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Assigned user not found.' });
-    }
+    const nextColor = normalizeColor(req.body.color, existing.color || defaultColorForType(nextType));
+    const nextPlacementMode = nextParentId === null
+      ? 'direct'
+      : req.body.placementMode === undefined
+        ? existing.placementMode || 'direct'
+        : normalizePlacementMode(req.body.placementMode);
+    const nextPosX = req.body.posX === undefined ? existing.posX : normalizeInteger(req.body.posX);
+    const nextPosY = req.body.posY === undefined ? existing.posY : normalizeInteger(req.body.posY);
     const nextSortOrder = nextParentId !== existing.parentId
       ? await getNextSortOrder(client, nextParentId)
       : existing.sortOrder;
@@ -755,29 +794,38 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
         SET
           parent_id = $1,
           company_id = NULL,
-          user_id = $2,
-          name = $3,
-          title = $4,
-          node_type = $5,
-          description = $6,
-          color = $7,
-          is_vacant = $8,
-          sort_order = $9,
+          user_id = NULL,
+          name = $2,
+          title = $3,
+          node_type = $4,
+          description = $5,
+          color = $6,
+          placement_mode = $7,
+          pos_x = $8,
+          pos_y = $9,
+          is_vacant = FALSE,
+          sort_order = $10,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $10
+        WHERE id = $11
       `,
       [
         nextParentId,
-        nextUserId,
         normalizeText(req.body.name) || existing.name,
         req.body.title === undefined ? existing.title : normalizeText(req.body.title),
         nextType,
         req.body.description === undefined ? existing.description : normalizeText(req.body.description),
         nextColor,
-        nextVacant,
+        nextPlacementMode,
+        nextPosX,
+        nextPosY,
         nextSortOrder,
         nodeId,
       ]
+    );
+
+    await client.query(
+      'UPDATE org_chart_nodes SET color = $1, updated_at = CURRENT_TIMESTAMP WHERE node_type = $2',
+      [nextColor, nextType]
     );
 
     const updatedNode = await getNodeById(client, nodeId);
@@ -793,7 +841,9 @@ router.put('/orgchart/nodes/:id', async (req, res) => {
       details: {
         parentId: updatedNode.parentId,
         nodeType: updatedNode.nodeType,
-        userId: updatedNode.userId,
+        posX: updatedNode.posX,
+        posY: updatedNode.posY,
+        placementMode: updatedNode.placementMode,
       },
     });
 
@@ -874,6 +924,50 @@ router.patch('/orgchart/nodes/:id/move', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('orgchart move error:', error);
     res.status(500).json({ error: 'Failed to move organigram node.' });
+  } finally {
+    client.release();
+  }
+});
+
+router.patch('/orgchart/nodes/:id/position', async (req, res) => {
+  await ensureOrgChartSchema();
+  const client = await pool.connect();
+
+  try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only admins can edit the organigram.' });
+    }
+
+    const nodeId = normalizeInteger(req.params.id);
+    const posX = normalizeInteger(req.body.posX);
+    const posY = normalizeInteger(req.body.posY);
+
+    await client.query('BEGIN');
+
+    const existing = await getNodeById(client, nodeId);
+    if (!existing) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Node not found.' });
+    }
+
+    await client.query(
+      `
+        UPDATE org_chart_nodes
+        SET pos_x = $1,
+            pos_y = $2,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+      `,
+      [posX, posY, nodeId]
+    );
+
+    const updatedNode = await getNodeById(client, nodeId);
+    await client.query('COMMIT');
+    res.json(updatedNode);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('orgchart position error:', error);
+    res.status(500).json({ error: 'Failed to update organigram position.' });
   } finally {
     client.release();
   }

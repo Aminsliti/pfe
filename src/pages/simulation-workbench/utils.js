@@ -115,7 +115,11 @@ function parseBpmnGraph(source) {
     const legacy = JSON.parse(source);
     return {
       tasks: (legacy.elements || [])
-        .filter((element) => String(element.type || '').toLowerCase().includes('task') || element.type === 'subProcess')
+        .filter(
+          (element) =>
+            String(element.type || '').toLowerCase().includes('task') ||
+            ['subProcess', 'callActivity', 'transaction', 'adHocSubProcess'].includes(element.type)
+        )
         .map((element) => ({ task_id: element.id, task_name: element.label || element.name || element.id })),
       flows: (legacy.connections || []).map((flow) => ({
         flow_id: flow.id,
@@ -132,7 +136,13 @@ function parseBpmnGraph(source) {
     xml.querySelectorAll('[id]').forEach((element) => {
       const tag = element.tagName.toLowerCase();
 
-      if (!tag.includes('task') && !tag.includes('subprocess') && !tag.includes('callactivity')) {
+      if (
+        !tag.includes('task') &&
+        !tag.includes('subprocess') &&
+        !tag.includes('callactivity') &&
+        !tag.includes('transaction') &&
+        !tag.includes('adhocsubprocess')
+      ) {
         return;
       }
 

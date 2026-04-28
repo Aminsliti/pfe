@@ -946,7 +946,9 @@ export function ProcessManagement({ publicView = false }) {
     }
 
     const detail =
-      fallbackProcess && Number(fallbackProcess.id) === normalizedProcessId
+      fallbackProcess &&
+      Number(fallbackProcess.id) === normalizedProcessId &&
+      typeof fallbackProcess.bpmn_xml === 'string'
         ? fallbackProcess
         : await fetchProcessRecord(normalizedProcessId);
 
@@ -1601,17 +1603,18 @@ export function ProcessManagement({ publicView = false }) {
   const handleProcessReportDownload = async (id, format = 'pdf') => {
     setProcessReportBusy(format);
     try {
+      const needsDiagramImage = format === 'pdf' || format === 'docx';
       let diagramImageDataUrl = null;
-      if (format === 'pdf') {
+      if (needsDiagramImage) {
         const rendered = await renderProcessDiagramImage(id, { mimeType: 'image/jpeg', quality: 0.9 });
         if (!rendered?.blob) {
-          throw new Error('Diagram preview could not be rendered for the PDF export.');
+          throw new Error(`Diagram preview could not be rendered for the ${format.toUpperCase()} export.`);
         }
         diagramImageDataUrl = await blobToDataUrl(rendered.blob);
       }
 
       const requestOptions =
-        format === 'pdf'
+        needsDiagramImage
           ? {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1623,7 +1626,7 @@ export function ProcessManagement({ publicView = false }) {
           : undefined;
 
       const response = await fetchProtectedProcessAsset(
-        format === 'pdf' ? `${API}/processes/${id}/manual` : `${API}/processes/${id}/manual?format=${format}`,
+        needsDiagramImage ? `${API}/processes/${id}/manual` : `${API}/processes/${id}/manual?format=${format}`,
         requestOptions
       );
       if (!response.ok) {
@@ -1631,16 +1634,12 @@ export function ProcessManagement({ publicView = false }) {
         return;
       }
       const blob = await response.blob();
-      const filename =
-        response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') ||
-        `process-${id}-manuel-de-procedure.${format === 'pdf' ? 'pdf' : 'html'}`;
-      const link = Object.assign(document.createElement('a'), {
-        href: URL.createObjectURL(blob),
-        download: filename,
-      });
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const extension = format === 'pdf' ? 'pdf' : format === 'docx' ? 'docx' : 'html';
+      const filename = parseFilenameFromDisposition(
+        response.headers.get('Content-Disposition'),
+        `process-${id}-manuel-de-procedure.${extension}`
+      );
+      downloadBlob(blob, filename);
     } catch (error) {
       showMsg(error.message || 'Export failed', 'danger');
     } finally {
@@ -1914,6 +1913,12 @@ export function ProcessManagement({ publicView = false }) {
           <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'pdf')}>
             <i className="bi bi-file-earmark-pdf me-2" />
             Manuel PDF
+          </Dropdown.Item>
+        ) : null}
+        {!version ? (
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'docx')}>
+            <i className="bi bi-file-earmark-word me-2" />
+            Manuel Word
           </Dropdown.Item>
         ) : null}
       </Dropdown.Menu>
@@ -2304,6 +2309,15 @@ export function ProcessManagement({ publicView = false }) {
                                 disabled={processReportBusy === 'pdf'}
                               >
                                 {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline-primary"
+                                onClick={() => handleProcessReportDownload(editingProcess.id, 'docx')}
+                                disabled={processReportBusy === 'docx'}
+                              >
+                                {processReportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
                               </Button>
                             </>
                           ) : null}

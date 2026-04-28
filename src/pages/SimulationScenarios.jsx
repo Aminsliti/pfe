@@ -470,7 +470,9 @@ function TabTaches({ scenarioId, bpmnElements }) {
   };
   useEffect(() => { load(); }, [scenarioId]);
 
-  const taskElements = bpmnElements.filter(e => e.type?.endsWith('Task') || e.type === 'subProcess');
+  const taskElements = bpmnElements.filter(
+    (e) => e.type?.endsWith('Task') || ['subProcess', 'callActivity', 'transaction', 'adHocSubProcess'].includes(e.type)
+  );
   const getTaskData  = id => tasks.find(t => t.task_id === id);
 
   const openEdit = el => {
@@ -1469,6 +1471,12 @@ export default function SimulationScenarios() {
           elements.push({ id, label: name, type: tagName.includes('exclusive') ? 'exclusiveGateway' :
                                           tagName.includes('parallel') ? 'parallelGateway' :
                                           tagName.includes('inclusive') ? 'inclusiveGateway' : 'gateway' });
+        } else if (tagName.includes('callactivity')) {
+          elements.push({ id, label: name, type: 'callActivity' });
+        } else if (tagName.includes('transaction')) {
+          elements.push({ id, label: name, type: 'transaction' });
+        } else if (tagName.includes('adhocsubprocess')) {
+          elements.push({ id, label: name, type: 'adHocSubProcess' });
         } else if (tagName.includes('subprocess') || tagName.includes('sub-process')) {
           elements.push({ id, label: name, type: 'subProcess' });
         }
@@ -1676,4 +1684,3 @@ export default function SimulationScenarios() {
     </Container>
   );
 }
-

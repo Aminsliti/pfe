@@ -1,6 +1,21 @@
 import { extractTasksFromDiagram } from './simulationEngine.js';
 import { normalizeProcessStatus, summarizeBpmnDefinition } from './processDiff.js';
 import { buildPdfDocument } from './pdfDocument.js';
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeadingLevel,
+  ImageRun,
+  Packer,
+  Paragraph,
+  ShadingType,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType,
+} from 'docx';
 
 function escapeHtml(value = '') {
   return String(value)
@@ -759,6 +774,133 @@ function buildRows(rows = [], columns = []) {
     .join('');
 }
 
+function createDocxTextRun(text = '', options = {}) {
+  return new TextRun({
+    text: String(text ?? ''),
+    size: options.size ?? 22,
+    color: options.color ?? '1f2937',
+    bold: options.bold ?? false,
+    italics: options.italics ?? false,
+  });
+}
+
+function createDocxParagraph(text = '', options = {}) {
+  const {
+    children,
+    heading,
+    alignment,
+    bullet,
+    spacing,
+    thematicBreak,
+    size,
+    color,
+    bold,
+    italics,
+  } = options;
+
+  return new Paragraph({
+    heading,
+    alignment,
+    bullet,
+    spacing,
+    thematicBreak,
+    children: children || [createDocxTextRun(text, { size, color, bold, italics })],
+  });
+}
+
+function createDocxBullets(items = []) {
+  return items
+    .filter(Boolean)
+    .map((item) => createDocxParagraph(item, {
+      bullet: { level: 0 },
+      spacing: { after: 120 },
+    }));
+}
+
+function createDocxTableCell(text = '', options = {}) {
+  const { header = false, width = null } = options;
+
+  return new TableCell({
+    width: width ? { size: width, type: WidthType.PERCENTAGE } : undefined,
+    shading: header
+      ? {
+          fill: 'e2e8f0',
+          color: 'auto',
+          type: ShadingType.CLEAR,
+        }
+      : undefined,
+    margins: {
+      top: 100,
+      bottom: 100,
+      left: 120,
+      right: 120,
+    },
+    children: [
+      createDocxParagraph(String(text ?? ''), {
+        bold: header,
+        size: header ? 20 : 18,
+        color: header ? '334155' : '111827',
+        spacing: { after: 0 },
+      }),
+    ],
+  });
+}
+
+function createDocxTableSection(title, columns = [], rows = []) {
+  const safeRows = rows.length
+    ? rows
+    : [{
+        [columns[0]?.key || 'value']: 'Aucune donnee disponible.',
+      }];
+
+  return [
+    createDocxParagraph(title, {
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 320, after: 140 },
+    }),
+    new Table({
+      width: {
+        size: 100,
+        type: WidthType.PERCENTAGE,
+      },
+      borders: {
+        top: { style: BorderStyle.SINGLE, size: 1, color: 'cbd5e1' },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: 'cbd5e1' },
+        left: { style: BorderStyle.SINGLE, size: 1, color: 'cbd5e1' },
+        right: { style: BorderStyle.SINGLE, size: 1, color: 'cbd5e1' },
+        insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'e2e8f0' },
+        insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'e2e8f0' },
+      },
+      rows: [
+        new TableRow({
+          children: columns.map((column) => createDocxTableCell(column.label, { header: true, width: column.width })),
+        }),
+        ...safeRows.map((row) => new TableRow({
+          children: columns.map((column, columnIndex) => createDocxTableCell(
+            columnIndex === 0 && !rows.length
+              ? row[column.key] ?? ''
+              : (column.format ? column.format(row[column.key], row) : row[column.key]) ?? '',
+            { width: column.width }
+          )),
+        })),
+      ],
+    }),
+  ];
+}
+
+function parseDocxImageDataUrl(value = '') {
+  const match = String(value || '').match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/u);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return Buffer.from(match[1], 'base64');
+  } catch {
+    return null;
+  }
+}
+
 export function buildProcessReportHtml(process = {}, explanation = null) {
   const manual = buildProcedureManual(process, null, explanation);
   const sectionsHtml = (manual.narrative.sections || [])
@@ -1015,4 +1157,172 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
       },
     ],
   });
+}
+
+export async function buildProcessReportDocx(process = {}, explanation = null, options = {}) {
+  const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const actorBullets = manual.actors.length
+    ? manual.actors.map((actor) => {
+        const actorLabel = actor.actorType ? `${actor.actorName} (${actor.actorType})` : actor.actorName;
+        const pathLabel = actor.actorPath ? ` | ${actor.actorPath}` : '';
+        const elementPreview = actor.elements.slice(0, 4).map((element) => element.name);
+        const remainder = actor.elements.length - elementPreview.length;
+        const suffix = remainder > 0 ? ` (+${remainder} more)` : '';
+        return `${actorLabel}${pathLabel}: ${humanJoin(elementPreview)}${suffix}.`;
+      })
+    : ['No BPMN actor assignments were found in the current diagram.'];
+  const docChildren = [
+    createDocxParagraph('Manuel de procedure', {
+      heading: HeadingLevel.TITLE,
+      spacing: { after: 120 },
+    }),
+    createDocxParagraph(process.name || `Process #${process.id || ''}`, {
+      heading: HeadingLevel.HEADING_1,
+      spacing: { after: 80 },
+    }),
+    createDocxParagraph(
+      `Status: ${normalizeProcessStatus(process.status, 'draft')} | Version: ${process.version ? `v${process.version}` : '-'} | Category: ${process.category_name || '-'}`,
+      {
+        color: '475569',
+        spacing: { after: 60 },
+      }
+    ),
+    createDocxParagraph(`Generated at: ${formatDisplayDate(manual.narrative.generated_at)}`, {
+      color: '64748b',
+      spacing: { after: 220 },
+    }),
+  ];
+  const diagramImageBuffer = parseDocxImageDataUrl(options.diagramImageDataUrl);
+
+  if (diagramImageBuffer) {
+    docChildren.push(
+      createDocxParagraph('', {
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 220 },
+        children: [
+          new ImageRun({
+            data: diagramImageBuffer,
+            transformation: {
+              width: 620,
+              height: 340,
+            },
+          }),
+        ],
+      })
+    );
+  }
+
+  docChildren.push(
+    createDocxParagraph(manual.narrative.summary || '', {
+      spacing: { after: 200 },
+    }),
+    createDocxParagraph('Indicateurs du diagramme', {
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 120, after: 120 },
+    }),
+    ...createDocxBullets([
+      `Participants: ${formatNumber(manual.narrative.metrics?.participants, 0)}`,
+      `Lanes: ${formatNumber(manual.narrative.metrics?.lanes, 0)}`,
+      `Activities: ${formatNumber(manual.narrative.metrics?.activities, 0)}`,
+      `Gateways: ${formatNumber(manual.narrative.metrics?.gateways, 0)}`,
+      `Events: ${formatNumber(manual.narrative.metrics?.events, 0)}`,
+      `Sub-processes: ${formatNumber(manual.narrative.metrics?.subprocesses, 0)}`,
+      `Sequence flows: ${formatNumber(manual.narrative.metrics?.sequence_flows, 0)}`,
+      `Message flows: ${formatNumber(manual.narrative.metrics?.message_flows, 0)}`,
+    ]),
+    ...createDocxTableSection('1. Identite du processus', [
+      { key: 'label', label: 'Champ', width: 30 },
+      { key: 'value', label: 'Valeur', width: 70 },
+    ], manual.matrices.identity)
+  );
+
+  (manual.narrative.sections || []).forEach((section) => {
+    docChildren.push(
+      createDocxParagraph(section.title, {
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 280, after: 100 },
+      }),
+      createDocxParagraph(section.body || '', {
+        spacing: { after: 120 },
+      }),
+      ...createDocxBullets(section.bullets || [])
+    );
+  });
+
+  docChildren.push(
+    ...createDocxTableSection('2. Matrice des activites', [
+      { key: 'order', label: '#', width: 8 },
+      { key: 'activity', label: 'Activite', width: 18 },
+      { key: 'type', label: 'Type BPMN', width: 14 },
+      { key: 'actor', label: 'Acteur', width: 15 },
+      { key: 'description', label: 'Description', width: 17 },
+      { key: 'inputs', label: 'Entrees', width: 10 },
+      { key: 'outputs', label: 'Sorties', width: 10 },
+      { key: 'systems', label: 'SI', width: 8 },
+    ], manual.matrices.activities),
+    ...createDocxTableSection('3. Matrice des procedures detaillees', [
+      { key: 'step_number', label: 'Etape', width: 8 },
+      { key: 'activity', label: 'Activite', width: 18 },
+      { key: 'actor', label: 'Acteur', width: 15 },
+      { key: 'steps', label: 'Procedure', width: 23 },
+      { key: 'validations', label: 'Validations / Controles', width: 18 },
+      { key: 'exceptions', label: 'Exceptions', width: 10 },
+      { key: 'systems', label: 'SI', width: 8 },
+    ], manual.matrices.procedures),
+    ...createDocxTableSection('4. Matrice des objets supports', [
+      { key: 'type', label: 'Type', width: 18 },
+      { key: 'label', label: 'Libelle', width: 34 },
+      { key: 'attached_to', label: 'Rattachement', width: 24 },
+      { key: 'source', label: 'Source', width: 24 },
+    ], manual.matrices.supportObjects),
+    createDocxParagraph('5. Pilotage et gouvernance', {
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 320, after: 120 },
+    }),
+    ...createDocxBullets(manual.workflowBullets || []),
+    createDocxParagraph('Acteurs et responsabilites', {
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 280, after: 120 },
+    }),
+    ...createDocxBullets(actorBullets),
+    createDocxParagraph('Synthese RACI', {
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 280, after: 120 },
+    }),
+    ...createDocxBullets([
+      `Responsible (R): ${humanJoin(manual.raci.responsible) || 'Not assigned'}`,
+      `Accountable (A): ${humanJoin(manual.raci.accountable) || 'Not assigned'}`,
+      `Consulted (C): ${humanJoin(manual.raci.consulted) || 'Not assigned'}`,
+      `Informed (I): ${humanJoin(manual.raci.informed) || 'Not assigned'}`,
+    ]),
+    ...createDocxTableSection('5.1 Matrice KPI', [
+      { key: 'name', label: 'KPI', width: 34 },
+      { key: 'target', label: 'Cible', width: 26 },
+      { key: 'source', label: 'Source', width: 40 },
+    ], manual.matrices.kpis),
+    ...createDocxTableSection('5.2 Matrice des risques', [
+      { key: 'title', label: 'Risque', width: 16 },
+      { key: 'severity', label: 'Severite', width: 10 },
+      { key: 'status', label: 'Statut', width: 10 },
+      { key: 'category', label: 'Categorie', width: 12 },
+      { key: 'element', label: 'Element BPMN', width: 16 },
+      { key: 'description', label: 'Description', width: 18 },
+      { key: 'mitigation', label: 'Mitigation / Controle', width: 18 },
+    ], manual.matrices.risks),
+    ...createDocxTableSection('5.3 Matrice des controles', [
+      { key: 'control', label: 'Controle', width: 48 },
+      { key: 'source', label: 'Source', width: 52 },
+    ], manual.matrices.controls)
+  );
+
+  const document = new Document({
+    sections: [
+      {
+        properties: {},
+        children: docChildren,
+      },
+    ],
+  });
+
+  return Packer.toBuffer(document);
 }

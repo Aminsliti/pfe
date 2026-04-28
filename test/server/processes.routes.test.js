@@ -328,7 +328,7 @@ describe('process routes', () => {
     expect(deletedCategory.status).toBe(200);
   });
 
-  it('returns a process explanation and exports the procedure manual as PDF', async () => {
+  it('returns a process explanation and exports the procedure manual as PDF and Word', async () => {
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser({ companyId: 2 })) });
     const processRow = {
       id: 9,
@@ -385,6 +385,15 @@ describe('process routes', () => {
     expect(report.status).toBe(200);
     expect(report.headers['content-type']).toContain('application/pdf');
     expect(report.headers['content-disposition']).toContain('card-dispute-handling-manuel-de-procedure.pdf');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([processRow]))
+      .mockResolvedValueOnce(makeResult([{ id: 1, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' }]));
+
+    const wordReport = await request(app).get('/api/processes/9/manual?format=docx');
+    expect(wordReport.status).toBe(200);
+    expect(wordReport.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    expect(wordReport.headers['content-disposition']).toContain('card-dispute-handling-manuel-de-procedure.docx');
   });
 
   it('returns workflow history, applies workflow actions, and compares versions', async () => {

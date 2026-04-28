@@ -22,6 +22,7 @@ import {
 import { createNotification } from '../utils/collaboration.js';
 import {
   buildProcedureManual,
+  buildProcessReportDocx,
   buildProcessExplanation,
   buildProcessReportHtml,
   buildProcessReportPdf,
@@ -1827,6 +1828,13 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.pdf"`);
     res.send(buildProcessReportPdf(reportProcess, explanation, { diagramImageDataUrl, workflow }));
+    return;
+  }
+
+  if (format === 'docx' || format === 'word') {
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.docx"`);
+    res.send(await buildProcessReportDocx(reportProcess, explanation, { diagramImageDataUrl, workflow }));
     return;
   }
 

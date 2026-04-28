@@ -611,6 +611,7 @@
 }
 
 .actor-assignment-card,
+.linked-process-card,
 .diagram-actor-item {
   padding: 12px;
   border-radius: 10px;
@@ -619,6 +620,7 @@
 }
 
 .actor-assignment-card__title,
+.linked-process-card__title,
 .diagram-actors-panel__title,
 .diagram-actor-item__header {
   display: flex;
@@ -631,6 +633,7 @@
 
 .actor-assignment-card__meta,
 .actor-assignment-card__path,
+.linked-process-card__meta,
 .actor-assignment-empty,
 .diagram-actor-item__meta,
 .diagram-actor-item__path,
@@ -656,6 +659,19 @@
   border-radius: 8px;
   background: rgba(248, 113, 113, 0.1);
   color: #fecaca;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.linked-process-card__action {
+  margin-top: 10px;
+  align-self: flex-start;
+  padding: 7px 10px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;

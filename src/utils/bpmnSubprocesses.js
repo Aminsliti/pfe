@@ -1,4 +1,5 @@
 const SUBPROCESS_PLANE_SUFFIX = '_plane';
+const OPENABLE_SUBPROCESS_NAMES = new Set(['subProcess', 'transaction', 'adHocSubProcess']);
 
 function parseBpmnDocument(xml) {
   if (typeof xml !== 'string' || !xml.trim().startsWith('<')) {
@@ -43,7 +44,7 @@ function getDisplayName(node, fallbackPrefix) {
 
 function collectOpenableSubprocesses(container, state, parentItem = null) {
   Array.from(container?.children || []).forEach((child, index) => {
-    if (child.localName !== 'subProcess') {
+    if (!OPENABLE_SUBPROCESS_NAMES.has(child.localName)) {
       return;
     }
 

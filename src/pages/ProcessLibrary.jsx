@@ -206,24 +206,33 @@ function VerticalLane({ children, compact = false }) {
 }
 
 function CategoryCard({ category, onOpen, compact = false }) {
+  const compactStyle = {
+    width: '100%',
+    minHeight: 96,
+    height: 96,
+    background: CATEGORY_CARD_THEME.background,
+    color: CATEGORY_CARD_THEME.color,
+    borderRadius: 14,
+    border: `1px solid ${CATEGORY_CARD_THEME.border}`,
+  };
+
   if (compact) {
     return (
       <button
         type="button"
         className="card border-0 shadow-sm text-start"
         onClick={() => onOpen(category)}
-        style={{
-          width: '100%',
-          background: CATEGORY_CARD_THEME.background,
-          color: CATEGORY_CARD_THEME.color,
-          borderRadius: 16,
-          border: `1px solid ${CATEGORY_CARD_THEME.border}`,
-        }}
+        style={compactStyle}
       >
-        <div className="card-body p-2 d-flex align-items-center justify-content-between gap-2">
+        <div className="card-body p-2 d-flex align-items-center justify-content-between gap-2 h-100">
           <div className="d-flex align-items-center gap-2" style={{ minWidth: 0 }}>
             <span className="small opacity-75"><i className="bi bi-diagram-3" /></span>
-            <div className="fw-semibold lh-sm" style={{ minWidth: 0 }}>{category.name}</div>
+            <div
+              className="fw-semibold lh-sm"
+              style={{ minWidth: 0, fontSize: '0.92rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+            >
+              {category.name}
+            </div>
           </div>
           <div className="d-flex align-items-center gap-2 flex-wrap justify-content-end flex-shrink-0">
             <span className="badge text-bg-light">{category.children.length}</span>
@@ -262,6 +271,23 @@ function CategoryCard({ category, onOpen, compact = false }) {
 
 function ProcessCard({ process, onOpen, publicView = false, compact = false }) {
   const status = getStatusMeta(process.status);
+  const cardStyle = compact
+    ? {
+        width: '100%',
+        minHeight: 118,
+        height: 118,
+        background: 'linear-gradient(135deg,#0f4c5c 0%,#0f766e 100%)',
+        color: 'white',
+        borderRadius: 16,
+      }
+    : {
+        width: '100%',
+        minHeight: 132,
+        height: 132,
+        background: 'linear-gradient(135deg,#0f4c5c 0%,#0f766e 100%)',
+        color: 'white',
+        borderRadius: 20,
+      };
 
   if (compact) {
     return (
@@ -269,14 +295,19 @@ function ProcessCard({ process, onOpen, publicView = false, compact = false }) {
         type="button"
         className="card border-0 shadow-sm text-start"
         onClick={() => onOpen(process)}
-        style={{ width: '100%', background: 'linear-gradient(135deg,#0f4c5c 0%,#0f766e 100%)', color: 'white', borderRadius: 16 }}
+        style={cardStyle}
       >
-        <div className="card-body p-2 d-flex flex-column gap-2">
+        <div className="card-body p-2 d-flex flex-column gap-2 h-100">
           <div className="small text-uppercase fw-bold opacity-75">
             <i className="bi bi-bezier2 me-2" />
             {process.childCount > 0 ? 'Macro-processus' : 'Processus'}
           </div>
-          <div className="fw-semibold lh-sm">{process.name}</div>
+          <div
+            className="fw-semibold lh-sm"
+            style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+          >
+            {process.name}
+          </div>
           <div className="d-flex flex-wrap gap-2 mt-1">
             <span className="badge" style={{ background: status.bg, color: status.color }}>{status.label}</span>
             <span className="badge text-bg-light">v{process.version || 1}</span>
@@ -287,16 +318,20 @@ function ProcessCard({ process, onOpen, publicView = false, compact = false }) {
   }
 
   return (
-    <button
-      type="button"
-      className="card border-0 shadow-sm text-start"
-      onClick={() => onOpen(process)}
-      style={{ width: '100%', minHeight: 132, background: 'linear-gradient(135deg,#0f4c5c 0%,#0f766e 100%)', color: 'white', borderRadius: 20 }}
-    >
-      <div className="card-body d-flex flex-column gap-2 p-3">
+      <button
+        type="button"
+        className="card border-0 shadow-sm text-start"
+        onClick={() => onOpen(process)}
+        style={cardStyle}
+      >
+      <div className="card-body d-flex flex-column gap-2 p-3 h-100">
         <div className="small text-uppercase fw-bold opacity-75"><i className="bi bi-bezier2 me-2" />{process.childCount > 0 ? 'Macro-processus' : 'Processus'}</div>
-        <div className="fs-6 fw-bold lh-sm">{process.name}</div>
-        {!publicView ? <div className="small opacity-75">{process.description || 'Ouvrez ce processus pour continuer la navigation jusqu au diagramme BPMN.'}</div> : null}
+        <div className="fs-6 fw-bold lh-sm" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{process.name}</div>
+        {!publicView ? (
+          <div className="small opacity-75" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {process.description || 'Ouvrez ce processus pour continuer la navigation jusqu au diagramme BPMN.'}
+          </div>
+        ) : null}
         <div className="mt-auto d-flex flex-wrap gap-2">
           <span className="badge" style={{ background: status.bg, color: status.color }}>{status.label}</span>
           <span className="badge text-bg-light">v{process.version || 1}</span>
@@ -387,41 +422,25 @@ function CategoryView({ category, childCategories, directProcesses, onOpenCatego
         {showsCategoriesOnly ? (
           <div className="d-flex flex-column gap-3">
             <h3 className="h5 mb-0">Sous-categories</h3>
-            {publicView ? (
-              <div className="row g-3">
-                {childCategories.map((child) => (
-                  <div className="col-md-6 col-xl-4" key={child.id}>
-                    <CategoryCard category={child} onOpen={onOpenCategory} compact />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <VerticalLane>
-                {childCategories.map((child) => (
-                  <CategoryCard key={child.id} category={child} onOpen={onOpenCategory} />
-                ))}
-              </VerticalLane>
-            )}
+            <div className="row g-3">
+              {childCategories.map((child) => (
+                <div className="col-md-6 col-xl-4" key={child.id}>
+                  <CategoryCard category={child} onOpen={onOpenCategory} compact />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="d-flex flex-column gap-3">
             <h3 className="h5 mb-0">Processus</h3>
             {visibleProcesses.length ? (
-              publicView ? (
-                <div className="row g-3">
+              <div className="row g-3">
                   {visibleProcesses.map((process) => (
                     <div className="col-md-6 col-xl-4" key={process.id}>
-                      <ProcessCard process={process} onOpen={onOpenProcess} publicView compact />
+                      <ProcessCard process={process} onOpen={onOpenProcess} publicView={publicView} compact />
                     </div>
                   ))}
                 </div>
-              ) : (
-                <VerticalLane>
-                  {visibleProcesses.map((process) => (
-                    <ProcessCard key={process.id} process={process} onOpen={onOpenProcess} publicView={publicView} />
-                  ))}
-                </VerticalLane>
-              )
             ) : (
               <EmptyBox title="Aucun processus visible" text="Aucun processus approuve n est visible dans cette categorie." />
             )}

@@ -81,6 +81,8 @@ const XML_NODE_TYPE_MAP = {
   inclusiveGateway: 'bpmn:inclusiveGateway',
   eventBasedGateway: 'bpmn:eventBasedGateway',
   subProcess: 'bpmn:subProcess',
+  transaction: 'bpmn:transaction',
+  adHocSubProcess: 'bpmn:adHocSubProcess',
   callActivity: 'bpmn:callActivity',
   textAnnotation: 'bpmn:textAnnotation',
 };
@@ -103,6 +105,8 @@ const BPMN_DEFAULT_SIZE = {
   'bpmn:inclusiveGateway': { w: 50, h: 50 },
   'bpmn:eventBasedGateway': { w: 50, h: 50 },
   'bpmn:subProcess': { w: 160, h: 100 },
+  'bpmn:transaction': { w: 160, h: 100 },
+  'bpmn:adHocSubProcess': { w: 160, h: 100 },
   'bpmn:callActivity': { w: 140, h: 90 },
   'bpmn:textAnnotation': { w: 110, h: 50 },
 };
@@ -385,6 +389,7 @@ async function extractImportableDiagram(rawValue, processName = 'Imported Proces
         name: shape.businessObject?.name || '',
         documentation: shape.businessObject?.documentation?.[0]?.text || '',
         actorMetadata: getActorMetadata(shape.businessObject),
+        linkedProcessMetadata: getLinkedProcessMetadata(shape.businessObject),
         riskMetadata: getRiskMetadata(shape.businessObject),
       })),
       connections: connections.map((connection) => ({
@@ -401,7 +406,7 @@ async function extractImportableDiagram(rawValue, processName = 'Imported Proces
   }
 }
 
-const PALETTE_ELEMENTS = [
+const LEGACY_PALETTE_ELEMENTS = [
   { id: 'bpmn:StartEvent', name: 'Start Event', category: 'Events', icon: '○' },
   { id: 'bpmn:EndEvent', name: 'End Event', category: 'Events', icon: '◎' },
   { id: 'bpmn:IntermediateThrowEvent', name: 'Intermediate / Boundary Event', category: 'Events', icon: '◌' },
@@ -426,19 +431,82 @@ const PALETTE_ELEMENTS = [
   { id: 'bpmn:TextAnnotation', name: 'Text Annotation', category: 'Data & Artifacts', icon: '🗒' },
 ];
 
-const createPaletteShape = (elementFactory, type) => {
+const PALETTE_ELEMENTS = [
+  ...LEGACY_PALETTE_ELEMENTS.filter((element) => !['bpmn:SubProcess', 'bpmn:CallActivity'].includes(element.id)),
+  {
+    id: 'bpmn:SubProcess',
+    name: 'Expanded Sub Process',
+    category: 'Sub Processes',
+    icon: 'SP',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: true },
+  },
+  {
+    id: 'bpmn:CollapsedSubProcess',
+    name: 'Collapsed Sub Process',
+    category: 'Sub Processes',
+    icon: 'S+',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: false },
+  },
+  {
+    id: 'bpmn:EventSubProcess',
+    name: 'Expanded Event Sub Process',
+    category: 'Sub Processes',
+    icon: 'EP',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: true, triggeredByEvent: true },
+  },
+  {
+    id: 'bpmn:CollapsedEventSubProcess',
+    name: 'Collapsed Event Sub Process',
+    category: 'Sub Processes',
+    icon: 'E+',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: false, triggeredByEvent: true },
+  },
+  {
+    id: 'bpmn:Transaction',
+    name: 'Expanded Transaction',
+    category: 'Sub Processes',
+    icon: 'TX',
+    createOptions: { type: 'bpmn:Transaction', isExpanded: true },
+  },
+  {
+    id: 'bpmn:CollapsedTransaction',
+    name: 'Collapsed Transaction',
+    category: 'Sub Processes',
+    icon: 'T+',
+    createOptions: { type: 'bpmn:Transaction', isExpanded: false },
+  },
+  {
+    id: 'bpmn:AdHocSubProcess',
+    name: 'Expanded Ad-Hoc Sub Process',
+    category: 'Sub Processes',
+    icon: 'AH',
+    createOptions: { type: 'bpmn:AdHocSubProcess', isExpanded: true },
+  },
+  {
+    id: 'bpmn:CollapsedAdHocSubProcess',
+    name: 'Collapsed Ad-Hoc Sub Process',
+    category: 'Sub Processes',
+    icon: 'A+',
+    createOptions: { type: 'bpmn:AdHocSubProcess', isExpanded: false },
+  },
+  {
+    id: 'bpmn:CallActivity',
+    name: 'Call Activity',
+    category: 'Sub Processes',
+    icon: 'CA',
+    createOptions: { type: 'bpmn:CallActivity' },
+  },
+];
+
+const createPaletteShape = (elementFactory, element) => {
+  const createOptions = element?.createOptions || {};
+  const type = createOptions.type || element?.id;
+
   if (type === 'bpmn:Participant') {
     return elementFactory.createParticipantShape();
   }
 
-  if (type === 'bpmn:SubProcess') {
-    return elementFactory.createShape({
-      type,
-      isExpanded: true,
-    });
-  }
-
-  return elementFactory.createShape({ type });
+  return elementFactory.createShape({ type, ...createOptions });
 };
 
 const PFE_NAMESPACE_PREFIX = 'pfe';
@@ -456,6 +524,8 @@ const ASSIGNABLE_ACTOR_TYPES = new Set([
   'bpmn:BusinessRuleTask',
   'bpmn:CallActivity',
   'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
 ]);
 const RISK_SEVERITY_OPTIONS = [
   { value: 'low', label: 'Low' },
@@ -485,8 +555,13 @@ const RISK_SEVERITY_RANK = {
 };
 
 const pfeAttrKey = (key) => `${PFE_NAMESPACE_PREFIX}:${key}`;
+const buildCalledElementKey = (processId) => {
+  const normalized = String(processId || '').trim();
+  return normalized ? `process_${normalized}` : '';
+};
 
 const isActorAssignableElement = (element) => ASSIGNABLE_ACTOR_TYPES.has(element?.type);
+const isCallActivityElement = (element) => element?.type === 'bpmn:CallActivity';
 const isRiskAssignableElement = (element) =>
   Boolean(element?.businessObject) &&
   Boolean(element?.parent) &&
@@ -648,6 +723,15 @@ function getRiskMetadata(businessObject) {
   }
 }
 
+function getLinkedProcessMetadata(businessObject) {
+  const attrs = businessObject?.$attrs || {};
+  return {
+    calledElement: String(businessObject?.calledElement || ''),
+    linkedProcessId: String(attrs[pfeAttrKey('linkedProcessId')] || ''),
+    linkedProcessName: attrs[pfeAttrKey('linkedProcessName')] || '',
+  };
+}
+
 function buildDiagramRiskSummary(elementRegistry) {
   if (!elementRegistry) {
     return [];
@@ -695,7 +779,8 @@ function ensurePfeNamespace(modeler) {
     return;
   }
 
-  const attrs = definitions.$attrs || {};
+  definitions.$attrs = definitions.$attrs || {};
+  const attrs = definitions.$attrs;
   attrs[`xmlns:${PFE_NAMESPACE_PREFIX}`] = PFE_NAMESPACE_URI;
 }
 
@@ -706,7 +791,8 @@ function applyActorAssignment(modeler, element, actor, options = {}) {
 
   ensurePfeNamespace(modeler);
 
-  const nextAttrs = element.businessObject.$attrs || {};
+  element.businessObject.$attrs = element.businessObject.$attrs || {};
+  const nextAttrs = element.businessObject.$attrs;
 
   if (actor) {
     nextAttrs[pfeAttrKey('actorNodeId')] = String(actor.nodeId);
@@ -741,13 +827,49 @@ function applyRiskAssignment(modeler, element, risks = []) {
 
   ensurePfeNamespace(modeler);
 
-  const nextAttrs = element.businessObject.$attrs || {};
+  element.businessObject.$attrs = element.businessObject.$attrs || {};
+  const nextAttrs = element.businessObject.$attrs;
   const serializedRisks = serializeRiskMetadata(risks);
 
   if (serializedRisks) {
     nextAttrs[pfeAttrKey('risks')] = serializedRisks;
   } else {
     delete nextAttrs[pfeAttrKey('risks')];
+  }
+
+  modeler.get('eventBus').fire('elements.changed', { elements: [element] });
+}
+
+function applyCalledProcessAssignment(modeler, element, linkedProcess = null, options = {}) {
+  if (!modeler || !element?.businessObject) {
+    return;
+  }
+
+  ensurePfeNamespace(modeler);
+
+  const businessObject = element.businessObject;
+  businessObject.$attrs = businessObject.$attrs || {};
+  const nextAttrs = businessObject.$attrs;
+  const calledElement = String(
+    options.calledElement !== undefined
+      ? options.calledElement
+      : linkedProcess
+        ? buildCalledElementKey(linkedProcess.id)
+        : ''
+  ).trim();
+
+  if (calledElement) {
+    businessObject.calledElement = calledElement;
+  } else {
+    delete businessObject.calledElement;
+  }
+
+  if (linkedProcess?.id) {
+    nextAttrs[pfeAttrKey('linkedProcessId')] = String(linkedProcess.id);
+    nextAttrs[pfeAttrKey('linkedProcessName')] = linkedProcess.name || '';
+  } else {
+    delete nextAttrs[pfeAttrKey('linkedProcessId')];
+    delete nextAttrs[pfeAttrKey('linkedProcessName')];
   }
 
   modeler.get('eventBus').fire('elements.changed', { elements: [element] });
@@ -940,10 +1062,22 @@ const BpmnEditorModeler = ({
         : null),
     [actorOptions, properties.actorNodeId, properties.actorName, properties.actorPath, properties.actorType]
   );
+  const selectedLinkedProcess = useMemo(
+    () =>
+      importOptions.find((option) => String(option.id) === String(properties.linkedProcessId || '')) ||
+      (properties.linkedProcessId
+        ? {
+            id: properties.linkedProcessId,
+            name: properties.linkedProcessName || `Process ${properties.linkedProcessId}`,
+          }
+        : null),
+    [importOptions, properties.linkedProcessId, properties.linkedProcessName]
+  );
   const isLinkedProcessView =
     Number(process?.rootProcessId || process?.id || 0) > 0 &&
     Number(process?.rootProcessId || process?.id || 0) !== Number(process?.id || 0);
   const canReturnToMainProcess = Boolean(currentSubprocess || isLinkedProcessView);
+  const canNavigateBack = Boolean(navigationStack.length > 0 || isLinkedProcessView);
   const mainProcessName = process?.rootProcessName || process?.name || 'Main Process';
 
   useEffect(() => {
@@ -1070,6 +1204,7 @@ const BpmnEditorModeler = ({
             const el = selection[0];
             const actorMetadata = getActorMetadata(el.businessObject);
             const riskMetadata = getRiskMetadata(el.businessObject);
+            const linkedProcessMetadata = getLinkedProcessMetadata(el.businessObject);
             setSelectedElement(el);
             setProperties({
               id: el.id,
@@ -1080,6 +1215,9 @@ const BpmnEditorModeler = ({
               actorName: actorMetadata.actorName,
               actorType: actorMetadata.actorType,
               actorPath: actorMetadata.actorPath,
+              calledElement: linkedProcessMetadata.calledElement,
+              linkedProcessId: linkedProcessMetadata.linkedProcessId,
+              linkedProcessName: linkedProcessMetadata.linkedProcessName,
               risks: riskMetadata.risks,
             });
           } else {
@@ -1130,7 +1268,7 @@ const BpmnEditorModeler = ({
     if (readOnly || !selectedElement || !modelerRef.current) return;
 
     const modeling = modelerRef.current.get('modeling');
-    
+
     if (key === 'name') {
       modeling.updateLabel(selectedElement, value);
     } else if (key === 'documentation') {
@@ -1139,11 +1277,37 @@ const BpmnEditorModeler = ({
         element: selectedElement,
         properties: { documentation: [{ text: value }] }
       });
+    } else if (key === 'calledElement') {
+      applyCalledProcessAssignment(modelerRef.current, selectedElement, null, { calledElement: value });
+    } else if (key === 'linkedProcessId') {
+      const linkedProcess = importOptions.find((option) => String(option.id) === String(value)) || null;
+      applyCalledProcessAssignment(modelerRef.current, selectedElement, linkedProcess);
     } else if (key === 'actorNodeId') {
       const actor = actorOptions.find((option) => String(option.nodeId) === String(value)) || null;
       applyActorAssignment(modelerRef.current, selectedElement, actor, {
         syncLabel: shouldSyncActorNameToLabel(selectedElement),
       });
+    }
+
+    if (key === 'calledElement') {
+      setProperties((prev) => ({
+        ...prev,
+        calledElement: value,
+        linkedProcessId: '',
+        linkedProcessName: '',
+      }));
+      return;
+    }
+
+    if (key === 'linkedProcessId') {
+      const linkedProcess = importOptions.find((option) => String(option.id) === String(value)) || null;
+      setProperties((prev) => ({
+        ...prev,
+        linkedProcessId: linkedProcess ? String(linkedProcess.id) : '',
+        linkedProcessName: linkedProcess?.name || '',
+        calledElement: linkedProcess ? buildCalledElementKey(linkedProcess.id) : '',
+      }));
+      return;
     }
 
     if (key === 'actorNodeId') {
@@ -1226,8 +1390,14 @@ const BpmnEditorModeler = ({
   };
 
   const navigateBack = () => {
-    if (navigationStack.length === 0) return;
-    openDiagramLevel(currentSubprocess?.parentId || null);
+    if (navigationStack.length > 0) {
+      openDiagramLevel(currentSubprocess?.parentId || null);
+      return;
+    }
+
+    if (isLinkedProcessView && onReturnToMainProcess) {
+      onReturnToMainProcess();
+    }
   };
 
   const navigateToBreadcrumb = (index) => {
@@ -1246,6 +1416,23 @@ const BpmnEditorModeler = ({
     }
 
     openDiagramLevel(null);
+  };
+
+  const handleOpenLinkedProcess = async () => {
+    const linkedProcessId = Number(properties.linkedProcessId || 0);
+    if (!onOpenLinkedProcess || !Number.isInteger(linkedProcessId) || linkedProcessId <= 0) {
+      return;
+    }
+
+    const fallbackProcess = selectedLinkedProcess
+      ? selectedLinkedProcess
+      : null;
+
+    try {
+      await onOpenLinkedProcess(linkedProcessId, fallbackProcess);
+    } catch (openError) {
+      alert(openError.message || 'Failed to open the called process.');
+    }
   };
 
   const handleSave = async () => {
@@ -1326,7 +1513,7 @@ const BpmnEditorModeler = ({
       const centerY = -viewbox.y + viewbox.height / 2;
       const randomOffset = () => (Math.random() - 0.5) * 100;
 
-      const createdElement = createPaletteShape(elementFactory, element.id);
+      const createdElement = createPaletteShape(elementFactory, element);
 
       modeling.createShape(
         createdElement,
@@ -1382,6 +1569,7 @@ const BpmnEditorModeler = ({
         id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
         name: shape.name || undefined,
       });
+      businessObject.$attrs = businessObject.$attrs || {};
 
       if (shape.documentation) {
         businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
@@ -1409,6 +1597,21 @@ const BpmnEditorModeler = ({
         ensurePfeNamespace(modeler);
         const nextAttrs = businessObject.$attrs || {};
         nextAttrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
+      }
+
+      const importedLinkedProcessMetadata = shape.linkedProcessMetadata || {};
+      if (importedLinkedProcessMetadata.calledElement || importedLinkedProcessMetadata.linkedProcessId) {
+        ensurePfeNamespace(modeler);
+        const nextAttrs = businessObject.$attrs || {};
+
+        if (importedLinkedProcessMetadata.calledElement) {
+          businessObject.calledElement = importedLinkedProcessMetadata.calledElement;
+        }
+
+        if (importedLinkedProcessMetadata.linkedProcessId) {
+          nextAttrs[pfeAttrKey('linkedProcessId')] = importedLinkedProcessMetadata.linkedProcessId;
+          nextAttrs[pfeAttrKey('linkedProcessName')] = importedLinkedProcessMetadata.linkedProcessName || '';
+        }
       }
 
       const createdShape = elementFactory.createShape({
@@ -1535,12 +1738,12 @@ const BpmnEditorModeler = ({
         </div>
 
         <div className="bpmn-modeler-header-right">
-          {navigationStack.length > 0 && (
+          {canNavigateBack && (
             <button onClick={navigateBack} className="bpmn-modeler-btn-back">
               ← Back
             </button>
           )}
-          {canReturnToMainProcess && (
+          {isLinkedProcessView && navigationStack.length > 0 && (
             <button onClick={handleReturnToMainProcess} className="bpmn-modeler-btn-back">
               Main: {mainProcessName}
             </button>
@@ -1702,11 +1905,51 @@ const BpmnEditorModeler = ({
                           Clear actor
                         </button>
                       </div>
-                    ) : (
+                ) : (
                       <div className="actor-assignment-empty">
                         Assign an org chart actor to keep ownership visible in the diagram.
                       </div>
                     )}
+                  </div>
+                ) : null}
+                {isCallActivityElement(selectedElement) ? (
+                  <div className="property-field">
+                    <label>Called Process</label>
+                    <select
+                      value={properties.linkedProcessId || ''}
+                      onChange={(event) => handlePropertyChange('linkedProcessId', event.target.value)}
+                    >
+                      <option value="">
+                        {importOptions.length ? 'Choose an existing process' : 'No other process available'}
+                      </option>
+                      {importOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedLinkedProcess ? (
+                      <div className="linked-process-card">
+                        <div className="linked-process-card__title">{selectedLinkedProcess.name}</div>
+                        <div className="linked-process-card__meta">Platform process ID: {selectedLinkedProcess.id}</div>
+                        {onOpenLinkedProcess ? (
+                          <button type="button" className="linked-process-card__action" onClick={handleOpenLinkedProcess}>
+                            Open called process
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="actor-assignment-empty">
+                        Link this call activity to a saved process, or enter a custom called element key below.
+                      </div>
+                    )}
+                    <label>Called Element Key</label>
+                    <input
+                      type="text"
+                      value={properties.calledElement || ''}
+                      onChange={(event) => handlePropertyChange('calledElement', event.target.value)}
+                      placeholder="process_123 or external process key..."
+                    />
                   </div>
                 ) : null}
                 {isRiskAssignableElement(selectedElement) ? (
