@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  xmlns:pfe="https://pfe.local/schema/bpmn"
+  id="Definitions_PurchaseRequestControlDemo"
+  targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration
+    id="Collaboration_PurchaseRequestControlDemo"
+    name="Purchase Request Control Demo">
+    <bpmn:participant
+      id="Participant_RequestingDepartment"
+      name="Requesting Department"
+      processRef="Process_RequestingDepartment"
+      pfe:actorNodeId="9001"
+      pfe:actorName="Sales Department"
+      pfe:actorType="org_unit"
+      pfe:actorPath="Demo Company / Commercial Division / Sales Department" />
+    <bpmn:participant
+      id="Participant_Procurement"
+      name="Procurement and Control"
+      processRef="Process_ProcurementAndControl"
+      pfe:actorNodeId="9002"
+      pfe:actorName="Procurement Department"
+      pfe:actorType="org_unit"
+      pfe:actorPath="Demo Company / Operations / Procurement Department"
+      pfe:risks='[{"id":"risk_proc_1","title":"Procurement workload saturation","severity":"medium","category":"operational","status":"monitoring","description":"A peak of approved requests can overload buyers and control staff.","mitigation":"Prioritize urgent requests and rebalance work weekly."}]' />
+    <bpmn:messageFlow
+      id="MessageFlow_ApprovedRequest"
+      name="Approved request packet"
+      sourceRef="Task_SendApprovedRequest"
+      targetRef="Task_ReceiveApprovedRequest" />
+    <bpmn:messageFlow
+      id="MessageFlow_Clarification"
+      name="Clarification required"
+      sourceRef="Task_RequestClarification"
+      targetRef="Task_PrepareRequest" />
+  </bpmn:collaboration>
+
+  <bpmn:process id="Process_RequestingDepartment" name="Requesting Department Process" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_RequestingDepartment">
+      <bpmn:lane
+        id="Lane_Requester"
+        name="Requester"
+        pfe:actorNodeId="9101"
+        pfe:actorName="Amina Ben Salem"
+        pfe:actorType="function"
+        pfe:actorPath="Demo Company / Commercial Division / Sales Department / Requester">
+        <bpmn:flowNodeRef>StartEvent_RequestNeed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PrepareRequest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_ManagerApprovalRequired</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SendApprovedRequest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RequestSent</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane
+        id="Lane_DepartmentManager"
+        name="Department Manager"
+        pfe:actorNodeId="9102"
+        pfe:actorName="Karim Haddad"
+        pfe:actorType="manager"
+        pfe:actorPath="Demo Company / Commercial Division / Sales Department / Department Manager">
+        <bpmn:flowNodeRef>Task_ManagerReview</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_RequestNeed" name="Need identified" />
+
+    <bpmn:userTask
+      id="Task_PrepareRequest"
+      name="Prepare purchase request"
+      pfe:actorNodeId="9101"
+      pfe:actorName="Amina Ben Salem"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Commercial Division / Sales Department / Requester"
+      pfe:risks='[{"id":"risk_req_1","title":"Incomplete purchase specification","severity":"medium","category":"quality","status":"open","description":"The requester may omit quantity, delivery date, or supporting documents.","mitigation":"Use a mandatory request checklist before submission."}]'>
+      <bpmn:documentation>Requester completes the business need, quantity, supplier context, and desired delivery date before the workflow continues.</bpmn:documentation>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway
+      id="Gateway_ManagerApprovalRequired"
+      name="Manager approval required?"
+      pfe:risks='[{"id":"risk_route_1","title":"Incorrect approval routing","severity":"high","category":"operational","status":"monitoring","description":"High-value requests may bypass management approval if thresholds are misunderstood.","mitigation":"Maintain and communicate approval thresholds in the procedure manual."}]' />
+
+    <bpmn:userTask
+      id="Task_ManagerReview"
+      name="Review and approve request"
+      pfe:actorNodeId="9102"
+      pfe:actorName="Karim Haddad"
+      pfe:actorType="manager"
+      pfe:actorPath="Demo Company / Commercial Division / Sales Department / Department Manager"
+      pfe:risks='[{"id":"risk_mgr_1","title":"Approval bottleneck","severity":"medium","category":"operational","status":"open","description":"Manager availability can delay urgent requests at month end.","mitigation":"Escalate after one business day and delegate approval when absent."}]'>
+      <bpmn:documentation>Department manager validates business need, budget ownership, and urgency before the request goes to procurement.</bpmn:documentation>
+    </bpmn:userTask>
+
+    <bpmn:sendTask
+      id="Task_SendApprovedRequest"
+      name="Transmit approved request to procurement"
+      pfe:actorNodeId="9101"
+      pfe:actorName="Amina Ben Salem"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Commercial Division / Sales Department / Requester"
+      pfe:risks='[{"id":"risk_handoff_1","title":"Missing attachment in handoff","severity":"medium","category":"operational","status":"open","description":"The approved request packet may be sent without all supporting evidence.","mitigation":"Attach the signed request form and checklist before transmission."}]'>
+      <bpmn:documentation>Approved request packet is sent with attachments to procurement for control and ordering.</bpmn:documentation>
+    </bpmn:sendTask>
+
+    <bpmn:endEvent id="EndEvent_RequestSent" name="Request sent" />
+
+    <bpmn:sequenceFlow id="Flow_Request_1" sourceRef="StartEvent_RequestNeed" targetRef="Task_PrepareRequest" />
+    <bpmn:sequenceFlow id="Flow_Request_2" sourceRef="Task_PrepareRequest" targetRef="Gateway_ManagerApprovalRequired" />
+    <bpmn:sequenceFlow id="Flow_Request_3" name="No" sourceRef="Gateway_ManagerApprovalRequired" targetRef="Task_SendApprovedRequest" />
+    <bpmn:sequenceFlow id="Flow_Request_4" name="Yes" sourceRef="Gateway_ManagerApprovalRequired" targetRef="Task_ManagerReview" />
+    <bpmn:sequenceFlow id="Flow_Request_5" sourceRef="Task_ManagerReview" targetRef="Task_SendApprovedRequest" />
+    <bpmn:sequenceFlow id="Flow_Request_6" sourceRef="Task_SendApprovedRequest" targetRef="EndEvent_RequestSent" />
+  </bpmn:process>
+
+  <bpmn:process id="Process_ProcurementAndControl" name="Procurement and Control Process" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_ProcurementAndControl">
+      <bpmn:lane
+        id="Lane_Buyer"
+        name="Buyer"
+        pfe:actorNodeId="9201"
+        pfe:actorName="Sonia Trabelsi"
+        pfe:actorType="function"
+        pfe:actorPath="Demo Company / Operations / Procurement Department / Buyer">
+        <bpmn:flowNodeRef>StartEvent_ProcurementStart</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReceiveApprovedRequest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CreatePurchaseOrder</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_OrderReady</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane
+        id="Lane_ControlOfficer"
+        name="Control Officer"
+        pfe:actorNodeId="9202"
+        pfe:actorName="Internal Control Office"
+        pfe:actorType="function"
+        pfe:actorPath="Demo Company / Operations / Internal Control / Control Officer">
+        <bpmn:flowNodeRef>Task_ComplianceCheck</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_ControlsPassed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RequestClarification</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_RequestOnHold</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>BoundaryEvent_ComplianceReviewOverdue</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EscalateControlDelay</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ControlEscalated</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_ProcurementStart" name="Request received" />
+
+    <bpmn:receiveTask
+      id="Task_ReceiveApprovedRequest"
+      name="Receive approved request"
+      pfe:actorNodeId="9201"
+      pfe:actorName="Sonia Trabelsi"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Operations / Procurement Department / Buyer"
+      pfe:risks='[{"id":"risk_receive_1","title":"Approved request not logged","severity":"medium","category":"operational","status":"open","description":"The buyer may start work without logging the request in the tracker.","mitigation":"Register every incoming approved request before processing."}]'>
+      <bpmn:documentation>Buyer acknowledges the approved packet and checks that the request is complete before control review.</bpmn:documentation>
+    </bpmn:receiveTask>
+
+    <bpmn:businessRuleTask
+      id="Task_ComplianceCheck"
+      name="Validate compliance and control evidence"
+      pfe:actorNodeId="9202"
+      pfe:actorName="Internal Control Office"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Operations / Internal Control / Control Officer"
+      pfe:risks='[{"id":"risk_ctrl_1","title":"Control evidence missing","severity":"critical","category":"compliance","status":"open","description":"The procurement package may miss budget proof, supplier checks, or segregation evidence.","mitigation":"Use a control checklist and block PO creation until evidence is attached."}]'>
+      <bpmn:documentation>Control officer validates policy, budget proof, supplier screening, and segregation of duties before release.</bpmn:documentation>
+    </bpmn:businessRuleTask>
+
+    <bpmn:boundaryEvent id="BoundaryEvent_ComplianceReviewOverdue" attachedToRef="Task_ComplianceCheck" name="Compliance review overdue">
+      <bpmn:timerEventDefinition id="TimerEventDefinition_ComplianceReviewOverdue" />
+    </bpmn:boundaryEvent>
+
+    <bpmn:userTask
+      id="Task_EscalateControlDelay"
+      name="Escalate delayed control review"
+      pfe:actorNodeId="9202"
+      pfe:actorName="Internal Control Office"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Operations / Internal Control / Control Officer">
+      <bpmn:documentation>Escalation is sent when the control review is not completed inside the agreed SLA.</bpmn:documentation>
+    </bpmn:userTask>
+
+    <bpmn:endEvent id="EndEvent_ControlEscalated" name="Escalated" />
+
+    <bpmn:exclusiveGateway
+      id="Gateway_ControlsPassed"
+      name="Controls passed?"
+      pfe:risks='[{"id":"risk_gate_1","title":"Non-compliant request released","severity":"high","category":"compliance","status":"monitoring","description":"A request could proceed even though a key control failed.","mitigation":"Route failed controls to clarification and require a second review for overrides."}]' />
+
+    <bpmn:userTask
+      id="Task_CreatePurchaseOrder"
+      name="Create purchase order"
+      pfe:actorNodeId="9201"
+      pfe:actorName="Sonia Trabelsi"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Operations / Procurement Department / Buyer"
+      pfe:risks='[{"id":"risk_po_1","title":"Wrong purchase order data","severity":"medium","category":"financial","status":"open","description":"Incorrect supplier or pricing data can be copied into the purchase order.","mitigation":"Validate supplier, amount, and currency fields before final issue."}]'>
+      <bpmn:documentation>Buyer creates the purchase order after compliance approval and checks final supplier and amount data.</bpmn:documentation>
+    </bpmn:userTask>
+
+    <bpmn:endEvent id="EndEvent_OrderReady" name="PO ready" />
+
+    <bpmn:manualTask
+      id="Task_RequestClarification"
+      name="Request clarification from requester"
+      pfe:actorNodeId="9202"
+      pfe:actorName="Internal Control Office"
+      pfe:actorType="function"
+      pfe:actorPath="Demo Company / Operations / Internal Control / Control Officer">
+      <bpmn:documentation>Control officer returns the packet for clarification or missing evidence before the request can proceed.</bpmn:documentation>
+    </bpmn:manualTask>
+
+    <bpmn:endEvent id="EndEvent_RequestOnHold" name="On hold" />
+
+    <bpmn:sequenceFlow id="Flow_Proc_1" sourceRef="StartEvent_ProcurementStart" targetRef="Task_ReceiveApprovedRequest" />
+    <bpmn:sequenceFlow id="Flow_Proc_2" sourceRef="Task_ReceiveApprovedRequest" targetRef="Task_ComplianceCheck" />
+    <bpmn:sequenceFlow id="Flow_Proc_3" sourceRef="Task_ComplianceCheck" targetRef="Gateway_ControlsPassed" />
+    <bpmn:sequenceFlow id="Flow_Proc_4" name="Yes" sourceRef="Gateway_ControlsPassed" targetRef="Task_CreatePurchaseOrder" />
+    <bpmn:sequenceFlow id="Flow_Proc_5" sourceRef="Task_CreatePurchaseOrder" targetRef="EndEvent_OrderReady" />
+    <bpmn:sequenceFlow id="Flow_Proc_6" name="No" sourceRef="Gateway_ControlsPassed" targetRef="Task_RequestClarification" />
+    <bpmn:sequenceFlow id="Flow_Proc_7" sourceRef="Task_RequestClarification" targetRef="EndEvent_RequestOnHold" />
+    <bpmn:sequenceFlow id="Flow_Proc_8" sourceRef="BoundaryEvent_ComplianceReviewOverdue" targetRef="Task_EscalateControlDelay" />
+    <bpmn:sequenceFlow id="Flow_Proc_9" sourceRef="Task_EscalateControlDelay" targetRef="EndEvent_ControlEscalated" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_PurchaseRequestControlDemo">
+    <bpmndi:BPMNPlane id="BPMNPlane_PurchaseRequestControlDemo" bpmnElement="Collaboration_PurchaseRequestControlDemo">
+      <bpmndi:BPMNShape id="Participant_RequestingDepartment_di" bpmnElement="Participant_RequestingDepartment" isHorizontal="true">
+        <dc:Bounds x="80" y="110" width="1300" height="250" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Requester_di" bpmnElement="Lane_Requester" isHorizontal="true">
+        <dc:Bounds x="110" y="110" width="1270" height="125" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_DepartmentManager_di" bpmnElement="Lane_DepartmentManager" isHorizontal="true">
+        <dc:Bounds x="110" y="235" width="1270" height="125" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_RequestNeed_di" bpmnElement="StartEvent_RequestNeed">
+        <dc:Bounds x="170" y="156" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PrepareRequest_di" bpmnElement="Task_PrepareRequest">
+        <dc:Bounds x="250" y="130" width="150" height="86" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ManagerApprovalRequired_di" bpmnElement="Gateway_ManagerApprovalRequired" isMarkerVisible="true">
+        <dc:Bounds x="450" y="148" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ManagerReview_di" bpmnElement="Task_ManagerReview">
+        <dc:Bounds x="570" y="255" width="170" height="86" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SendApprovedRequest_di" bpmnElement="Task_SendApprovedRequest">
+        <dc:Bounds x="820" y="130" width="190" height="86" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RequestSent_di" bpmnElement="EndEvent_RequestSent">
+        <dc:Bounds x="1080" y="156" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_Request_1_di" bpmnElement="Flow_Request_1">
+        <di:waypoint x="206" y="174" />
+        <di:waypoint x="250" y="174" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Request_2_di" bpmnElement="Flow_Request_2">
+        <di:waypoint x="400" y="173" />
+        <di:waypoint x="450" y="173" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Request_3_di" bpmnElement="Flow_Request_3">
+        <di:waypoint x="500" y="173" />
+        <di:waypoint x="820" y="173" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Request_4_di" bpmnElement="Flow_Request_4">
+        <di:waypoint x="475" y="198" />
+        <di:waypoint x="475" y="298" />
+        <di:waypoint x="570" y="298" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Request_5_di" bpmnElement="Flow_Request_5">
+        <di:waypoint x="740" y="298" />
+        <di:waypoint x="780" y="298" />
+        <di:waypoint x="780" y="173" />
+        <di:waypoint x="820" y="173" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Request_6_di" bpmnElement="Flow_Request_6">
+        <di:waypoint x="1010" y="173" />
+        <di:waypoint x="1080" y="174" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNShape id="Participant_Procurement_di" bpmnElement="Participant_Procurement" isHorizontal="true">
+        <dc:Bounds x="80" y="430" width="1300" height="320" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Buyer_di" bpmnElement="Lane_Buyer" isHorizontal="true">
+        <dc:Bounds x="110" y="430" width="1270" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ControlOfficer_di" bpmnElement="Lane_ControlOfficer" isHorizontal="true">
+        <dc:Bounds x="110" y="590" width="1270" height="160" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_ProcurementStart_di" bpmnElement="StartEvent_ProcurementStart">
+        <dc:Bounds x="170" y="495" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReceiveApprovedRequest_di" bpmnElement="Task_ReceiveApprovedRequest">
+        <dc:Bounds x="250" y="470" width="150" height="86" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ComplianceCheck_di" bpmnElement="Task_ComplianceCheck">
+        <dc:Bounds x="520" y="615" width="180" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BoundaryEvent_ComplianceReviewOverdue_di" bpmnElement="BoundaryEvent_ComplianceReviewOverdue">
+        <dc:Bounds x="592" y="687" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EscalateControlDelay_di" bpmnElement="Task_EscalateControlDelay">
+        <dc:Bounds x="760" y="710" width="180" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ControlEscalated_di" bpmnElement="EndEvent_ControlEscalated">
+        <dc:Bounds x="1030" y="727" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ControlsPassed_di" bpmnElement="Gateway_ControlsPassed" isMarkerVisible="true">
+        <dc:Bounds x="760" y="635" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CreatePurchaseOrder_di" bpmnElement="Task_CreatePurchaseOrder">
+        <dc:Bounds x="930" y="470" width="160" height="86" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_OrderReady_di" bpmnElement="EndEvent_OrderReady">
+        <dc:Bounds x="1170" y="495" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RequestClarification_di" bpmnElement="Task_RequestClarification">
+        <dc:Bounds x="930" y="615" width="170" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_RequestOnHold_di" bpmnElement="EndEvent_RequestOnHold">
+        <dc:Bounds x="1180" y="642" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_Proc_1_di" bpmnElement="Flow_Proc_1">
+        <di:waypoint x="206" y="513" />
+        <di:waypoint x="250" y="513" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_2_di" bpmnElement="Flow_Proc_2">
+        <di:waypoint x="400" y="513" />
+        <di:waypoint x="460" y="513" />
+        <di:waypoint x="460" y="660" />
+        <di:waypoint x="520" y="660" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_3_di" bpmnElement="Flow_Proc_3">
+        <di:waypoint x="700" y="660" />
+        <di:waypoint x="760" y="660" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_4_di" bpmnElement="Flow_Proc_4">
+        <di:waypoint x="810" y="660" />
+        <di:waypoint x="870" y="660" />
+        <di:waypoint x="870" y="513" />
+        <di:waypoint x="930" y="513" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_5_di" bpmnElement="Flow_Proc_5">
+        <di:waypoint x="1090" y="513" />
+        <di:waypoint x="1170" y="513" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_6_di" bpmnElement="Flow_Proc_6">
+        <di:waypoint x="810" y="660" />
+        <di:waypoint x="930" y="660" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_7_di" bpmnElement="Flow_Proc_7">
+        <di:waypoint x="1100" y="660" />
+        <di:waypoint x="1180" y="660" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_8_di" bpmnElement="Flow_Proc_8">
+        <di:waypoint x="610" y="723" />
+        <di:waypoint x="610" y="745" />
+        <di:waypoint x="760" y="745" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Proc_9_di" bpmnElement="Flow_Proc_9">
+        <di:waypoint x="940" y="745" />
+        <di:waypoint x="1030" y="745" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="MessageFlow_ApprovedRequest_di" bpmnElement="MessageFlow_ApprovedRequest">
+        <di:waypoint x="1010" y="173" />
+        <di:waypoint x="1200" y="173" />
+        <di:waypoint x="1200" y="513" />
+        <di:waypoint x="400" y="513" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MessageFlow_Clarification_di" bpmnElement="MessageFlow_Clarification">
+        <di:waypoint x="930" y="660" />
+        <di:waypoint x="720" y="660" />
+        <di:waypoint x="720" y="173" />
+        <di:waypoint x="400" y="173" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
