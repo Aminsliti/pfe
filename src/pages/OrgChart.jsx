@@ -318,9 +318,11 @@ async function parseApiPayload(response, fallbackMessage) {
   return payload;
 }
 
-function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit' }) {
+function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit', lockedPlacementMode = null }) {
   const scopedParentId = form.baseParentId || form.parentId || '';
   const showPlacementOptions = mode === 'create' && Boolean(scopedParentId);
+  const directLocked = lockedPlacementMode === 'direct';
+  const nestedLocked = lockedPlacementMode === 'nested';
   return (
     <div className="org-form-grid">
       <Form.Group>
@@ -379,6 +381,7 @@ function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit' }) {
                 name="org-placement-mode"
                 label="Fils visible sur l'organigramme principal"
                 checked={form.placementMode === 'direct'}
+                disabled={nestedLocked}
                 onChange={() => setForm((current) => ({
                   ...current,
                   placementMode: 'direct',
@@ -391,6 +394,7 @@ function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit' }) {
                 name="org-placement-mode"
                 label="Interne (visible apres Expand du parent)"
                 checked={form.placementMode === 'nested'}
+                disabled={directLocked}
                 onChange={() => setForm((current) => ({
                   ...current,
                   placementMode: 'nested',
@@ -615,6 +619,17 @@ export function OrgChart({ publicView = false }) {
   const parentOptions = selectedNode
     ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
     : nodes;
+
+  const lockedPlacementModeForCreateParent = useMemo(() => {
+    if (!createForm.baseParentId) return null;
+    const parentId = Number(createForm.baseParentId);
+    if (!Number.isInteger(parentId) || parentId <= 0) return null;
+
+    const children = nodes.filter((node) => node.parentId === parentId);
+    if (children.some((child) => child.placementMode === 'nested')) return 'nested';
+    if (children.some((child) => (child.placementMode || 'direct') === 'direct')) return 'direct';
+    return null;
+  }, [createForm.baseParentId, nodes]);
   const showMessage = (text, variant = 'success') => showSnackbar(text, variant);
 
   const openNodeDetails = (nodeId) => {
@@ -676,15 +691,26 @@ export function OrgChart({ publicView = false }) {
                 : 'function'
       : 'company';
 
-    setCreateForm(
-      toForm(null, {
-        parentId: parentNode?.id ? String(parentNode.id) : '',
-        nodeType: suggestedType,
-        color: nodeMeta(suggestedType).color,
-        baseParentId: parentNode?.id ? String(parentNode.id) : '',
-        placementMode: parentNode?.id ? 'direct' : 'direct',
-      })
-    );
+    const parentIdNum = parentNode?.id ? Number(parentNode.id) : null;
+    let lockedPlacementMode = null;
+    if (parentIdNum && Number.isInteger(parentIdNum)) {
+      const children = nodes.filter((node) => node.parentId === parentIdNum);
+      if (children.some((child) => child.placementMode === 'nested')) {
+        lockedPlacementMode = 'nested';
+      } else if (children.some((child) => (child.placementMode || 'direct') === 'direct')) {
+        lockedPlacementMode = 'direct';
+      }
+    }
+
+    const initialPlacementMode = lockedPlacementMode || 'direct';
+
+    setCreateForm(toForm(null, {
+      parentId: parentNode?.id ? String(parentNode.id) : '',
+      nodeType: suggestedType,
+      color: nodeMeta(suggestedType).color,
+      baseParentId: parentNode?.id ? String(parentNode.id) : '',
+      placementMode: parentNode?.id ? initialPlacementMode : 'direct',
+    }));
     setShowCreateModal(true);
   };
 
@@ -1218,6 +1244,7 @@ export function OrgChart({ publicView = false }) {
               setForm={setCreateForm}
               parentOptions={nodes}
               mode="create"
+              lockedPlacementMode={lockedPlacementModeForCreateParent}
             />
             <div className="org-modal__actions">
               <Button variant="outline-secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>

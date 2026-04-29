@@ -1603,7 +1603,7 @@ export function ProcessManagement({ publicView = false }) {
   const handleProcessReportDownload = async (id, format = 'pdf') => {
     setProcessReportBusy(format);
     try {
-      const needsDiagramImage = format === 'pdf' || format === 'docx';
+      const needsDiagramImage = format === 'pdf' || format === 'docx' || format === 'html';
       let diagramImageDataUrl = null;
       if (needsDiagramImage) {
         const rendered = await renderProcessDiagramImage(id, { mimeType: 'image/jpeg', quality: 0.9 });

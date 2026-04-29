@@ -328,7 +328,7 @@ describe('process routes', () => {
     expect(deletedCategory.status).toBe(200);
   });
 
-  it('returns a process explanation and exports the procedure manual as PDF and Word', async () => {
+  it('returns a process explanation and exports the reduced procedure manual in every format', async () => {
     const app = createApp({ requestUserMiddleware: createRequestUserMiddleware(createUser({ companyId: 2 })) });
     const processRow = {
       id: 9,
@@ -339,6 +339,14 @@ describe('process routes', () => {
       category_name: 'Operations',
       status: 'approved',
       version: 3,
+      manual_data: {
+        support_data: ['Claim amount', 'Claim date'],
+        support_documents: ['Claim form', 'Proof of payment'],
+        support_systems: ['Card dispute portal'],
+        trigger: 'Start',
+        objective: 'Resolve the customer dispute',
+        expected_result: 'Dispute closed',
+      },
       bpmn_xml: `
         <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
           <bpmn:collaboration id="Collab_1">
@@ -381,10 +389,57 @@ describe('process routes', () => {
       .mockResolvedValueOnce(makeResult([processRow]))
       .mockResolvedValueOnce(makeResult([{ id: 1, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' }]));
 
+    const manualJson = await request(app).get('/api/processes/9/manual?format=json');
+    expect(manualJson.status).toBe(200);
+    expect(Object.keys(manualJson.body.manual.matrices).sort()).toEqual([
+      'activities',
+      'identity',
+      'kpis',
+      'risks',
+      'supportObjects',
+      'whatWhoWhenWhy',
+    ]);
+    expect(manualJson.body.manual.diagramDescription).toContain('Card Dispute Handling est represente par un diagramme BPMN approved');
+    expect(manualJson.body.manual.matrices.activities[1].description).toContain('Sous-processus inclus dans le manuel');
+    expect(manualJson.body.manual.matrices.whatWhoWhenWhy.columns.map((column) => column.label)).toEqual([
+      'Activite',
+      'What',
+      'Who',
+      'When',
+      'Why',
+    ]);
+    expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[0].activity).toBe('Receive claim');
+    expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[0].when).toContain('Start');
+    expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[1].when).toContain('Apres Receive claim');
+    expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[0].why).toContain('Resolve the customer dispute');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[0].title).toBe('4.1 Donnees');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[0].rows[0].name).toBe('Claim amount');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[1].rows[0].name).toBe('Claim form');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[2].rows[0].name).toBe('Card dispute portal');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([processRow]))
+      .mockResolvedValueOnce(makeResult([{ id: 1, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' }]));
+
+    const htmlReport = await request(app).get('/api/processes/9/manual?format=html');
+    expect(htmlReport.status).toBe(200);
+    expect(htmlReport.headers['content-type']).toContain('text/html');
+    expect(htmlReport.text).toContain('3. Matrice what who when why');
+    expect(htmlReport.text).toContain('Card Dispute Handling est represente par un diagramme BPMN approved');
+    expect(htmlReport.text).toContain('4. NIVEAU OBJETS SUPPORTS');
+    expect(htmlReport.text).toContain('4.1 Donnees');
+    expect(htmlReport.text).toContain('Claim amount');
+
+    pool.query
+      .mockResolvedValueOnce(makeResult([processRow]))
+      .mockResolvedValueOnce(makeResult([{ id: 1, action: 'approve', comment: 'Approved', created_by_name: 'System Administrator' }]));
+
     const report = await request(app).get('/api/processes/9/report?format=pdf');
     expect(report.status).toBe(200);
     expect(report.headers['content-type']).toContain('application/pdf');
     expect(report.headers['content-disposition']).toContain('card-dispute-handling-manuel-de-procedure.pdf');
+    expect(report.body.subarray(0, 4).toString()).toBe('%PDF');
+    expect(report.body.toString('binary')).toContain('Card Dispute Handling');
 
     pool.query
       .mockResolvedValueOnce(makeResult([processRow]))

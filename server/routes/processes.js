@@ -1840,7 +1840,7 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.html"`);
-  res.send(buildProcessReportHtml(reportProcess, explanation));
+  res.send(buildProcessReportHtml(reportProcess, explanation, { diagramImageDataUrl, workflow }));
 }
 
 router.get('/processes/:id/manual', async (req, res) => {

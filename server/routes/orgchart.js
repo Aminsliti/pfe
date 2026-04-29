@@ -702,6 +702,28 @@ router.post('/orgchart/nodes', async (req, res) => {
       ]
     );
 
+    // Enforce "sticky" inside/outside behavior:
+    // when creating children under a parent, all descendants of that parent follow the chosen placement_mode.
+    // (We exclude the parent itself so it can remain visible depending on its own mode.)
+    if (parentId !== null) {
+      await client.query(
+        `
+          WITH RECURSIVE descendants AS (
+            SELECT id FROM org_chart_nodes WHERE id = $1
+            UNION ALL
+            SELECT n.id
+            FROM org_chart_nodes n
+            INNER JOIN descendants d ON n.parent_id = d.id
+          )
+          UPDATE org_chart_nodes
+          SET placement_mode = $2,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id IN (SELECT id FROM descendants WHERE id <> $1)
+        `,
+        [parentId, placementMode]
+      );
+    }
+
     await client.query(
       'UPDATE org_chart_nodes SET color = $1, updated_at = CURRENT_TIMESTAMP WHERE node_type = $2',
       [color, nodeType]

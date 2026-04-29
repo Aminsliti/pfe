@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 function pdfEscape(value = '') {
   return String(value)
     .replace(/\\/g, '\\\\')
@@ -33,6 +35,13 @@ function wrapLine(text = '', maxChars = 92) {
   }
 
   return lines.length ? lines : [''];
+}
+
+function wrapTextToWidth(text = '', width = 120, fontSize = 11, padding = 0) {
+  const usableWidth = Math.max(width - padding * 2, fontSize * 2);
+  const approxCharWidth = Math.max(fontSize * 0.52, 4.2);
+  const maxChars = Math.max(4, Math.floor(usableWidth / approxCharWidth));
+  return wrapLine(text, maxChars);
 }
 
 function decodeDataUrl(dataUrl = '') {
@@ -85,7 +94,7 @@ function readJpegDimensions(buffer) {
   return null;
 }
 
-function normalizeHeroImage(heroImage) {
+function normalizeHeroImage(heroImage, contentWidth = 500, maxHeight = 220) {
   const decoded = decodeDataUrl(heroImage?.dataUrl || heroImage?.imageDataUrl || '');
   if (!decoded || !['image/jpeg', 'image/jpg'].includes(decoded.mimeType)) {
     return null;
@@ -96,9 +105,7 @@ function normalizeHeroImage(heroImage) {
     return null;
   }
 
-  const maxWidth = 500;
-  const maxHeight = 220;
-  const scale = Math.min(maxWidth / dimensions.width, maxHeight / dimensions.height, 1);
+  const scale = Math.min(contentWidth / dimensions.width, maxHeight / dimensions.height, 1);
 
   return {
     ...dimensions,
@@ -108,109 +115,297 @@ function normalizeHeroImage(heroImage) {
   };
 }
 
-function buildLayoutItems({ title = '', subtitle = '', sections = [] }) {
-  const items = [];
-
-  if (title) {
-    items.push({ text: title, font: 'F2', size: 18, gapAfter: 10 });
-  }
-  if (subtitle) {
-    items.push({ text: subtitle, font: 'F1', size: 11, gapAfter: 16 });
-  }
-
-  sections.forEach((section) => {
-    if (section.title) {
-      items.push({ text: section.title, font: 'F2', size: 13, gapBefore: 8, gapAfter: 6 });
-    }
-
-    (section.paragraphs || []).forEach((paragraph) => {
-      wrapLine(paragraph, 92).forEach((line) => {
-        items.push({ text: line, font: 'F1', size: 10.5 });
-      });
-      items.push({ text: '', font: 'F1', size: 10.5, gapAfter: 4 });
-    });
-
-    (section.bullets || []).forEach((bullet) => {
-      const wrapped = wrapLine(`- ${bullet}`, 88);
-      wrapped.forEach((line, index) => {
-        items.push({
-          text: index === 0 ? line : `  ${line}`,
-          font: 'F1',
-          size: 10.5,
-        });
-      });
-    });
-
-    items.push({ text: '', font: 'F1', size: 10.5, gapAfter: 6 });
-  });
-
-  return items;
+function lineHeightFor(fontSize = 11) {
+  return Math.max(12, Math.round(fontSize * 1.4));
 }
 
-export function buildPdfDocument({ title = '', subtitle = '', sections = [], heroImage = null }) {
-  const pageWidth = 595;
-  const pageHeight = 842;
-  const top = 800;
-  const left = 42;
-  const bottom = 50;
-  const normalizedHeroImage = normalizeHeroImage(heroImage);
-  const firstPageTop = normalizedHeroImage ? top - normalizedHeroImage.displayHeight - 24 : top;
-
-  const items = buildLayoutItems({ title, subtitle, sections });
+function createPdfState({ pageWidth, pageHeight, left, top, bottom }) {
   const pages = [];
-  let currentPage = [];
-  let y = firstPageTop;
-  let pageIndex = 0;
 
-  items.forEach((item) => {
-    const gapBefore = item.gapBefore || 0;
-    const gapAfter = item.gapAfter || 0;
-    const lineHeight = Math.max(14, Math.round((item.size || 11) * 1.45));
-    y -= gapBefore;
+  const startNewPage = () => {
+    pages.push({ commands: [] });
+    return {
+      page: pages[pages.length - 1],
+      y: top,
+    };
+  };
 
-    if (y - lineHeight < bottom) {
-      pages.push(currentPage);
-      currentPage = [];
-      pageIndex += 1;
-      y = top;
+  const state = startNewPage();
+
+  return {
+    pageWidth,
+    pageHeight,
+    left,
+    top,
+    bottom,
+    pages,
+    state,
+    startNewPage,
+  };
+}
+
+function addTextBlock(context, text = '', options = {}) {
+  const {
+    font = 'F1',
+    size = 11,
+    x = context.left,
+    width = context.pageWidth - context.left * 2,
+    gapBefore = 0,
+    gapAfter = 0,
+  } = options;
+  const lines = wrapTextToWidth(text, width, size, 0);
+  const lineHeight = lineHeightFor(size);
+
+  context.state.y -= gapBefore;
+
+  lines.forEach((line) => {
+    if (context.state.y - lineHeight < context.bottom) {
+      context.state.page = context.startNewPage().page;
+      context.state.y = context.top;
     }
 
-    currentPage.push({
-      ...item,
-      y,
-    });
-    y -= lineHeight + gapAfter;
+    context.state.page.commands.push(
+      `0 g BT /${font} ${size} Tf ${x} ${context.state.y} Td (${pdfEscape(line)}) Tj ET`
+    );
+    context.state.y -= lineHeight;
   });
 
-  if (currentPage.length) {
-    pages.push(currentPage);
+  context.state.y -= gapAfter;
+}
+
+function addParagraphs(context, paragraphs = [], options = {}) {
+  (paragraphs || []).filter(Boolean).forEach((paragraph, index) => {
+    addTextBlock(context, paragraph, {
+      font: options.font || 'F1',
+      size: options.size || 10.5,
+      width: options.width,
+      gapBefore: index === 0 ? (options.gapBefore || 0) : 0,
+      gapAfter: options.gapAfter ?? 4,
+    });
+  });
+}
+
+function addBullets(context, bullets = [], options = {}) {
+  (bullets || []).filter(Boolean).forEach((bullet, index) => {
+    addTextBlock(context, `- ${bullet}`, {
+      font: options.font || 'F1',
+      size: options.size || 10.5,
+      width: options.width,
+      gapBefore: index === 0 ? (options.gapBefore || 0) : 0,
+      gapAfter: options.gapAfter ?? 2,
+    });
+  });
+}
+
+function addImageBlock(context, image = null) {
+  if (!image) {
+    return;
   }
 
-  if (!pages.length) {
-    pages.push([]);
+  const requiredHeight = image.displayHeight + 16;
+  if (context.state.y - requiredHeight < context.bottom) {
+    context.state.page = context.startNewPage().page;
+    context.state.y = context.top;
   }
 
-  const pageObjectIds = pages.map((_, index) => 3 + index * 2);
-  const contentObjectIds = pages.map((_, index) => 4 + index * 2);
-  const fontRegularId = 3 + pages.length * 2;
+  const x = context.left + Math.max(0, ((context.pageWidth - context.left * 2) - image.displayWidth) / 2);
+  const imageBottom = context.state.y - image.displayHeight;
+  context.state.page.commands.push(
+    `q ${image.displayWidth} 0 0 ${image.displayHeight} ${x} ${imageBottom} cm /Im1 Do Q`
+  );
+  context.state.y = imageBottom - 16;
+}
+
+function addTable(context, table = {}) {
+  const columns = Array.isArray(table.columns) ? table.columns : [];
+  if (!columns.length) {
+    return;
+  }
+
+  const rows = Array.isArray(table.rows) && table.rows.length
+    ? table.rows
+    : [{ [columns[0]?.key || 'value']: 'Aucune donnee disponible.' }];
+
+  if (table.title) {
+    addTextBlock(context, table.title, {
+      font: 'F2',
+      size: 11.5,
+      gapBefore: table.titleGapBefore ?? 2,
+      gapAfter: table.titleGapAfter ?? 4,
+    });
+  }
+
+  const fontSize = table.fontSize || 8.8;
+  const headerFontSize = table.headerFontSize || 9.2;
+  const padding = table.padding || 4;
+  const contentWidth = table.width || (context.pageWidth - context.left * 2);
+  const totalWeight = columns.reduce((sum, column) => sum + Number(column.width || 1), 0) || columns.length;
+  const widths = columns.map((column) => (contentWidth * Number(column.width || 1)) / totalWeight);
+  const positions = widths.reduce((accumulator, width, index) => {
+    const previous = index === 0 ? context.left : accumulator[index - 1] + widths[index - 1];
+    accumulator.push(previous);
+    return accumulator;
+  }, []);
+  const bodyLineHeight = lineHeightFor(fontSize);
+  const headerLineHeight = lineHeightFor(headerFontSize);
+
+  const drawRow = (lineSets, rowHeight, isHeader = false) => {
+    if (context.state.y - rowHeight < context.bottom) {
+      context.state.page = context.startNewPage().page;
+      context.state.y = context.top;
+      return false;
+    }
+
+    const rowTop = context.state.y;
+    const rowBottom = rowTop - rowHeight;
+
+    positions.forEach((x, index) => {
+      const width = widths[index];
+      if (isHeader) {
+        context.state.page.commands.push(`0.97 0.98 0.99 rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
+      }
+      context.state.page.commands.push(`0.80 0.84 0.89 RG ${x} ${rowBottom} ${width} ${rowHeight} re S`);
+
+      const textFont = isHeader ? 'F2' : 'F1';
+      const textSize = isHeader ? headerFontSize : fontSize;
+      const textLineHeight = isHeader ? headerLineHeight : bodyLineHeight;
+      const startY = rowTop - padding - textSize;
+
+      lineSets[index].forEach((line, lineIndex) => {
+        context.state.page.commands.push(
+          `0 g BT /${textFont} ${textSize} Tf ${x + padding} ${startY - (lineIndex * textLineHeight)} Td (${pdfEscape(line)}) Tj ET`
+        );
+      });
+    });
+
+    context.state.y = rowBottom;
+    return true;
+  };
+
+  const buildLineSets = (row, isHeader = false) => columns.map((column, index) => {
+    const rawValue = isHeader
+      ? column.label
+      : (column.format ? column.format(row[column.key], row) : row[column.key]) ?? '';
+    return wrapTextToWidth(rawValue, widths[index], isHeader ? headerFontSize : fontSize, padding);
+  });
+
+  const headerLines = buildLineSets({}, true);
+  const headerHeight = Math.max(...headerLines.map((lines) => lines.length)) * headerLineHeight + padding * 2 + 2;
+
+  const renderHeader = () => {
+    if (!drawRow(headerLines, headerHeight, true)) {
+      drawRow(headerLines, headerHeight, true);
+    }
+  };
+
+  renderHeader();
+
+  rows.forEach((row) => {
+    const lineSets = buildLineSets(row, false);
+    const rowHeight = Math.max(...lineSets.map((lines) => lines.length)) * bodyLineHeight + padding * 2 + 2;
+    if (!drawRow(lineSets, rowHeight, false)) {
+      renderHeader();
+      drawRow(lineSets, rowHeight, false);
+    }
+  });
+
+  context.state.y -= table.gapAfter ?? 10;
+}
+
+function renderSections(context, sections = []) {
+  sections.forEach((section) => {
+    if (section.title) {
+      addTextBlock(context, section.title, {
+        font: 'F2',
+        size: 13,
+        gapBefore: 8,
+        gapAfter: 6,
+      });
+    }
+
+    addParagraphs(context, section.paragraphs || [], {
+      size: 10.5,
+      gapAfter: 4,
+    });
+    addBullets(context, section.bullets || [], {
+      size: 10.5,
+      gapAfter: 2,
+    });
+
+    if (section.table) {
+      addTable(context, section.table);
+    }
+
+    (section.tables || []).forEach((table) => {
+      addTable(context, table);
+    });
+
+    context.state.y -= section.gapAfter ?? 4;
+  });
+}
+
+export function buildPdfDocument({
+  title = '',
+  subtitle = '',
+  description = '',
+  sections = [],
+  heroImage = null,
+  orientation = 'portrait',
+} = {}) {
+  const pageWidth = orientation === 'landscape' ? 842 : 595;
+  const pageHeight = orientation === 'landscape' ? 595 : 842;
+  const left = orientation === 'landscape' ? 30 : 42;
+  const top = pageHeight - 36;
+  const bottom = 32;
+  const contentWidth = pageWidth - left * 2;
+  const normalizedHeroImage = normalizeHeroImage(heroImage, contentWidth, orientation === 'landscape' ? 180 : 220);
+  const context = createPdfState({ pageWidth, pageHeight, left, top, bottom });
+
+  if (title) {
+    addTextBlock(context, title, {
+      font: 'F2',
+      size: 18,
+      gapAfter: 10,
+    });
+  }
+
+  if (subtitle) {
+    addTextBlock(context, subtitle, {
+      font: 'F1',
+      size: 11,
+      gapAfter: 10,
+    });
+  }
+
+  if (description) {
+    addTextBlock(context, description, {
+      font: 'F1',
+      size: 11,
+      gapAfter: 12,
+    });
+  }
+
+  addImageBlock(context, normalizedHeroImage);
+  renderSections(context, sections);
+
+  const pageObjectIds = context.pages.map((_, index) => 3 + index * 2);
+  const contentObjectIds = context.pages.map((_, index) => 4 + index * 2);
+  const fontRegularId = 3 + context.pages.length * 2;
   const fontBoldId = fontRegularId + 1;
   const imageObjectId = normalizedHeroImage ? fontBoldId + 1 : null;
+  const xObjectPart = normalizedHeroImage && imageObjectId ? ` /XObject << /Im1 ${imageObjectId} 0 R >>` : '';
 
   const objects = [
     Buffer.from('1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n', 'binary'),
     Buffer.from(
-      `2 0 obj << /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >> endobj\n`,
+      `2 0 obj << /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${context.pages.length} >> endobj\n`,
       'binary'
     ),
   ];
 
-  pages.forEach((pageLines, currentPageIndex) => {
-    const pageId = pageObjectIds[currentPageIndex];
-    const contentId = contentObjectIds[currentPageIndex];
-    const xObjectPart =
-      normalizedHeroImage && currentPageIndex === 0
-        ? ` /XObject << /Im1 ${imageObjectId} 0 R >>`
-        : '';
+  context.pages.forEach((page, index) => {
+    const pageId = pageObjectIds[index];
+    const contentId = contentObjectIds[index];
 
     objects.push(
       Buffer.from(
@@ -219,21 +414,7 @@ export function buildPdfDocument({ title = '', subtitle = '', sections = [], her
       )
     );
 
-    const commands = [];
-    if (normalizedHeroImage && currentPageIndex === 0) {
-      const imageY = top - normalizedHeroImage.displayHeight;
-      commands.push(
-        `q ${normalizedHeroImage.displayWidth} 0 0 ${normalizedHeroImage.displayHeight} ${left} ${imageY} cm /Im1 Do Q`
-      );
-    }
-
-    pageLines.forEach((line) => {
-      commands.push(
-        `BT /${line.font || 'F1'} ${line.size || 11} Tf ${left} ${line.y} Td (${pdfEscape(line.text || '')}) Tj ET`
-      );
-    });
-
-    const streamBuffer = Buffer.from(commands.join('\n'), 'binary');
+    const streamBuffer = Buffer.from(page.commands.join('\n'), 'binary');
     objects.push(
       Buffer.concat([
         Buffer.from(`${contentId} 0 obj << /Length ${streamBuffer.length} >> stream\n`, 'binary'),
