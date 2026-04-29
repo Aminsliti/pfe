@@ -42,6 +42,7 @@ function decodeXmlEntities(value = '') {
     .replace(/&gt;/g, '>')
     .replace(/&#62;/g, '>')
     .replace(/&#x3e;/gi, '>')
+    .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 }
 
@@ -1383,6 +1384,9 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
       { key: 'description', label: 'Description' },
     ], manual.matrices.activities)}
 
+    ${renderTable('3. Matrice what who when why', [
+      ...manual.matrices.whatWhoWhenWhy.columns,
+    ], manual.matrices.whatWhoWhenWhy.rows)}
     ${supportObjectsHtml}
 
     ${renderTable('5.1 Matrice KPI', [
@@ -1462,6 +1466,15 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
             { key: 'description', label: 'Description', width: 60 },
           ],
           rows: manual.matrices.activities,
+        },
+      },
+      {
+        title: '3. Matrice what who when why',
+        table: {
+          columns: manual.matrices.whatWhoWhenWhy.columns,
+          rows: manual.matrices.whatWhoWhenWhy.rows,
+          fontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.2 : 8,
+          headerFontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.6 : 8.4,
         },
       },
       {
@@ -1576,6 +1589,12 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
       { key: 'actor', label: 'Acteur', width: 22 },
       { key: 'description', label: 'Description', width: 50 },
     ], manual.matrices.activities),
+    ...createDocxTableSection(
+      '3. Matrice what who when why',
+      manual.matrices.whatWhoWhenWhy.columns,
+      manual.matrices.whatWhoWhenWhy.rows,
+      { cellSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 13 : 15, headerSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 14 : 16 }
+    ),
     createDocxParagraph('4. NIVEAU OBJETS SUPPORTS', {
       heading: HeadingLevel.HEADING_2,
       spacing: { before: 320, after: 120 },

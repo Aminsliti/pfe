@@ -939,7 +939,6 @@ async function notifyAssignedProcessManagers({
     severity,
   });
 }
-
 function cleanupUploadedFile(file) {
   if (file?.path && fs.existsSync(file.path)) {
     fs.unlinkSync(file.path);
@@ -1369,7 +1368,6 @@ router.post('/processes', async (req, res) => {
       message: `${process.name} has been assigned to you in process management.`,
       severity: 'info',
     });
-
     res.status(201).json(serializeProcessRecord(process));
   } catch (error) {
     console.error('Create process error:', error);
@@ -1558,7 +1556,6 @@ router.put('/processes/:id', async (req, res) => {
       message: buildWorkflowNotificationMessage(`${updatedProcess.name} was updated in process management.`, change_description),
       severity: 'info',
     });
-
     res.json(serializeProcessRecord(updatedProcess));
   } catch (error) {
     console.error('Update process error:', error);
@@ -1761,7 +1758,6 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       message: `${importedProcess.name} has been assigned to you in process management.`,
       severity: 'info',
     });
-
     cleanupUploadedFile(req.file);
     res.status(201).json(serializeProcessRecord(importedProcess));
   } catch (error) {
