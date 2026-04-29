@@ -1052,4 +1052,37 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
   }
 });
 
+router.post('/orgchart/clear', async (req, res) => {
+  await ensureOrgChartSchema();
+  const client = await pool.connect();
+
+  try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only admins can clear the organigram.' });
+    }
+
+    await client.query('BEGIN');
+    await client.query('TRUNCATE TABLE org_chart_nodes RESTART IDENTITY CASCADE');
+    await client.query('COMMIT');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: null,
+      companyId: null,
+      action: 'clear',
+      summary: 'Cleared organigram nodes.',
+      details: {},
+    });
+
+    res.json({ message: 'Organigram cleared successfully.' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('orgchart clear error:', error);
+    res.status(500).json({ error: 'Failed to clear organigram.' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;

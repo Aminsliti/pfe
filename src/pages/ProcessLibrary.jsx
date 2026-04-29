@@ -4,9 +4,12 @@ import { Modal } from 'react-bootstrap';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 import { API_BASE } from '../utils/api';
+import { useAuth, ROLES } from '../contexts/AuthContext';
+import { useSnackbar } from '../components/SnackbarProvider';
 
 const API = API_BASE;
 const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
+const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditorModeler'));
 
 const SECTION_CONFIG = {
   pilotage: {
@@ -495,10 +498,14 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack, publicVie
   );
 }
 
-function ProcessLeafView({ process, onBack }) {
+function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null }) {
+  const { user, hasAnyRole } = useAuth();
+  const { showSnackbar } = useSnackbar();
   const status = getStatusMeta(process.status);
   const [previewRootElementId, setPreviewRootElementId] = useState(null);
   const [showDiagramModal, setShowDiagramModal] = useState(false);
+  const [bpmnTarget, setBpmnTarget] = useState(null);
+  const [exportBusy, setExportBusy] = useState('');
   const subprocesses = useMemo(() => getBpmnSubprocesses(process.bpmn_xml), [process.bpmn_xml]);
   const previewTrail = useMemo(
     () => buildBpmnSubprocessTrail(subprocesses, previewRootElementId),
@@ -514,6 +521,270 @@ function ProcessLeafView({ process, onBack }) {
       setPreviewRootElementId(null);
     }
   }, [previewRootElementId, subprocesses]);
+
+  const buildEditorRootProcess = (p) => ({
+    id: p?.id,
+    name: p?.name || 'Process',
+    bpmn_xml: p?.bpmn_xml || '',
+    version: p?.version || null,
+    category_id: p?.category_id ?? null,
+    description: p?.description || '',
+    status: p?.status || 'draft',
+  });
+
+  const mainProcessRootRef = useRef(null);
+
+  const openBpmnEditor = (initialSubprocessId = null) => {
+    if (publicView) return;
+    const rootProcess = buildEditorRootProcess(process);
+    mainProcessRootRef.current = rootProcess;
+    setBpmnTarget({
+      ...process,
+      initialSubprocessId,
+      rootProcessId: rootProcess.id,
+      rootProcessName: rootProcess.name,
+      rootProcessBpmnXml: rootProcess.bpmn_xml,
+      rootProcessVersion: rootProcess.version,
+      rootProcessCategoryId: rootProcess.category_id,
+      rootProcessDescription: rootProcess.description,
+      rootProcessStatus: rootProcess.status,
+    });
+  };
+
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const parseFilenameFromDisposition = (disposition, fallback) => {
+    const match = disposition?.match(/filename="?([^"]+)"?/i);
+    return match?.[1] || fallback;
+  };
+
+  const replaceExtension = (filename, nextExtension) => {
+    const safe = filename || 'process.bpmn';
+    return safe.replace(/\.[^./\\]+$/i, nextExtension);
+  };
+
+  const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+    if (!(blob instanceof Blob)) {
+      reject(new Error('Unable to render the diagram image for this export.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Unable to read the rendered diagram image.'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(blob);
+  });
+
+  const readApiPayload = async (response, fallbackError = 'Request failed') => {
+    const contentType = response.headers.get('content-type') || '';
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+    if (!response.ok) {
+      throw new Error(
+        contentType.includes('application/json')
+          ? payload?.error || fallbackError
+          : payload || fallbackError
+      );
+    }
+    return payload;
+  };
+
+  const fetchProtectedProcessAsset = (url, init = undefined) => {
+    if (!user?.id) {
+      throw new Error('Your session expired. Please log in again.');
+    }
+    const headers = new Headers(init?.headers);
+    headers.set('x-user-id', String(user.id));
+    return fetch(url, { ...init, headers });
+  };
+
+  const renderProcessDiagramImage = async (id, { version = null, mimeType = 'image/png', quality = 0.92 } = {}) => {
+    let viewer;
+    let mountNode;
+    let svgUrl;
+
+    const suffix = version ? `?version=${version}` : '';
+    const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
+    if (!response.ok) {
+      await readApiPayload(response, 'Image export failed');
+      return null;
+    }
+
+    try {
+      const xml = await response.text();
+      const sourceFilename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), `process-${id}.bpmn`);
+      const { default: NavigatedViewer } = await import('bpmn-js/lib/NavigatedViewer');
+
+      mountNode = document.createElement('div');
+      mountNode.style.cssText = 'position:fixed;left:-20000px;top:0;width:1800px;height:1200px;pointer-events:none;opacity:0;';
+      document.body.appendChild(mountNode);
+
+      viewer = new NavigatedViewer({ container: mountNode, width: 1800, height: 1200 });
+      await viewer.importXML(xml);
+      viewer.get('canvas')?.zoom('fit-viewport');
+
+      const { svg } = await viewer.saveSVG();
+      const viewBox = svg.match(/viewBox="([^"]+)"/i)?.[1]?.split(/\s+/).map(Number) || [];
+      const width = Number.isFinite(viewBox[2]) && viewBox[2] > 0 ? Math.ceil(viewBox[2]) : 1800;
+      const height = Number.isFinite(viewBox[3]) && viewBox[3] > 0 ? Math.ceil(viewBox[3] ) : 1200;
+      const scale = 2;
+
+      svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+      const image = await new Promise((resolve, reject) => {
+        const candidate = new Image();
+        candidate.onload = () => resolve(candidate);
+        candidate.onerror = () => reject(new Error('Unable to render BPMN diagram as image.'));
+        candidate.src = svgUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const context = canvas.getContext('2d');
+      context.scale(scale, scale);
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+
+      const imageBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Unable to create a diagram image.'));
+        }, mimeType, quality);
+      });
+
+      return {
+        blob: imageBlob,
+        filename: replaceExtension(sourceFilename, mimeType === 'image/png' ? '.png' : '.jpg'),
+      };
+    } finally {
+      if (viewer) viewer.destroy();
+      if (mountNode?.parentNode) mountNode.parentNode.removeChild(mountNode);
+      if (svgUrl) URL.revokeObjectURL(svgUrl);
+    }
+  };
+
+  const handleImageExport = async (id) => {
+    setExportBusy('png');
+    try {
+      const rendered = await renderProcessDiagramImage(id, { mimeType: 'image/png' });
+      if (!rendered) return;
+      downloadBlob(rendered.blob, rendered.filename);
+    } catch (error) {
+      showSnackbar(error.message || 'Image export failed', 'danger');
+    } finally {
+      setExportBusy('');
+    }
+  };
+
+  const handleExport = async (id) => {
+    setExportBusy('bpmn');
+    try {
+      const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export`);
+      if (!response.ok) {
+        await readApiPayload(response, 'Export failed');
+        return;
+      }
+      const blob = await response.blob();
+      const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), 'process.bpmn');
+      downloadBlob(blob, filename);
+    } catch (error) {
+      showSnackbar(error.message || 'Export failed', 'danger');
+    } finally {
+      setExportBusy('');
+    }
+  };
+
+  const handleProcessReportDownload = async (id, format = 'pdf') => {
+    setExportBusy(format);
+    try {
+      const needsDiagramImage = ['pdf', 'docx', 'html'].includes(format);
+      let diagramImageDataUrl = null;
+      if (needsDiagramImage) {
+        const rendered = await renderProcessDiagramImage(id, { mimeType: 'image/jpeg', quality: 0.9 });
+        if (!rendered?.blob) throw new Error(`Diagram preview could not be rendered for the ${format.toUpperCase()} export.`);
+        diagramImageDataUrl = await blobToDataUrl(rendered.blob);
+      }
+
+      const requestOptions = needsDiagramImage
+        ? {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ format, diagramImageDataUrl }),
+          }
+        : undefined;
+
+      const response = await fetchProtectedProcessAsset(
+        needsDiagramImage ? `${API}/processes/${id}/manual` : `${API}/processes/${id}/manual?format=${format}`,
+        requestOptions
+      );
+      if (!response.ok) {
+        await readApiPayload(response, 'Export failed');
+        return;
+      }
+
+      const blob = await response.blob();
+      const extension = format === 'pdf' ? 'pdf' : format === 'docx' ? 'docx' : 'html';
+      const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), `process-${id}-manuel-de-procedure.${extension}`);
+      downloadBlob(blob, filename);
+    } catch (error) {
+      showSnackbar(error.message || 'Export failed', 'danger');
+    } finally {
+      setExportBusy('');
+    }
+  };
+
+  const canEdit = !publicView && hasAnyRole([ROLES.ADMIN, ROLES.DESIGNER, ROLES.VALIDATOR]);
+
+  if (bpmnTarget) {
+    return (
+      <Suspense fallback={<div className="text-muted py-4">Loading BPMN editor...</div>}>
+        <BpmnEditorModeler
+          process={bpmnTarget}
+          onClose={() => {
+            setBpmnTarget(null);
+            setShowDiagramModal(false);
+            if (onRefresh) onRefresh();
+          }}
+          onSave={async (bpmnXml) => {
+            const response = await fetch(`${API}/processes/${bpmnTarget.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: bpmnTarget.name,
+                description: bpmnTarget.description || '',
+                status: bpmnTarget.status,
+                category_id: bpmnTarget.category_id || null,
+                bpmn_xml: bpmnXml,
+                change_description: 'Updated via BPMN editor (Process Library)',
+              }),
+            });
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload.error || 'Save failed');
+            }
+            setBpmnTarget(null);
+            setShowDiagramModal(false);
+            if (onRefresh) onRefresh();
+          }}
+          importOptions={[]}
+          onImportExisting={async (processId) => {
+            const response = await fetch(`${API}/processes/${processId}`);
+            const detail = await response.json();
+            return { xml: detail?.bpmn_xml || '', name: detail?.name || 'Process' };
+          }}
+          onOpenLinkedProcess={() => {}}
+          onReturnToMainProcess={() => {}}
+          initialSubprocessId={bpmnTarget.initialSubprocessId}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
@@ -618,15 +889,174 @@ function ProcessLeafView({ process, onBack }) {
 
       <Modal show={showDiagramModal} onHide={() => setShowDiagramModal(false)} size="xl" centered>
         <Modal.Header closeButton>
-          <Modal.Title>{process.name}</Modal.Title>
+          <Modal.Title>Process Details</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <div className="d-flex flex-column gap-3">
-            <div className="text-muted">{process.description || 'Aucune description disponible pour ce processus.'}</div>
-            <div className="border rounded-4 bg-white p-3 shadow-sm">
-              <Suspense fallback={<div className="text-center py-5 text-muted">Rendu du diagramme BPMN...</div>}>
-                <BpmnProcessPreview xml={process.bpmn_xml} rootElementId={previewRootElementId} />
-              </Suspense>
+          <div className="d-flex flex-column gap-4">
+            <div className="card border-0 shadow-sm">
+              <div className="card-body">
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                  <div>
+                    <h6 className="mb-1">Diagram preview</h6>
+                    <div className="text-muted small">The BPMN diagram is shown as an image snapshot at the top of the process sheet.</div>
+                  </div>
+                    {!publicView ? (
+                      <div className="d-flex gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary"
+                          onClick={() => handleImageExport(process.id)}
+                          disabled={exportBusy === 'png'}
+                        >
+                          {exportBusy === 'png' ? 'Exporting...' : 'PNG'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-dark"
+                          onClick={() => handleExport(process.id)}
+                          disabled={exportBusy === 'bpmn'}
+                        >
+                          {exportBusy === 'bpmn' ? 'Exporting...' : 'BPMN'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-dark"
+                          onClick={() => handleProcessReportDownload(process.id, 'html')}
+                          disabled={exportBusy === 'html'}
+                        >
+                          {exportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary"
+                          onClick={() => handleProcessReportDownload(process.id, 'pdf')}
+                          disabled={exportBusy === 'pdf'}
+                        >
+                          {exportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary"
+                          onClick={() => handleProcessReportDownload(process.id, 'docx')}
+                          disabled={exportBusy === 'docx'}
+                        >
+                          {exportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
+                        </button>
+                        {canEdit ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            onClick={() => openBpmnEditor(previewRootElementId)}
+                          >
+                            Edit diagram
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                </div>
+
+                <Suspense fallback={<div className="text-muted small">Loading BPMN preview...</div>}>
+                  <BpmnProcessPreview xml={process.bpmn_xml} rootElementId={previewRootElementId} />
+                </Suspense>
+
+                {subprocesses.length ? (
+                  <div className="border rounded-4 p-3 mt-3" style={{ background: '#fffdfa' }}>
+                    <div className="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-3">
+                      <div>
+                        <h6 className="mb-1">Embedded sous-processes</h6>
+                        <div className="text-muted small">
+                          Open the same internal BPMN level that the drilldown arrow opens inside the editor.
+                        </div>
+                      </div>
+                      {!publicView && canEdit ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary"
+                          onClick={() => openBpmnEditor(previewRootElementId)}
+                        >
+                          {previewRootElementId ? 'Edit this sous-process' : 'Edit main diagram'}
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="d-flex flex-wrap gap-2 mb-3">
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${previewRootElementId ? 'btn-outline-secondary' : 'btn-danger'}`}
+                        onClick={() => setPreviewRootElementId(null)}
+                      >
+                        Main diagram
+                      </button>
+                      {previewTrail.map((subprocess) => (
+                        <button
+                          key={subprocess.id}
+                          type="button"
+                          className={`btn btn-sm ${previewRootElementId === subprocess.id ? 'btn-danger' : 'btn-outline-secondary'}`}
+                          onClick={() => setPreviewRootElementId(subprocess.id)}
+                        >
+                          {subprocess.name}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="d-flex flex-column gap-2">
+                      {subprocesses.map((subprocess) => (
+                        <button
+                          key={subprocess.id}
+                          type="button"
+                          onClick={() => setPreviewRootElementId(subprocess.id)}
+                          className="text-start border rounded-3 px-3 py-2 bg-white"
+                          style={{
+                            borderColor: previewRootElementId === subprocess.id ? '#ef4444' : '#e2e8f0',
+                            boxShadow: previewRootElementId === subprocess.id ? 'inset 3px 0 0 #ef4444' : 'none',
+                          }}
+                        >
+                          <div className="d-flex justify-content-between gap-3 align-items-start">
+                            <div>
+                              <div className="fw-semibold text-dark">{subprocess.name}</div>
+                              <div className="text-muted small">{subprocess.pathLabel}</div>
+                            </div>
+                            <span className="text-muted small">
+                              {subprocess.childCount > 0 ? `${subprocess.childCount} child view(s)` : 'Final view'}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="card border-0 bg-light-subtle">
+              <div className="card-body">
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <div>
+                    <h6 className="mb-1">Metadata</h6>
+                    <div className="text-muted small">Name, category, description, and workflow status.</div>
+                  </div>
+                  <span className="badge rounded-pill" style={{ background: status.bg, color: status.color }}>
+                    {status.label}
+                  </span>
+                </div>
+
+                <div className="mb-3">
+                  <div className="text-muted small mb-1">Name</div>
+                  <div className="fw-bold text-dark">{process.name}</div>
+                </div>
+
+                <div className="mb-3">
+                  <div className="text-muted small mb-1">Category</div>
+                  <div className="fw-semibold">{process.category_name || 'Sans categorie'}</div>
+                </div>
+
+                <div className="border rounded-4 bg-white p-3 shadow-sm">
+                  <div className="text-muted small mb-2">Description</div>
+                  <div className="text-dark" style={{ whiteSpace: 'pre-wrap' }}>
+                    {process.description || 'No description available for this process.'}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </Modal.Body>
@@ -879,7 +1309,7 @@ export default function ProcessLibrary({ publicView = false }) {
               publicView={publicView}
             />
           ) : (
-            <ProcessLeafView process={currentProcess} onBack={goBack} />
+            <ProcessLeafView process={currentProcess} onBack={goBack} publicView={publicView} onRefresh={loadLibrary} />
           )
         ) : !hasRootContent ? (
           <div className="card border-0 shadow-sm text-center text-muted" style={{ borderRadius: 28 }}>
