@@ -135,7 +135,7 @@ describe('org chart routes', () => {
         },
       },
       {
-        match: /WITH RECURSIVE descendants AS/,
+        match: 'UPDATE org_chart_nodes SET placement_mode = $2',
         result: ({ params }) => {
           // params = [parentId, placementMode]
           expect(params[1]).toBe('nested');

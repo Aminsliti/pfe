@@ -1,0 +1,116 @@
+\chapter{State of the Art}
+
+\section{Introduction}
+
+This chapter presents the theoretical foundations of the project by introducing the key concepts related to Business Process Management (BPM) and Governance, Risk, and Compliance (GRC). Beyond mere definitions, we explore how these two disciplines converge to create a resilient organizational framework. 
+
+The objective is to provide a solid conceptual background to better understand the design and implementation choices made in the proposed BPM--GRC platform, specifically focusing on how standards and technologies facilitate this synergy.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Business Process Management (BPM)}
+
+Business Process Management is not merely a software category but a comprehensive management philosophy. It treats processes as essential assets of an organization that must be understood and optimized.
+
+\subsection{Definition of BPM}
+
+BPM is a discipline that aims to model, analyze, optimize, and automate business processes. It bridges the gap between business strategy and IT execution.
+
+\subsection{BPM Lifecycle}
+
+The management of these processes follows a continuous improvement loop. As illustrated in Figure \ref{fig:bpm_lifecycle}, the lifecycle ensures that processes are not static but evolve with the organization.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.6\textwidth]{image_2026-04-10_001514792.png} 
+    \caption{The Iterative Phases of the BPM Lifecycle}
+    \label{fig:bpm_lifecycle}
+\end{figure}
+
+\subsection{Benefits of BPM}
+
+By adopting this lifecycle, organizations transition from siloed operations to integrated workflows. This shift provides several advantages, including improved operational efficiency, better transparency, and the reduction of manual errors. Furthermore, it supports enhanced decision-making and provides a framework for rapid adaptation to market changes.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{BPMN 2.0 Standard}
+
+To ensure that process models are understood by both business analysts and technical developers, a standardized notation is required. This is where BPMN 2.0 serves as the industry benchmark.
+
+\subsection{Overview of BPMN}
+
+Business Process Model and Notation (BPMN 2.0) is a standard developed to provide a graphical representation of business processes. It provides a common language that eliminates the ambiguity often found in traditional flowcharts, enabling seamless communication across different departments.
+
+\subsection{Main BPMN Elements}
+
+The power of BPMN lies in its simplicity; it uses a small set of categories to represent complex logic. The primary elements used in these diagrams are illustrated and categorized below.
+
+\begin{itemize}
+    \item \textbf{Events:} Circles representing something that "happens" (Start, Intermediate, End).
+    \item \textbf{Activities:} Rounded rectangles representing work performed (Tasks or Sub-processes).
+    \item \textbf{Gateways:} Diamond shapes used to control flow divergence and convergence (Decisions).
+    \item \textbf{Connecting Objects:} Lines (Sequence Flows) that define the execution order.
+    \item \textbf{Swimlanes:} Pools and Lanes used to organize participants and responsibilities.
+\end{itemize}
+
+\subsection{Importance of BPMN in BPM Systems}
+
+In modern BPM platforms, BPMN is more than just a drawing; it is executable. By standardizing process representation, it facilitates direct process automation and ensures interoperability between different modeling and execution tools.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Governance, Risk, and Compliance (GRC)}
+
+\subsection{Definition of GRC}
+
+GRC is an integrated approach ensuring organizations operate effectively. Figure \ref{fig:grc_tripod} represents the three pillars that form the foundation of corporate integrity.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[scale=0.45]{grc.png} 
+    \caption{The Three Pillars of GRC}
+    \label{fig:grc_tripod}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Governance:} Strategy and oversight.
+    \item \textbf{Risk Management:} Identification and mitigation of threats.
+    \item \textbf{Compliance:} Adherence to laws and internal policies.
+\end{itemize}
+
+
+\subsection{Risk Management Concepts}
+
+Risk management is a systematic process. It begins with \textbf{Risk Identification}, followed by an \textbf{Assessment} of impact and probability. Once understood, the organization defines \textbf{Mitigation} strategies and maintains continuous \textbf{Monitoring} to ensure the risk profile remains within acceptable limits.
+
+\subsection{Internal Controls and Compliance}
+
+Internal controls serve as the "safety valves" within the system. They are designed to prevent fraud, ensure reliability, and guarantee that the organization respects legal and regulatory requirements at every level of operation.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Integration of BPM and GRC}
+
+The core value of this research lies in the convergence of BPM and GRC. Historically, these two fields operated in silos, leading to significant organizational friction.
+
+\subsection{Motivation for Integration}
+
+When systems are disconnected, risk management becomes a "check-the-box" exercise performed after the fact. This leads to a lack of synchronization, where risks are documented in spreadsheets while the actual processes continue to operate without visible safeguards. Integrating them embeds risk management directly into the heartbeat of the company.
+
+\subsection{Benefits of Integration}
+
+An integrated BPM--GRC approach offers several transformative benefits:
+\begin{itemize}
+    \item \textbf{Real-time Monitoring:} Risks are monitored as the process executes.
+    \item \textbf{Auditability:} Every step in a process provides a clear compliance trail.
+    \item \textbf{Agility:} Faster alignment between operational changes and regulatory updates.
+\end{itemize}
+
+\subsection{BPM--GRC Integration Approach}
+
+Technically, this integration is achieved by linking specific risks to individual process activities and associating controls with workflow steps. By synchronizing data via APIs, risk-related actions—such as stopping a workflow if a compliance check fails—can be fully automated.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion}
+
+This chapter has established the theoretical scaffolding for the project. By examining the BPM lifecycle and the GRC framework, we have highlighted the critical need for their integration. The standards like BPMN 2.0 and modern API-driven architectures provide the tools necessary to build a platform that is not only efficient but also compliant and resilient.
+
+The next chapter will detail the design of the proposed BPM--GRC platform, translating these theoretical concepts into functional specifications and a concrete technical architecture.
+Use these for help

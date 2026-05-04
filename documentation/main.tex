@@ -1,0 +1,242 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+
+% Diff?rentes options pour la classe :
+% - taille de la fonte    : 10pt, 11pt, 12pt
+% - recto ou recto-verso    : oneside, twoside
+% - stade de d?veloppement    : draft, final
+
+
+\usepackage[english]{babel}
+%\usepackage[latin1]{inputenc}    % Pour utiliser les lettres accentu?es
+
+%\usepackage[utf8]{inputenc}%           gestion des accents (source)
+%\usepackage[T1]{fontenc}%              gestion des accents (PDF)
+%\usepackage[francais,english]{babel}%          gestion du fran?ais
+\usepackage{textcomp}%                 caract?res additionnels
+\usepackage{float}
+\usepackage[pdftex]{graphicx}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[english]{varioref}
+\usepackage{fancyhdr}
+\usepackage{color}
+\usepackage{colortbl}
+\usepackage{amsmath}
+\usepackage{ifpdf} % part of the hyperref bundle
+\usepackage{array}
+
+
+%\usepackage{abstract}
+
+
+ % set fonts for nicer pdf view
+ \IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+
+
+\pagestyle{fancy}
+\fancyhead[L]{\nouppercase\leftmark} %pour afficher le nom du chapitre ? gauche
+\fancyhead[C]{}
+\fancyhead[R]{\nouppercase\rightmark} %pour afficher le nom de la section ? droite
+
+
+\fancyfoot[L]{}
+\fancyfoot[C]{}
+\fancyfoot[R]{\textbf{\thepage}}
+\begin{document}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% TITLE PAGE 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{titlepage}
+
+\newcommand{\HRule}{\rule{\linewidth}{0.5mm}}
+
+\center
+
+\begin{minipage}[l]{0.2\columnwidth}
+\includegraphics[width=3cm,height=2cm]{logo_istic.jpg}
+\end{minipage}
+\hfill
+\begin{minipage}[l]{0.5\columnwidth}
+\centering
+\footnotesize
+\textbf{\textsc{Tunisian Republic}}\\
+\textbf{\textsc{Ministry of Higher Education\\
+and Scientific Research}}\\
+\medskip
+\textbf{\textsc{University of Carthage}}\\
+\medskip
+\textbf{\textsc{Higher Institute of Information and Communication Technologies}}
+\end{minipage}
+\hfill
+\begin{minipage}[l]{0.2\columnwidth}
+\includegraphics[width=3cm,height=2cm]{logo_ucar.jpg}
+\end{minipage}
+
+\vskip1cm
+\textsc{\large End-of-Studies Project Report}\\[0.5cm]
+
+\textbf{Submitted in partial fulfillment of the requirements for the degree of}
+
+\textsc{\large Bachelor's Degree in Computer Science}\\[0.5cm]
+
+\textbf{Specialization: Software Engineering and Information Systems}
+
+\vskip1cm
+
+\HRule \\[0.4cm]
+\textcolor{blue}{\LARGE \bfseries Implementation of a BPM platform integrated with a GRC system
+}\\[0.4cm]
+\HRule \\[1cm]
+
+\textit{Presented by}\\
+\textsc{\large Anas Ksiksi And Med Amin Sliti}\\[0.5cm]
+
+Completed within ...\\
+\includegraphics[width=0.2\columnwidth]{vitalis.png}
+
+\vskip1cm
+
+\begin{flushleft}
+Publicly defended on June 6, 2026 before the examination committee composed of:
+\smallskip
+
+Chairperson:\\
+Reviewer:\\
+Examiner:\\
+Industrial Supervisor:\\
+Academic Supervisor:
+\end{flushleft}
+
+\vskip2cm
+{\large Academic Year: 2025--2026}
+
+\vfill
+\end{titlepage}
+\begin{titlepage}
+
+\newcommand{\HRule}{\rule{\linewidth}{0.5mm}} % Defines a new command for the horizontal lines, change thickness here
+
+\center % Center everything on the page
+
+%----------------------------------------------------------------------------------------
+%	HEADING SECTIONS
+%----------------------------------------------------------------------------------------
+
+\begin{minipage}[l]{0.2\columnwidth}
+\includegraphics[width=3cm,height=2cm]{logo_istic.jpg}\\
+\end{minipage}
+\hfill
+\begin{minipage}[l]{0.5\columnwidth}
+\centering
+\footnotesize
+\textbf{\textsc{Tunisian Republic}}\\
+\textbf{\textsc{Ministry of Higher Education\\
+and Scientific Research}}\\
+\medskip
+\textbf{\textsc{University of Carthage}}\\
+\medskip
+\textbf{\textsc{Higher Institute of Information and Communication Technologies}}
+\end{minipage}
+\hfill
+\begin{minipage}[l]{0.2\columnwidth}
+\includegraphics[width=3cm,height=2cm]{logo_ucar.jpg}\\
+\end{minipage}
+
+\vskip1cm
+\textsc{\large End-of-Studies Project Report}\\[0.5cm]
+
+\textbf{Submitted in partial fulfillment of the requirements for the}
+
+\textsc{\large Bachelor's Degree in Computer Science}\\[0.5cm]
+
+\textbf{Specialization: Software Engineering and Information Systems}
+
+\vskip1cm%
+
+%----------------------------------------------------------------------------------------
+%	TITLE SECTION
+%----------------------------------------------------------------------------------------
+
+\HRule \\[0.4cm]
+\textcolor{blue}{ \LARGE \bfseries Implementation of a BPM platform integrated with a GRC system
+}\\[0.4cm]
+\HRule \\[1cm]
+
+\vskip0.5cm%
+\textit{Presented by}\\
+\textsc{\large Anas Ksiksi And Med Amin Sliti}\\[0.5cm]
+\vskip0.5cm%
+
+{Completed within ...}\\
+\includegraphics[width=0.2\columnwidth]{vitalis.png}\\
+
+\vskip1cm
+
+%----------------------------------------------------------------------------------------
+%	SUPERVISOR SECTION
+%----------------------------------------------------------------------------------------
+
+\begin{flushleft}
+\textbf{\textsc{Authorization to Submit the End-of-Studies Project Report:}}\\[0.5cm]
+\vskip0.5cm
+\begin{minipage}[c]{0.3\columnwidth}
+Industrial Supervisor:\\
+\vskip0.5cm
+Date:\\
+\vskip0.5cm
+Signature:\\
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.4\columnwidth}
+Academic Supervisor:\\
+\vskip0.5cm
+Date:\\
+\vskip0.5cm
+Signature:\\
+\end{minipage}
+
+\end{flushleft}
+
+\vfill
+
+\end{titlepage}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\pagenumbering{roman}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{dedications}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{dedications1}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{acknowledgements}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{acknowledgements1}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\tableofcontents
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\listoffigures
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\listoftables
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\pagenumbering{arabic}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{introduction}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{chapter1}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{chapter2}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{chapter3}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{chapter4}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{chapter5}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{netography}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\end{document}

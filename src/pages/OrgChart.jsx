@@ -26,6 +26,7 @@ const CANVAS_PADDING = 72;
 const MIN_ZOOM = 0.22;
 const MAX_ZOOM = 2.4;
 const PAN_MARGIN = 56;
+const NODE_DRAG_THRESHOLD = 10;
 
 const DEFAULT_TYPE_COLOR = '#0f766e';
 const TYPE_META = {
@@ -73,6 +74,15 @@ function formatDate(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeNodePosition(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(numeric));
 }
 
 function matchesSearch(node, term) {
@@ -183,7 +193,7 @@ function buildNodeTrail(nodeId, byId) {
   return trail.reverse();
 }
 
-function buildLayout(nodes) {
+function buildLayout(nodes, { applyManualPositions = true } = {}) {
   const byId = new Map();
   const roots = [];
 
@@ -241,14 +251,19 @@ function buildLayout(nodes) {
   };
   roots.forEach(collect);
 
-  laidOut.forEach((node) => {
-    if (Number.isFinite(Number(node.posX))) {
-      node.left = Number(node.posX);
-    }
-    if (Number.isFinite(Number(node.posY))) {
-      node.top = Number(node.posY);
-    }
-  });
+  if (applyManualPositions) {
+    laidOut.forEach((node) => {
+      const normalizedPosX = normalizeNodePosition(node.posX);
+      const normalizedPosY = normalizeNodePosition(node.posY);
+
+      if (normalizedPosX !== null) {
+        node.left = normalizedPosX;
+      }
+      if (normalizedPosY !== null) {
+        node.top = normalizedPosY;
+      }
+    });
+  }
 
   const minLeft = laidOut.reduce((min, node) => Math.min(min, Number(node.left) || 0), 0);
   const minTop = laidOut.reduce((min, node) => Math.min(min, Number(node.top) || 0), 0);
@@ -438,6 +453,7 @@ export function OrgChart({ publicView = false }) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [boardFullscreen, setBoardFullscreen] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('auto'); // 'auto' | 'manual'
   const boardRef = useRef(null);
   const canvasRef = useRef(null);
   const autoFitEnabledRef = useRef(true);
@@ -515,7 +531,7 @@ export function OrgChart({ publicView = false }) {
   const visibleIds = useMemo(() => buildVisibleIds(scopedNodes, deferredSearch), [scopedNodes, deferredSearch]);
   const visibleNodes = scopedNodes.filter((node) => visibleIds.has(node.id));
   const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
-  const layout = buildLayout(visibleNodes);
+  const layout = buildLayout(visibleNodes, { applyManualPositions: layoutMode === 'manual' });
 
   const constrainPan = useCallback((nextX, nextY, nextZoom = zoomRef.current) => {
     const canvas = canvasRef.current;
@@ -677,19 +693,45 @@ export function OrgChart({ publicView = false }) {
   }, [focusTrail]);
 
   const openCreateModal = (parentNode = null) => {
-    const suggestedType = parentNode
-      ? parentNode.nodeType === 'company'
-        ? 'institute'
-        : parentNode.nodeType === 'institute'
-          ? 'structure'
-          : parentNode.nodeType === 'structure'
-            ? 'manager'
-            : parentNode.nodeType === 'manager'
-              ? 'function'
-              : parentNode.nodeType === 'org_unit'
-                ? 'function'
-                : 'function'
-      : 'company';
+    // Root creation: only one top-level company allowed.
+    if (!parentNode) {
+      const hasCompany = nodes.some((node) => node.nodeType === 'company');
+      if (hasCompany) {
+        showMessage('Only one top-level Company is allowed in the organigram.', 'danger');
+        return;
+      }
+      setCreateForm(toForm(null, {
+        parentId: '',
+        nodeType: 'company',
+        color: nodeMeta('company').color,
+        baseParentId: '',
+        placementMode: 'direct',
+      }));
+      setShowCreateModal(true);
+      return;
+    }
+
+    // A Function cannot have children.
+    if (parentNode.nodeType === 'function') {
+      showMessage('A Function acteur cannot have children.', 'danger');
+      return;
+    }
+
+    // Determine allowed child type based on simple hierarchy rules.
+    let suggestedType = 'structure';
+    if (parentNode.nodeType === 'company') {
+      // Under company: either institute or manager. Prefer institute by default.
+      suggestedType = 'institute';
+    } else if (parentNode.nodeType === 'institute') {
+      // Under institute: only structure.
+      suggestedType = 'structure';
+    } else if (parentNode.nodeType === 'manager') {
+      // Under CEO manager: structure.
+      suggestedType = 'structure';
+    } else if (parentNode.nodeType === 'structure') {
+      // Under structure: allow another structure by default.
+      suggestedType = 'structure';
+    }
 
     const parentIdNum = parentNode?.id ? Number(parentNode.id) : null;
     let lockedPlacementMode = null;
@@ -726,6 +768,37 @@ export function OrgChart({ publicView = false }) {
   const saveSelectedNode = async (event) => {
     event.preventDefault();
     if (!selectedNode) return;
+    // Enforce hierarchy constraints before saving edits.
+    const parentId = inspectorForm.parentId ? Number(inspectorForm.parentId) : null;
+    const parentNode = Number.isInteger(parentId) ? nodes.find((node) => node.id === parentId) || null : null;
+
+    // Company: only one, and must remain at top level.
+    if (inspectorForm.nodeType === 'company') {
+      if (parentNode) {
+        showMessage('Company must stay at the top level (no parent).', 'danger');
+        return;
+      }
+      const otherCompany = nodes.find((node) => node.nodeType === 'company' && node.id !== selectedNode.id);
+      if (otherCompany) {
+        showMessage('Only one Company acteur is allowed.', 'danger');
+        return;
+      }
+    }
+
+    // Institute: can only be under a Company.
+    if (inspectorForm.nodeType === 'institute') {
+      if (!parentNode || parentNode.nodeType !== 'company') {
+        showMessage('An Institute acteur must be directly under a Company.', 'danger');
+        return;
+      }
+    }
+
+    // No children allowed under Function: disallow setting parent to a Function.
+    if (parentNode && parentNode.nodeType === 'function') {
+      showMessage('A Function acteur cannot have children.', 'danger');
+      return;
+    }
+
     setSaving(true);
     try {
       const data = await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'PUT', {
@@ -745,8 +818,47 @@ export function OrgChart({ publicView = false }) {
 
   const createNode = async (event) => {
     event.preventDefault();
+    const parentId = createForm.baseParentId
+      ? Number(createForm.baseParentId)
+      : createForm.parentId
+        ? Number(createForm.parentId)
+        : null;
+    const parentNode = Number.isInteger(parentId) ? nodes.find((node) => node.id === parentId) || null : null;
+
+    // Root creation: only one top-level Company.
+    if (!parentNode) {
+      const hasCompany = nodes.some((node) => node.nodeType === 'company');
+      if (hasCompany) {
+        showMessage('Only one top-level Company is allowed in the organigram.', 'danger');
+        return;
+      }
+      if (createForm.nodeType !== 'company') {
+        showMessage('Top-level acteur must be of type Company.', 'danger');
+        return;
+      }
+    }
+
+    // Company can only exist at top level.
+    if (createForm.nodeType === 'company' && parentNode) {
+      showMessage('Company acteurs can only be created at the top level.', 'danger');
+      return;
+    }
+
+    // Institute can only be under Company.
+    if (createForm.nodeType === 'institute' && (!parentNode || parentNode.nodeType !== 'company')) {
+      showMessage('An Institute acteur must be created directly under a Company.', 'danger');
+      return;
+    }
+
+    // Function cannot have children: disallow creating a child under a Function.
+    if (parentNode && parentNode.nodeType === 'function') {
+      showMessage('A Function acteur cannot have children.', 'danger');
+      return;
+    }
+
     setSaving(true);
     try {
+      setLayoutMode('auto');
       const selectedPlacementMode = createForm.placementMode === 'nested' ? 'nested' : 'direct';
       const data = await persistNode(`${API}/orgchart/nodes`, 'POST', {
         ...createForm,
@@ -800,9 +912,12 @@ export function OrgChart({ publicView = false }) {
   };
 
   const saveNodePosition = async (nodeId, posX, posY) => {
+    const safePosX = normalizeNodePosition(posX) ?? 0;
+    const safePosY = normalizeNodePosition(posY) ?? 0;
+
     setSaving(true);
     try {
-      await persistNode(`${API}/orgchart/nodes/${nodeId}/position`, 'PATCH', { posX, posY });
+      await persistNode(`${API}/orgchart/nodes/${nodeId}/position`, 'PATCH', { posX: safePosX, posY: safePosY });
       showMessage('Organigram updated.');
       await loadOrgChart(true);
       setSelectedId(nodeId);
@@ -876,7 +991,6 @@ export function OrgChart({ publicView = false }) {
 
     event.preventDefault();
     event.stopPropagation();
-    autoFitEnabledRef.current = false;
     nodeDragSessionRef.current = {
       id: node.id,
       pointerId: event.pointerId,
@@ -897,13 +1011,19 @@ export function OrgChart({ publicView = false }) {
 
     const deltaX = event.clientX - session.startX;
     const deltaY = event.clientY - session.startY;
-    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+    if (!session.moved) {
+      if (Math.abs(deltaX) < NODE_DRAG_THRESHOLD && Math.abs(deltaY) < NODE_DRAG_THRESHOLD) {
+        return;
+      }
+
       session.moved = true;
       suppressNodeClickRef.current = true;
+      setLayoutMode('manual');
+      autoFitEnabledRef.current = false;
     }
 
-    const nextX = Math.round(session.originX + (deltaX / zoomRef.current));
-    const nextY = Math.round(session.originY + (deltaY / zoomRef.current));
+    const nextX = normalizeNodePosition(session.originX + (deltaX / zoomRef.current)) ?? 0;
+    const nextY = normalizeNodePosition(session.originY + (deltaY / zoomRef.current)) ?? 0;
 
     setNodes((current) => current.map((currentNode) => (
       currentNode.id === session.id
@@ -924,8 +1044,8 @@ export function OrgChart({ publicView = false }) {
     if (session.moved) {
       await saveNodePosition(
         session.id,
-        Math.round(session.originX + ((event.clientX - session.startX) / zoomRef.current)),
-        Math.round(session.originY + ((event.clientY - session.startY) / zoomRef.current))
+        normalizeNodePosition(session.originX + ((event.clientX - session.startX) / zoomRef.current)) ?? 0,
+        normalizeNodePosition(session.originY + ((event.clientY - session.startY) / zoomRef.current)) ?? 0
       );
       window.setTimeout(() => {
         suppressNodeClickRef.current = false;
@@ -960,6 +1080,22 @@ export function OrgChart({ publicView = false }) {
     } catch (requestError) {
       console.error(requestError);
       showMessage('Fullscreen mode is not available in this browser context.', 'danger');
+    }
+  };
+
+  const applyAutoLayout = async () => {
+    if (!canEdit) return;
+    setSaving(true);
+    try {
+      await persistNode(`${API}/orgchart/positions/clear`, 'POST', {});
+      setLayoutMode('auto');
+      await loadOrgChart(true);
+      showMessage('Auto layout applied.');
+    } catch (requestError) {
+      console.error(requestError);
+      showMessage(requestError.message || 'Failed to apply auto layout.', 'danger');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1009,6 +1145,16 @@ export function OrgChart({ publicView = false }) {
                   <button type="button" onClick={() => handleZoomButton(1)} aria-label="Zoom in">+</button>
                   <button type="button" className="org-zoom__fit" onClick={fitCanvasToViewport}>Fit</button>
                 </div>
+                {canEdit ? (
+                  <Button
+                    variant={layoutMode === 'auto' ? 'secondary' : 'outline-secondary'}
+                    size="sm"
+                    onClick={applyAutoLayout}
+                    disabled={saving}
+                  >
+                    Auto arrange
+                  </Button>
+                ) : null}
                   {canEdit ? (
                     <Button variant="outline-danger" size="sm" onClick={clearOrgChart} disabled={saving}>
                       Clear organigram
