@@ -50,6 +50,7 @@ DB_NAME=maintest
 DB_USER=postgres
 DB_PASSWORD=vitalis
 PORT=3001
+<<<<<<< HEAD
 
 # Email (SMTP) Configuration (optional)
 # If you don't set these, the backend will NOT send emails and will instead log the generated email payload.
@@ -59,6 +60,8 @@ SMTP_SECURE=false
 SMTP_USER=your-smtp-username-or-email
 SMTP_PASS=your-smtp-password-or-app-password
 SMTP_FROM="V-BPM <no-reply@example.com>"
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 ```
 
 ### 3. Initialize the base database

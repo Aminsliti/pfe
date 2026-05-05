@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Row, Table } from 'react-bootstrap';
 import { useSnackbar } from '../../components/SnackbarProvider';
+<<<<<<< HEAD
 import { API, fmt, readApiPayload } from './utils';
+=======
+import { API, fmt, parseWindowsText, readApiPayload, windowsToText } from './utils';
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
 export default function ResourcesTab({ scenario, onScenarioReload }) {
   const { showSnackbar, confirmAction } = useSnackbar();
@@ -12,6 +16,10 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
     quantity: 1,
     cost_per_hour: 0,
     availability: 100,
+<<<<<<< HEAD
+=======
+    availabilityText: '',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   });
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -48,6 +56,10 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
       quantity: 1,
       cost_per_hour: 0,
       availability: 100,
+<<<<<<< HEAD
+=======
+      availabilityText: '',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     });
   };
 
@@ -56,12 +68,23 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
     setError('');
 
     try {
+<<<<<<< HEAD
+=======
+      const payload = {
+        ...form,
+        availability_windows: parseWindowsText(form.availabilityText),
+      };
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       const response = await fetch(
         `${API}/simulations/${scenario.id}/resources${editingId ? `/${editingId}` : ''}`,
         {
           method: editingId ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
+<<<<<<< HEAD
           body: JSON.stringify(form),
+=======
+          body: JSON.stringify(payload),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         },
       );
       await readApiPayload(response, 'Failed to save resource.');
@@ -83,6 +106,10 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
       quantity: Number(resource.quantity) || 1,
       cost_per_hour: Number(resource.cost_per_hour) || 0,
       availability: Number(resource.availability) || 100,
+<<<<<<< HEAD
+=======
+      availabilityText: windowsToText(resource.availability_windows || []),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     });
   };
 
@@ -115,10 +142,14 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
 
       <Card className="border-0 shadow-sm">
         <Card.Body>
+<<<<<<< HEAD
           <h6 className="mb-2">{editingId ? 'Edit resource' : 'Add resource'}</h6>
           <div className="text-muted small mb-3">
             Availability acts as a scalar in the model: `effective duration = nominal duration / availability ratio`.
           </div>
+=======
+          <h6 className="mb-3">{editingId ? 'Edit resource' : 'Add resource'}</h6>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           <Form onSubmit={submit}>
             <Row className="g-3">
               <Col lg={4}>
@@ -155,6 +186,21 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
                   <Form.Control type="number" min={1} max={100} value={form.availability} onChange={(event) => setForm((current) => ({ ...current, availability: Number(event.target.value) }))} />
                 </Form.Group>
               </Col>
+<<<<<<< HEAD
+=======
+              <Col lg={12}>
+                <Form.Group>
+                  <Form.Label>Availability windows</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={3}
+                    value={form.availabilityText}
+                    onChange={(event) => setForm((current) => ({ ...current, availabilityText: event.target.value }))}
+                    placeholder={'08:00-12:00 | 1,2,3,4,5\n13:00-17:00 | 1,2,3,4,5'}
+                  />
+                </Form.Group>
+              </Col>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             </Row>
             <div className="d-flex justify-content-end gap-2 mt-3">
               {editingId && (
@@ -180,13 +226,21 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
                 <th>Quantity</th>
                 <th>Cost/h</th>
                 <th>Availability</th>
+<<<<<<< HEAD
+=======
+                <th>Windows</th>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {resources.length === 0 ? (
                 <tr>
+<<<<<<< HEAD
                   <td colSpan={6} className="text-center text-muted py-4">
+=======
+                  <td colSpan={7} className="text-center text-muted py-4">
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     No resources defined yet.
                   </td>
                 </tr>
@@ -200,6 +254,10 @@ export default function ResourcesTab({ scenario, onScenarioReload }) {
                     <td>{resource.quantity}</td>
                     <td>{fmt(resource.cost_per_hour, 2)}</td>
                     <td>{fmt(resource.availability, 0)}%</td>
+<<<<<<< HEAD
+=======
+                    <td className="text-muted small">{windowsToText(resource.availability_windows || []) || 'Default calendar'}</td>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     <td>
                       <div className="d-flex gap-2">
                         <Button size="sm" variant="outline-secondary" onClick={() => edit(resource)}>

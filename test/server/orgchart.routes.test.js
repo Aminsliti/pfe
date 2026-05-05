@@ -101,6 +101,7 @@ describe('org chart routes', () => {
       { match: 'SELECT id, name, node_type FROM org_chart_nodes ORDER BY id', result: makeResult([{ id: 1, name: 'Organisation', node_type: 'company' }]) },
     ]);
 
+<<<<<<< HEAD
     const createdNode = {
       id: 22,
       parent_id: 1,
@@ -169,6 +170,33 @@ describe('org chart routes', () => {
           }
           return makeResult([createdNode]);
         },
+=======
+    const client = createClientMock([
+      { match: 'SELECT id, full_name, role FROM users WHERE id = $1', result: makeResult([{ id: 9, full_name: 'Ops Lead', role: 'Admin' }]) },
+      { match: 'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM org_chart_nodes WHERE parent_id IS NULL', result: makeResult([{ next_sort: 0 }]) },
+      { match: 'INSERT INTO org_chart_nodes', result: makeResult([{ id: 22 }]) },
+      { match: 'UPDATE org_chart_nodes SET color = $1, updated_at = CURRENT_TIMESTAMP WHERE node_type = $2', result: makeResult([]) },
+      {
+        match: 'FROM org_chart_nodes n LEFT JOIN users u ON u.id = n.user_id WHERE n.id = $1',
+        result: makeResult([{
+          id: 22,
+          parent_id: null,
+          user_id: 9,
+          name: 'Operations Lead',
+          title: 'Head of Ops',
+          node_type: 'division',
+          description: 'Lead role',
+          color: '#2563eb',
+          placement_mode: 'nested',
+          sort_order: 0,
+          is_vacant: false,
+          created_at: '2026-03-01T00:00:00.000Z',
+          updated_at: '2026-03-01T00:00:00.000Z',
+          user_name: 'Ops Lead',
+          user_email: 'lead@pfe.com',
+          user_role: 'Admin',
+        }]),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       },
     ]);
 
@@ -182,7 +210,10 @@ describe('org chart routes', () => {
       nodeType: 'division',
       userId: 9,
       placementMode: 'interne',
+<<<<<<< HEAD
       parentId: 1,
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     });
 
     expect(response.status).toBe(201);

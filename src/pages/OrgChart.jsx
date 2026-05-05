@@ -26,7 +26,10 @@ const CANVAS_PADDING = 72;
 const MIN_ZOOM = 0.22;
 const MAX_ZOOM = 2.4;
 const PAN_MARGIN = 56;
+<<<<<<< HEAD
 const NODE_DRAG_THRESHOLD = 10;
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
 const DEFAULT_TYPE_COLOR = '#0f766e';
 const TYPE_META = {
@@ -76,6 +79,7 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+<<<<<<< HEAD
 function normalizeNodePosition(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -85,6 +89,8 @@ function normalizeNodePosition(value) {
   return Math.max(0, Math.round(numeric));
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function matchesSearch(node, term) {
   if (!term) return true;
   const haystack = [
@@ -193,7 +199,11 @@ function buildNodeTrail(nodeId, byId) {
   return trail.reverse();
 }
 
+<<<<<<< HEAD
 function buildLayout(nodes, { applyManualPositions = true } = {}) {
+=======
+function buildLayout(nodes) {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const byId = new Map();
   const roots = [];
 
@@ -251,6 +261,7 @@ function buildLayout(nodes, { applyManualPositions = true } = {}) {
   };
   roots.forEach(collect);
 
+<<<<<<< HEAD
   if (applyManualPositions) {
     laidOut.forEach((node) => {
       const normalizedPosX = normalizeNodePosition(node.posX);
@@ -264,6 +275,16 @@ function buildLayout(nodes, { applyManualPositions = true } = {}) {
       }
     });
   }
+=======
+  laidOut.forEach((node) => {
+    if (Number.isFinite(Number(node.posX))) {
+      node.left = Number(node.posX);
+    }
+    if (Number.isFinite(Number(node.posY))) {
+      node.top = Number(node.posY);
+    }
+  });
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   const minLeft = laidOut.reduce((min, node) => Math.min(min, Number(node.left) || 0), 0);
   const minTop = laidOut.reduce((min, node) => Math.min(min, Number(node.top) || 0), 0);
@@ -333,11 +354,17 @@ async function parseApiPayload(response, fallbackMessage) {
   return payload;
 }
 
+<<<<<<< HEAD
 function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit', lockedPlacementMode = null }) {
   const scopedParentId = form.baseParentId || form.parentId || '';
   const showPlacementOptions = mode === 'create' && Boolean(scopedParentId);
   const directLocked = lockedPlacementMode === 'direct';
   const nestedLocked = lockedPlacementMode === 'nested';
+=======
+function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit' }) {
+  const scopedParentId = form.baseParentId || form.parentId || '';
+  const showPlacementOptions = mode === 'create' && Boolean(scopedParentId);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   return (
     <div className="org-form-grid">
       <Form.Group>
@@ -396,7 +423,10 @@ function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit', lockedPlac
                 name="org-placement-mode"
                 label="Fils visible sur l'organigramme principal"
                 checked={form.placementMode === 'direct'}
+<<<<<<< HEAD
                 disabled={nestedLocked}
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                 onChange={() => setForm((current) => ({
                   ...current,
                   placementMode: 'direct',
@@ -409,7 +439,10 @@ function OrgNodeFields({ form, setForm, parentOptions, mode = 'edit', lockedPlac
                 name="org-placement-mode"
                 label="Interne (visible apres Expand du parent)"
                 checked={form.placementMode === 'nested'}
+<<<<<<< HEAD
                 disabled={directLocked}
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                 onChange={() => setForm((current) => ({
                   ...current,
                   placementMode: 'nested',
@@ -444,7 +477,10 @@ export function OrgChart({ publicView = false }) {
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [focusedNodeId, setFocusedNodeId] = useState(null);
+<<<<<<< HEAD
   const [focusHistory, setFocusHistory] = useState([]);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const [inspectorForm, setInspectorForm] = useState(EMPTY_FORM);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -454,6 +490,7 @@ export function OrgChart({ publicView = false }) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [boardFullscreen, setBoardFullscreen] = useState(false);
+<<<<<<< HEAD
   const [layoutMode, setLayoutMode] = useState('auto'); // 'auto' | 'manual'
   const [manualNodePositions, setManualNodePositions] = useState({});
   const boardRef = useRef(null);
@@ -461,6 +498,11 @@ export function OrgChart({ publicView = false }) {
   const autoFitEnabledRef = useRef(true);
   const fitCanvasToViewportRef = useRef(null);
   const layoutPositionsRef = useRef(new Map());
+=======
+  const boardRef = useRef(null);
+  const canvasRef = useRef(null);
+  const autoFitEnabledRef = useRef(true);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const zoomRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
   const panSessionRef = useRef(null);
@@ -517,12 +559,15 @@ export function OrgChart({ publicView = false }) {
   }, [focusedNodeId, nodeIndexes]);
 
   useEffect(() => {
+<<<<<<< HEAD
     setFocusHistory((current) => current.filter((entry) => (
       entry === null || nodeIndexes.byId.has(Number(entry))
     )));
   }, [nodeIndexes]);
 
   useEffect(() => {
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     const syncFullscreenState = () => {
       setBoardFullscreen(document.fullscreenElement === boardRef.current);
     };
@@ -541,6 +586,7 @@ export function OrgChart({ publicView = false }) {
   const visibleIds = useMemo(() => buildVisibleIds(scopedNodes, deferredSearch), [scopedNodes, deferredSearch]);
   const visibleNodes = scopedNodes.filter((node) => visibleIds.has(node.id));
   const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+<<<<<<< HEAD
   const positionedVisibleNodes = useMemo(
     () => visibleNodes.map((node) => {
       if (layoutMode !== 'manual') {
@@ -573,6 +619,9 @@ export function OrgChart({ publicView = false }) {
       ])
     );
   }, [layout]);
+=======
+  const layout = buildLayout(visibleNodes);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   const constrainPan = useCallback((nextX, nextY, nextZoom = zoomRef.current) => {
     const canvas = canvasRef.current;
@@ -626,10 +675,13 @@ export function OrgChart({ publicView = false }) {
     setPan(centeredPan);
   }, [boardFullscreen, constrainPan, focusedNodeId, layout.height, layout.width]);
 
+<<<<<<< HEAD
   useEffect(() => {
     fitCanvasToViewportRef.current = fitCanvasToViewport;
   }, [fitCanvasToViewport]);
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const updateZoomAtPoint = useCallback((nextZoom, clientX, clientY) => {
     const canvas = canvasRef.current;
     if (!canvas) {
@@ -654,6 +706,7 @@ export function OrgChart({ publicView = false }) {
       return undefined;
     }
 
+<<<<<<< HEAD
     if (layoutMode === 'manual' && !autoFitEnabledRef.current) {
       return undefined;
     }
@@ -661,12 +714,23 @@ export function OrgChart({ publicView = false }) {
     const runFit = () => {
       if (autoFitEnabledRef.current && !nodeDragSessionRef.current?.moved) {
         fitCanvasToViewportRef.current?.();
+=======
+    autoFitEnabledRef.current = true;
+
+    const runFit = () => {
+      if (autoFitEnabledRef.current) {
+        fitCanvasToViewport();
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       }
     };
 
     const rafId = window.requestAnimationFrame(runFit);
     const resizeObserver = new ResizeObserver(() => {
+<<<<<<< HEAD
       if (autoFitEnabledRef.current && !nodeDragSessionRef.current?.moved) {
+=======
+      if (autoFitEnabledRef.current) {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         window.requestAnimationFrame(runFit);
       }
     });
@@ -677,11 +741,16 @@ export function OrgChart({ publicView = false }) {
       window.cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
     };
+<<<<<<< HEAD
   }, [boardFullscreen, focusedNodeId, layoutMode, loading, visibleNodes.length]);
+=======
+  }, [fitCanvasToViewport, focusedNodeId, loading, visibleNodes.length]);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   const parentOptions = selectedNode
     ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
     : nodes;
+<<<<<<< HEAD
 
   const lockedPlacementModeForCreateParent = useMemo(() => {
     if (!createForm.baseParentId) return null;
@@ -693,6 +762,8 @@ export function OrgChart({ publicView = false }) {
     if (children.some((child) => (child.placementMode || 'direct') === 'direct')) return 'direct';
     return null;
   }, [createForm.baseParentId, nodes]);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const showMessage = (text, variant = 'success') => showSnackbar(text, variant);
 
   const openNodeDetails = (nodeId) => {
@@ -704,6 +775,7 @@ export function OrgChart({ publicView = false }) {
     setShowDetailsModal(true);
   };
 
+<<<<<<< HEAD
   const navigateToFocusedNode = useCallback((nodeId, { rememberCurrent = true, closeModal = false } = {}) => {
     const parsedCurrentId = Number(focusedNodeId);
     const normalizedCurrentId = Number.isInteger(parsedCurrentId) && nodeIndexes.byId.has(parsedCurrentId)
@@ -739,11 +811,14 @@ export function OrgChart({ publicView = false }) {
     }
   }, [focusedNodeId, nodeIndexes]);
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const enterSubOrganization = useCallback((nodeId, { closeModal = false } = {}) => {
     const normalizedNodeId = Number(nodeId);
     if (!Number.isInteger(normalizedNodeId) || !nodeIndexes.byId.has(normalizedNodeId)) {
       return;
     }
+<<<<<<< HEAD
     navigateToFocusedNode(normalizedNodeId, { rememberCurrent: true, closeModal });
   }, [navigateToFocusedNode, nodeIndexes]);
 
@@ -760,10 +835,25 @@ export function OrgChart({ publicView = false }) {
   const goBackFromFocusedNode = useCallback(() => {
     if (!focusHistory.length) {
       autoFitEnabledRef.current = true;
+=======
+
+    autoFitEnabledRef.current = true;
+    setFocusedNodeId(normalizedNodeId);
+    setSelectedId(normalizedNodeId);
+    if (closeModal) {
+      setShowDetailsModal(false);
+    }
+  }, [nodeIndexes]);
+
+  const jumpToFocusedTrailIndex = useCallback((index) => {
+    autoFitEnabledRef.current = true;
+    if (index < 0) {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       setFocusedNodeId(null);
       return;
     }
 
+<<<<<<< HEAD
     const previousFocus = focusHistory[focusHistory.length - 1];
     autoFitEnabledRef.current = true;
     setFocusHistory((current) => current.slice(0, -1));
@@ -834,6 +924,46 @@ export function OrgChart({ publicView = false }) {
       baseParentId: parentNode?.id ? String(parentNode.id) : '',
       placementMode: parentNode?.id ? initialPlacementMode : 'direct',
     }));
+=======
+    const nextNode = focusTrail[index];
+    setFocusedNodeId(nextNode?.id || null);
+  }, [focusTrail]);
+
+  const goBackFromFocusedNode = useCallback(() => {
+    autoFitEnabledRef.current = true;
+    if (focusTrail.length <= 1) {
+      setFocusedNodeId(null);
+      return;
+    }
+
+    setFocusedNodeId(focusTrail[focusTrail.length - 2]?.id || null);
+  }, [focusTrail]);
+
+  const openCreateModal = (parentNode = null) => {
+    const suggestedType = parentNode
+      ? parentNode.nodeType === 'company'
+        ? 'institute'
+        : parentNode.nodeType === 'institute'
+          ? 'structure'
+          : parentNode.nodeType === 'structure'
+            ? 'manager'
+            : parentNode.nodeType === 'manager'
+              ? 'function'
+              : parentNode.nodeType === 'org_unit'
+                ? 'function'
+                : 'function'
+      : 'company';
+
+    setCreateForm(
+      toForm(null, {
+        parentId: parentNode?.id ? String(parentNode.id) : '',
+        nodeType: suggestedType,
+        color: nodeMeta(suggestedType).color,
+        baseParentId: parentNode?.id ? String(parentNode.id) : '',
+        placementMode: parentNode?.id ? 'direct' : 'direct',
+      })
+    );
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     setShowCreateModal(true);
   };
 
@@ -849,6 +979,7 @@ export function OrgChart({ publicView = false }) {
   const saveSelectedNode = async (event) => {
     event.preventDefault();
     if (!selectedNode) return;
+<<<<<<< HEAD
     // Enforce hierarchy constraints before saving edits.
     const parentId = inspectorForm.parentId ? Number(inspectorForm.parentId) : null;
     const parentNode = Number.isInteger(parentId) ? nodes.find((node) => node.id === parentId) || null : null;
@@ -880,6 +1011,8 @@ export function OrgChart({ publicView = false }) {
       return;
     }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     setSaving(true);
     try {
       const data = await persistNode(`${API}/orgchart/nodes/${selectedNode.id}`, 'PUT', {
@@ -899,6 +1032,7 @@ export function OrgChart({ publicView = false }) {
 
   const createNode = async (event) => {
     event.preventDefault();
+<<<<<<< HEAD
     const parentId = createForm.baseParentId
       ? Number(createForm.baseParentId)
       : createForm.parentId
@@ -940,6 +1074,10 @@ export function OrgChart({ publicView = false }) {
     setSaving(true);
     try {
       setLayoutMode('auto');
+=======
+    setSaving(true);
+    try {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       const selectedPlacementMode = createForm.placementMode === 'nested' ? 'nested' : 'direct';
       const data = await persistNode(`${API}/orgchart/nodes`, 'POST', {
         ...createForm,
@@ -954,10 +1092,17 @@ export function OrgChart({ publicView = false }) {
       setShowCreateModal(false);
       await loadOrgChart(true);
       if (data?.placementMode === 'nested') {
+<<<<<<< HEAD
         navigateToFocusedNode(data.parentId ? Number(data.parentId) : null, { rememberCurrent: true });
       } else {
         // Direct children are rendered in the main board scope.
         navigateToFocusedNode(null, { rememberCurrent: true });
+=======
+        setFocusedNodeId(data.parentId ? Number(data.parentId) : null);
+      } else {
+        // Direct children are rendered in the main board scope.
+        setFocusedNodeId(null);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       }
       setSelectedId(data.id);
     } catch (requestError) {
@@ -993,6 +1138,7 @@ export function OrgChart({ publicView = false }) {
   };
 
   const saveNodePosition = async (nodeId, posX, posY) => {
+<<<<<<< HEAD
     const safePosX = normalizeNodePosition(posX) ?? 0;
     const safePosY = normalizeNodePosition(posY) ?? 0;
 
@@ -1009,11 +1155,21 @@ export function OrgChart({ publicView = false }) {
         [nodeId]: { x: safePosX, y: safePosY },
       }));
       showMessage('Organigram updated.');
+=======
+    setSaving(true);
+    try {
+      await persistNode(`${API}/orgchart/nodes/${nodeId}/position`, 'PATCH', { posX, posY });
+      showMessage('Organigram updated.');
+      await loadOrgChart(true);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       setSelectedId(nodeId);
     } catch (requestError) {
       console.error(requestError);
       showMessage(requestError.message || 'Failed to move acteur.', 'danger');
+<<<<<<< HEAD
       await loadOrgChart(true);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     } finally {
       setSaving(false);
     }
@@ -1081,18 +1237,31 @@ export function OrgChart({ publicView = false }) {
 
     event.preventDefault();
     event.stopPropagation();
+<<<<<<< HEAD
     const manualPosition = manualNodePositions[node.id];
+=======
+    autoFitEnabledRef.current = false;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     nodeDragSessionRef.current = {
       id: node.id,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+<<<<<<< HEAD
       originX: manualPosition?.x ?? (Number.isFinite(Number(node.posX)) ? Number(node.posX) : node.left),
       originY: manualPosition?.y ?? (Number.isFinite(Number(node.posY)) ? Number(node.posY) : node.top),
       moved: false,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }, [canEdit, manualNodePositions]);
+=======
+      originX: Number.isFinite(Number(node.posX)) ? Number(node.posX) : node.left,
+      originY: Number.isFinite(Number(node.posY)) ? Number(node.posY) : node.top,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }, [canEdit]);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   const handleNodePointerMove = useCallback((event) => {
     const session = nodeDragSessionRef.current;
@@ -1102,6 +1271,7 @@ export function OrgChart({ publicView = false }) {
 
     const deltaX = event.clientX - session.startX;
     const deltaY = event.clientY - session.startY;
+<<<<<<< HEAD
 
     if (!session.moved) {
       if (Math.abs(deltaX) < NODE_DRAG_THRESHOLD && Math.abs(deltaY) < NODE_DRAG_THRESHOLD) {
@@ -1139,6 +1309,22 @@ export function OrgChart({ publicView = false }) {
       return nextPositions;
     });
   }, [visibleNodeIds]);
+=======
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+      session.moved = true;
+      suppressNodeClickRef.current = true;
+    }
+
+    const nextX = Math.round(session.originX + (deltaX / zoomRef.current));
+    const nextY = Math.round(session.originY + (deltaY / zoomRef.current));
+
+    setNodes((current) => current.map((currentNode) => (
+      currentNode.id === session.id
+        ? { ...currentNode, posX: nextX, posY: nextY }
+        : currentNode
+    )));
+  }, []);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   const handleNodePointerUp = useCallback(async (event) => {
     const session = nodeDragSessionRef.current;
@@ -1152,8 +1338,13 @@ export function OrgChart({ publicView = false }) {
     if (session.moved) {
       await saveNodePosition(
         session.id,
+<<<<<<< HEAD
         normalizeNodePosition(session.originX + ((event.clientX - session.startX) / zoomRef.current)) ?? 0,
         normalizeNodePosition(session.originY + ((event.clientY - session.startY) / zoomRef.current)) ?? 0
+=======
+        Math.round(session.originX + ((event.clientX - session.startX) / zoomRef.current)),
+        Math.round(session.originY + ((event.clientY - session.startY) / zoomRef.current))
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       );
       window.setTimeout(() => {
         suppressNodeClickRef.current = false;
@@ -1191,6 +1382,7 @@ export function OrgChart({ publicView = false }) {
     }
   };
 
+<<<<<<< HEAD
   const applyAutoLayout = async () => {
     if (!canEdit) return;
     setSaving(true);
@@ -1234,6 +1426,8 @@ export function OrgChart({ publicView = false }) {
     }
   };
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   return (
     <Container fluid className="org-page">
       {error && <Alert variant="danger">{error}</Alert>}
@@ -1255,6 +1449,7 @@ export function OrgChart({ publicView = false }) {
                   <button type="button" onClick={() => handleZoomButton(1)} aria-label="Zoom in">+</button>
                   <button type="button" className="org-zoom__fit" onClick={fitCanvasToViewport}>Fit</button>
                 </div>
+<<<<<<< HEAD
                 {canEdit ? (
                   <Button
                     variant={layoutMode === 'auto' ? 'secondary' : 'outline-secondary'}
@@ -1270,6 +1465,8 @@ export function OrgChart({ publicView = false }) {
                       Clear organigram
                     </Button>
                   ) : null}
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                 <Button variant="outline-secondary" className="org-fullscreen-btn" onClick={toggleBoardFullscreen}>
                   <i className={`bi ${boardFullscreen ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'} me-2`}></i>
                   {boardFullscreen ? 'Exit full screen' : 'Full screen'}
@@ -1530,7 +1727,10 @@ export function OrgChart({ publicView = false }) {
               setForm={setCreateForm}
               parentOptions={nodes}
               mode="create"
+<<<<<<< HEAD
               lockedPlacementMode={lockedPlacementModeForCreateParent}
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             />
             <div className="org-modal__actions">
               <Button variant="outline-secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>

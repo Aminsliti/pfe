@@ -48,6 +48,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+<<<<<<< HEAD
 function buildDownloadNameBase(name, fallbackValue = 'process') {
   const resolved = String(name || fallbackValue || 'process')
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
@@ -57,6 +58,8 @@ function buildDownloadNameBase(name, fallbackValue = 'process') {
   return resolved || fallbackValue || 'process';
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function normalizeInteger(value, fallbackValue = null) {
   if (value === undefined) return fallbackValue;
   if (value === null || value === '') return null;
@@ -89,6 +92,7 @@ function normalizeManualData(value) {
     }
     return [];
   };
+<<<<<<< HEAD
   const normalizeRowList = (entry, fields = []) => {
     if (!Array.isArray(entry)) {
       return [];
@@ -112,6 +116,8 @@ function normalizeManualData(value) {
       })
       .filter(Boolean);
   };
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   return {
     code: normalizeText(source.code),
@@ -127,6 +133,7 @@ function normalizeManualData(value) {
     support_systems: normalizeTextList(source.support_systems || source.supportSystems),
     support_documents: normalizeTextList(source.support_documents || source.supportDocuments),
     support_data: normalizeTextList(source.support_data || source.supportData),
+<<<<<<< HEAD
     workflow_notes: normalizeTextList(source.workflow_notes || source.workflowNotes),
     raci_responsible: normalizeTextList(source.raci_responsible || source.raciResponsible),
     raci_accountable: normalizeTextList(source.raci_accountable || source.raciAccountable),
@@ -137,6 +144,8 @@ function normalizeManualData(value) {
     support_document_details: normalizeRowList(source.support_document_details || source.supportDocumentDetails, ['name', 'type', 'generated_by', 'output_of', 'version']),
     support_system_details: normalizeRowList(source.support_system_details || source.supportSystemDetails, ['name', 'role']),
     risk_details: normalizeRowList(source.risk_details || source.riskDetails, ['title', 'severity', 'status', 'category', 'element', 'description', 'mitigation']),
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   };
 }
 
@@ -952,6 +961,7 @@ function buildWorkflowNotificationMessage(baseMessage, comment) {
   return comment ? `${baseMessage} Comment: ${comment}` : baseMessage;
 }
 
+<<<<<<< HEAD
 async function notifyAssignedProcessManagers({
   actor,
   process,
@@ -981,6 +991,8 @@ async function notifyAssignedProcessManagers({
     severity,
   });
 }
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function cleanupUploadedFile(file) {
   if (file?.path && fs.existsSync(file.path)) {
     fs.unlinkSync(file.path);
@@ -1401,6 +1413,7 @@ router.post('/processes', async (req, res) => {
       },
     });
 
+<<<<<<< HEAD
     await notifyAssignedProcessManagers({
       actor: req.user,
       process,
@@ -1410,6 +1423,8 @@ router.post('/processes', async (req, res) => {
       message: `${process.name} has been assigned to you in process management.`,
       severity: 'info',
     });
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     res.status(201).json(serializeProcessRecord(process));
   } catch (error) {
     console.error('Create process error:', error);
@@ -1502,10 +1517,13 @@ router.put('/processes/:id', async (req, res) => {
         ? bpmn_xml
         : (currentProcess.bpmn_xml || buildDefaultBpmnXml(nextName));
     const nextVersion = normalizeInteger(currentProcess.version, 1) || 1;
+<<<<<<< HEAD
     const previousValidatorIds = getAssignedValidatorIds(currentProcess);
     const nextValidatorIds = governanceAssignments.assignedValidatorIds;
     const newlyAssignedValidatorIds = nextValidatorIds.filter((id) => !previousValidatorIds.includes(id));
     const unchangedValidatorIds = nextValidatorIds.filter((id) => previousValidatorIds.includes(id));
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
     const updateResult = await pool.query(
       `
@@ -1577,6 +1595,7 @@ router.put('/processes/:id', async (req, res) => {
       },
     });
 
+<<<<<<< HEAD
     if (newlyAssignedValidatorIds.length) {
       await notifyAssignedProcessManagers({
         actor: req.user,
@@ -1598,6 +1617,8 @@ router.put('/processes/:id', async (req, res) => {
       message: buildWorkflowNotificationMessage(`${updatedProcess.name} was updated in process management.`, change_description),
       severity: 'info',
     });
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     res.json(serializeProcessRecord(updatedProcess));
   } catch (error) {
     console.error('Update process error:', error);
@@ -1791,6 +1812,7 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       },
     });
 
+<<<<<<< HEAD
     await notifyAssignedProcessManagers({
       actor: req.user,
       process: importedProcess,
@@ -1800,6 +1822,8 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       message: `${importedProcess.name} has been assigned to you in process management.`,
       severity: 'info',
     });
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     cleanupUploadedFile(req.file);
     res.status(201).json(serializeProcessRecord(importedProcess));
   } catch (error) {
@@ -1837,9 +1861,14 @@ router.get('/processes/:id/export', async (req, res) => {
         return;
       }
 
+<<<<<<< HEAD
       const filenameBase = buildDownloadNameBase(row.name, `process-${req.params.id}`);
       res.setHeader('Content-Type', 'application/xml');
       res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} v${row.version_number}.bpmn"`);
+=======
+      res.setHeader('Content-Type', 'application/xml');
+      res.setHeader('Content-Disposition', `attachment; filename="${row.name}_v${row.version_number}.bpmn"`);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       return res.send(row.bpmn_xml);
     }
 
@@ -1852,9 +1881,14 @@ router.get('/processes/:id/export', async (req, res) => {
       return;
     }
 
+<<<<<<< HEAD
     const filenameBase = buildDownloadNameBase(process.name, `process-${process.id}`);
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.bpmn"`);
+=======
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${process.name}.bpmn"`);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     res.send(process.bpmn_xml);
   } catch (error) {
     console.error('Export BPMN error:', error);
@@ -1926,7 +1960,15 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
   };
   const explanation = buildProcessExplanation(reportProcess, workflow);
   const manual = buildProcedureManual(reportProcess, workflow, explanation);
+<<<<<<< HEAD
   const filenameBase = buildDownloadNameBase(process.name, `process-${process.id}`);
+=======
+  const filenameBase =
+    String(process.name || `process-${process.id}`)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `process-${process.id}`;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   if (format === 'json') {
     res.json({
@@ -1938,20 +1980,32 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
 
   if (format === 'pdf') {
     res.setHeader('Content-Type', 'application/pdf');
+<<<<<<< HEAD
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} - manuel de procedure.pdf"`);
+=======
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.pdf"`);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     res.send(buildProcessReportPdf(reportProcess, explanation, { diagramImageDataUrl, workflow }));
     return;
   }
 
   if (format === 'docx' || format === 'word') {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+<<<<<<< HEAD
     res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} - manuel de procedure.docx"`);
+=======
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.docx"`);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     res.send(await buildProcessReportDocx(reportProcess, explanation, { diagramImageDataUrl, workflow }));
     return;
   }
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+<<<<<<< HEAD
   res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} - manuel de procedure.html"`);
+=======
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.html"`);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   res.send(buildProcessReportHtml(reportProcess, explanation, { diagramImageDataUrl, workflow }));
 }
 

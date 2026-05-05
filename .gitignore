@@ -12,11 +12,14 @@ dist
 dist-ssr
 *.local
 
+<<<<<<< HEAD
 # Environment files (secrets)
 .env
 .env.*
 !.env.example
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

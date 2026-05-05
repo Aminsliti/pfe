@@ -94,7 +94,11 @@ function ActiveScenarioView({
             </Badge>
           </div>
           <div className="text-muted mt-2">
+<<<<<<< HEAD
             {activeScenario.description || 'Configure instance counts, resource assumptions, and analytical runs for this scenario.'}
+=======
+            {activeScenario.description || 'Configure calendars, SLAs, arrivals, and advanced analysis for this scenario.'}
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           </div>
         </div>
 
@@ -313,7 +317,11 @@ export default function SimulationWorkbench() {
         <div>
           <h1 className="mb-2">Simulation Workbench</h1>
           <div className="text-muted">
+<<<<<<< HEAD
             Build mathematical simulation scenarios with queueing metrics, Monte Carlo analysis, capacity experiments, and polished reports.
+=======
+            Build advanced scenarios with calendars, SLAs, Monte Carlo analysis, staffing plans, and polished reports.
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           </div>
         </div>
         <Button variant="danger" onClick={() => setShowCreate(true)}>
@@ -403,7 +411,11 @@ export default function SimulationWorkbench() {
                       {scenario.monte_carlo_runs || 1} Monte Carlo run(s)
                     </Badge>
                     <Badge bg="light" text="dark">
+<<<<<<< HEAD
                       Mathematical model
+=======
+                      {scenario.import_csv_arrivals ? 'CSV arrivals' : 'Generated arrivals'}
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     </Badge>
                   </div>
 
@@ -424,7 +436,11 @@ export default function SimulationWorkbench() {
                     </div>
                   ) : (
                     <div className="text-muted small mb-3">
+<<<<<<< HEAD
                       Run this scenario to generate KPI distributions, queueing metrics, heatmaps, and analytical summaries.
+=======
+                      Run this scenario to generate KPIs, heatmaps, and advanced analysis.
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     </div>
                   )}
 

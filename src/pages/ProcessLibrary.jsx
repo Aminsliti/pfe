@@ -4,12 +4,18 @@ import { Modal } from 'react-bootstrap';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 import { API_BASE } from '../utils/api';
+<<<<<<< HEAD
 import { useAuth, ROLES } from '../contexts/AuthContext';
 import { useSnackbar } from '../components/SnackbarProvider';
 
 const API = API_BASE;
 const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
 const BpmnEditorModeler = lazy(() => import('../components/BpmnEditor/BpmnEditorModeler'));
+=======
+
+const API = API_BASE;
+const BpmnProcessPreview = lazy(() => import('../components/BpmnEditor/BpmnProcessPreview'));
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
 const SECTION_CONFIG = {
   pilotage: {
@@ -498,6 +504,7 @@ function ProcessBranchView({ process, children, onOpenProcess, onBack, publicVie
   );
 }
 
+<<<<<<< HEAD
 function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null }) {
   const { user, hasAnyRole } = useAuth();
   const { showSnackbar } = useSnackbar();
@@ -506,6 +513,12 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
   const [showDiagramModal, setShowDiagramModal] = useState(false);
   const [bpmnTarget, setBpmnTarget] = useState(null);
   const [exportBusy, setExportBusy] = useState('');
+=======
+function ProcessLeafView({ process, onBack }) {
+  const status = getStatusMeta(process.status);
+  const [previewRootElementId, setPreviewRootElementId] = useState(null);
+  const [showDiagramModal, setShowDiagramModal] = useState(false);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const subprocesses = useMemo(() => getBpmnSubprocesses(process.bpmn_xml), [process.bpmn_xml]);
   const previewTrail = useMemo(
     () => buildBpmnSubprocessTrail(subprocesses, previewRootElementId),
@@ -522,6 +535,7 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
     }
   }, [previewRootElementId, subprocesses]);
 
+<<<<<<< HEAD
   const buildEditorRootProcess = (p) => ({
     id: p?.id,
     name: p?.name || 'Process',
@@ -786,6 +800,8 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
     );
   }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   return (
     <section className="card border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
       <div className="card-body p-4 d-flex flex-column gap-4">
@@ -889,6 +905,7 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
 
       <Modal show={showDiagramModal} onHide={() => setShowDiagramModal(false)} size="xl" centered>
         <Modal.Header closeButton>
+<<<<<<< HEAD
           <Modal.Title>Process Details</Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -1057,6 +1074,17 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
                   </div>
                 </div>
               </div>
+=======
+          <Modal.Title>{process.name}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="d-flex flex-column gap-3">
+            <div className="text-muted">{process.description || 'Aucune description disponible pour ce processus.'}</div>
+            <div className="border rounded-4 bg-white p-3 shadow-sm">
+              <Suspense fallback={<div className="text-center py-5 text-muted">Rendu du diagramme BPMN...</div>}>
+                <BpmnProcessPreview xml={process.bpmn_xml} rootElementId={previewRootElementId} />
+              </Suspense>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             </div>
           </div>
         </Modal.Body>
@@ -1309,7 +1337,11 @@ export default function ProcessLibrary({ publicView = false }) {
               publicView={publicView}
             />
           ) : (
+<<<<<<< HEAD
             <ProcessLeafView process={currentProcess} onBack={goBack} publicView={publicView} onRefresh={loadLibrary} />
+=======
+            <ProcessLeafView process={currentProcess} onBack={goBack} />
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           )
         ) : !hasRootContent ? (
           <div className="card border-0 shadow-sm text-center text-muted" style={{ borderRadius: 28 }}>

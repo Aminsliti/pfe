@@ -231,8 +231,13 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
             <Card.Body>
               <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                 <div>
+<<<<<<< HEAD
                   <h6 className="mb-1">Mathematical explanation</h6>
                   <div className="text-muted small">Formula-based interpretation of the model inputs, observed metrics, bottlenecks, and capacity implications.</div>
+=======
+                  <h6 className="mb-1">Scenario explanation</h6>
+                  <div className="text-muted small">Readable interpretation of the scenario setup, performance, bottlenecks, and planning implications.</div>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                 </div>
                 <Button variant="outline-secondary" size="sm" onClick={() => setExplanationRefreshKey((value) => value + 1)} disabled={explanationLoading}>
                   {explanationLoading ? 'Refreshing...' : 'Refresh'}
@@ -280,7 +285,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
               ['P95', `${fmt(results.p95_duration_min)} min`, 'danger'],
               ['Total cost', `${fmt(results.total_cost, 2)} EUR`, 'success'],
               ['Late instances', `${results.late_instances ?? 0}`, 'warning'],
+<<<<<<< HEAD
               ['Active instances', `${results.active_instances ?? 0}`, 'secondary'],
+=======
+              ['Arrival source', results.arrival_source || '-', 'secondary'],
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
               ['Monte Carlo', `${scenario.monte_carlo_runs || 1} run(s)`, 'dark'],
             ].map(([label, value, color]) => (
               <Col sm={6} xl={2} key={label}>
@@ -318,7 +327,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
               <Card className="border-0 shadow-sm h-100">
                 <Card.Body>
                   <div className="d-flex justify-content-between align-items-center mb-3">
+<<<<<<< HEAD
                     <h6 className="mb-0">Task metrics and SLA</h6>
+=======
+                    <h6 className="mb-0">Task performance and SLA</h6>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     <Badge bg={results.sla_summary?.late_instance_rate > 0 ? 'warning' : 'success'}>
                       {fmt(results.sla_summary?.late_instance_rate, 1)}% late
                     </Badge>
@@ -329,7 +342,12 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                         <tr>
                           <th>Task</th>
                           <th>Avg duration</th>
+<<<<<<< HEAD
                           <th>Avg wait</th>
+=======
+                          <th>Queue wait</th>
+                          <th>Calendar wait</th>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                           <th>SLA target</th>
                           <th>Breach rate</th>
                           <th>Cost</th>
@@ -338,7 +356,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                       <tbody>
                         {taskResults.length === 0 ? (
                           <tr>
+<<<<<<< HEAD
                             <td colSpan={6} className="text-center text-muted py-4">
+=======
+                            <td colSpan={7} className="text-center text-muted py-4">
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                               No task results available.
                             </td>
                           </tr>
@@ -350,7 +372,12 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                                 <div className="text-muted small">{task.executions} execution(s)</div>
                               </td>
                               <td>{fmt(task.avg_duration)} min</td>
+<<<<<<< HEAD
                               <td>{fmt(task.avg_wait_min)} min</td>
+=======
+                              <td>{fmt(task.avg_queue_wait_min)} min</td>
+                              <td>{fmt(task.avg_calendar_wait_min)} min</td>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                               <td>{task.sla_target_min ? `${fmt(task.sla_target_min)} min` : '-'}</td>
                               <td>
                                 <Badge bg={(task.sla_breach_rate || 0) > 0 ? 'warning' : 'success'}>
@@ -373,7 +400,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                 <Card.Body>
                   <div className="d-flex justify-content-between align-items-center mb-3">
                     <h6 className="mb-0">Resource utilisation</h6>
+<<<<<<< HEAD
                     <div className="text-muted small">Computed as busy time divided by theoretical capacity.</div>
+=======
+                    <div className="text-muted small">Calendars and windows applied</div>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                   </div>
                   {resourceResults.length === 0 ? (
                     <div className="text-muted small">No resource data available.</div>
@@ -399,9 +430,15 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                           </div>
                           <div className="row g-2 small text-muted">
                             <div className="col-6">Busy: {fmt(resource.total_busy_min)} min</div>
+<<<<<<< HEAD
                             <div className="col-6">Capacity: {fmt(resource.theoretical_capacity_min)} min</div>
                             <div className="col-6">Queue wait: {fmt(resource.avg_queue_wait_min)} min</div>
                             <div className="col-6">Avg wait: {fmt(resource.avg_wait_min)} min</div>
+=======
+                            <div className="col-6">Capacity: {fmt(resource.capacity_window_min)} min</div>
+                            <div className="col-6">Queue wait: {fmt(resource.avg_queue_wait_min)} min</div>
+                            <div className="col-6">Calendar wait: {fmt(resource.avg_calendar_wait_min)} min</div>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                           </div>
                         </div>
                       ))}
@@ -416,7 +453,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
             <Card.Body>
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h6 className="mb-0">Bottlenecks</h6>
+<<<<<<< HEAD
                 <div className="text-muted small">Largest delay, utilisation, and breach signals in the run.</div>
+=======
+                <div className="text-muted small">Slow steps, overloads, and SLA breaches</div>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
               </div>
               {bottlenecks.length === 0 ? (
                 <div className="text-muted small">No bottlenecks detected in this run.</div>
@@ -429,7 +470,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                           <Badge bg="light" text="dark">
                             {item.type}
                           </Badge>
+<<<<<<< HEAD
                           <Badge className={`badge-risk-${item.severity || 'low'}`}>
+=======
+                          <Badge bg={item.severity === 'high' ? 'danger' : item.severity === 'medium' ? 'warning' : 'secondary'}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                             {item.severity || 'low'}
                           </Badge>
                         </div>
@@ -646,7 +691,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                   <div className="d-flex justify-content-between align-items-center mb-3">
                     <div>
                       <h6 className="mb-1">Resource planning</h6>
+<<<<<<< HEAD
                       <div className="text-muted small">Recommend extra capacity to hit a target cycle time.</div>
+=======
+                      <div className="text-muted small">Recommend extra capacity to hit a target SLA.</div>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     </div>
                     <div className="d-flex gap-2">
                       <InputGroup size="sm" style={{ width: 190 }}>
@@ -667,7 +716,11 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
 
                   {!planning ? (
                     <Alert variant="light" className="mb-0">
+<<<<<<< HEAD
                       Enter a target cycle time to compute capacity recommendations.
+=======
+                      Enter a target cycle time to compute staffing recommendations.
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     </Alert>
                   ) : (
                     <div className="d-flex flex-column gap-3">

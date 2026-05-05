@@ -2,7 +2,11 @@ import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../components/SnackbarProvider';
+<<<<<<< HEAD
 import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown, Accordion } from 'react-bootstrap';
+=======
+import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown } from 'react-bootstrap';
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 import { API_BASE } from '../utils/api';
@@ -30,6 +34,7 @@ const DEFAULT_MANUAL_DATA = {
   support_systems: [],
   support_documents: [],
   support_data: [],
+<<<<<<< HEAD
   workflow_notes: [],
   raci_responsible: [],
   raci_accountable: [],
@@ -58,6 +63,9 @@ const MANUAL_SECTION_CHOICES = [
   { key: 'kpis', label: '5.1 Matrice KPI' },
   { key: 'risks', label: '5.2 Matrice des risques' },
 ];
+=======
+};
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
 function ModelerFallback() {
   return (
@@ -89,6 +97,7 @@ function replaceExtension(filename, nextExtension) {
   return safe.replace(/\.[^./\\]+$/i, nextExtension);
 }
 
+<<<<<<< HEAD
 function buildProcessDownloadBase(process, fallbackValue = 'process') {
   const resolved = String(process?.name || fallbackValue || 'process')
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
@@ -98,6 +107,8 @@ function buildProcessDownloadBase(process, fallbackValue = 'process') {
   return resolved || fallbackValue || 'process';
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     if (!(blob instanceof Blob)) {
@@ -237,6 +248,7 @@ function normalizeManualList(value) {
   return [];
 }
 
+<<<<<<< HEAD
 function normalizeManualRecordList(value, fields = []) {
   if (!Array.isArray(value)) {
     return [];
@@ -261,6 +273,8 @@ function normalizeManualRecordList(value, fields = []) {
     .filter(Boolean);
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function normalizeManualDataForForm(value = null) {
   const source = value && typeof value === 'object' ? value : {};
 
@@ -278,6 +292,7 @@ function normalizeManualDataForForm(value = null) {
     support_systems: normalizeManualList(source.support_systems || source.supportSystems),
     support_documents: normalizeManualList(source.support_documents || source.supportDocuments),
     support_data: normalizeManualList(source.support_data || source.supportData),
+<<<<<<< HEAD
     workflow_notes: normalizeManualList(source.workflow_notes || source.workflowNotes),
     raci_responsible: normalizeManualList(source.raci_responsible || source.raciResponsible),
     raci_accountable: normalizeManualList(source.raci_accountable || source.raciAccountable),
@@ -288,6 +303,8 @@ function normalizeManualDataForForm(value = null) {
     support_document_details: normalizeManualRecordList(source.support_document_details || source.supportDocumentDetails, ['name', 'type', 'generated_by', 'output_of', 'version']),
     support_system_details: normalizeManualRecordList(source.support_system_details || source.supportSystemDetails, ['name', 'role']),
     risk_details: normalizeManualRecordList(source.risk_details || source.riskDetails, ['title', 'severity', 'status', 'category', 'element', 'description', 'mitigation']),
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   };
 }
 
@@ -295,6 +312,7 @@ function manualListToTextarea(value) {
   return normalizeManualList(value).join('\n');
 }
 
+<<<<<<< HEAD
 function formatManualPreviewCellValue(value) {
   if (Array.isArray(value)) {
     return value.join(', ');
@@ -450,6 +468,8 @@ function ManualStructuredRowsEditor({
   );
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function normalizeCategorySection(value, fallbackValue = DEFAULT_PROCESS_SECTION) {
   const normalized = String(value || '').trim().toLowerCase();
   return PROCESS_SECTION_CONFIG.some((section) => section.key === normalized) ? normalized : fallbackValue;
@@ -517,6 +537,7 @@ function buildWorkflowJourney(workflowInfo, currentStatus) {
   ];
 }
 
+<<<<<<< HEAD
 function formatProcessMetaDate(value) {
   try {
     return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-';
@@ -525,6 +546,8 @@ function formatProcessMetaDate(value) {
   }
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 export function ProcessManagement({ publicView = false }) {
   const { user, hasPermission, hasRole, ROLES } = useAuth();
   const { showSnackbar, confirmAction } = useSnackbar();
@@ -578,8 +601,11 @@ export function ProcessManagement({ publicView = false }) {
   const [governanceOptions, setGovernanceOptions] = useState({ designers: [], validators: [] });
   const [governanceLoading, setGovernanceLoading] = useState(false);
   const [processDetail, setProcessDetail] = useState(null);
+<<<<<<< HEAD
   const [manualPreview, setManualPreview] = useState(null);
   const [manualPreviewLoading, setManualPreviewLoading] = useState(false);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const [workflowInfo, setWorkflowInfo] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [workflowComment, setWorkflowComment] = useState('');
@@ -591,8 +617,11 @@ export function ProcessManagement({ publicView = false }) {
   const [templates, setTemplates] = useState([]);
   const [applyingTemplateId, setApplyingTemplateId] = useState(null);
   const [previewRootElementId, setPreviewRootElementId] = useState(null);
+<<<<<<< HEAD
   const [activeProcessDetailPanel, setActiveProcessDetailPanel] = useState('');
   const [expandedManualSections, setExpandedManualSections] = useState([]);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const fileInputRef = useRef(null);
   const openingProcessRef = useRef(null);
   const syncedProcessParamRef = useRef(null);
@@ -766,6 +795,7 @@ export function ProcessManagement({ publicView = false }) {
     updateManualDataField(key, normalizeManualList(value));
   };
 
+<<<<<<< HEAD
   const updateManualDataRecordField = (key, rowIndex, field, value) => {
     setFormData((current) => {
       const manualData = normalizeManualDataForForm(current.manual_data);
@@ -1206,6 +1236,8 @@ export function ProcessManagement({ publicView = false }) {
     </div>
   );
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const loadProcesses = async () => {
     if (!canViewWorkspace) return;
     setLoading(true);
@@ -1361,18 +1393,26 @@ export function ProcessManagement({ publicView = false }) {
 
   const hydrateProcessDetail = async (processId) => {
     setDetailLoading(true);
+<<<<<<< HEAD
     setManualPreviewLoading(true);
     try {
       const [detailResponse, workflowResponse, manualResponse] = await Promise.all([
         fetch(`${API}/processes/${processId}`),
         fetch(`${API}/processes/${processId}/workflow`),
         fetch(`${API}/processes/${processId}/manual?format=json`),
+=======
+    try {
+      const [detailResponse, workflowResponse] = await Promise.all([
+        fetch(`${API}/processes/${processId}`),
+        fetch(`${API}/processes/${processId}/workflow`),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       ]);
 
       if (!detailResponse.ok) {
         throw new Error('Failed to load process detail');
       }
 
+<<<<<<< HEAD
       const [detail, workflow, manualPayload] = await Promise.all([
         detailResponse.json(),
         workflowResponse.ok ? workflowResponse.json() : Promise.resolve(null),
@@ -1381,6 +1421,12 @@ export function ProcessManagement({ publicView = false }) {
       setProcessDetail(detail);
       setWorkflowInfo(workflow);
       setManualPreview(manualPayload?.manual || null);
+=======
+      const detail = await detailResponse.json();
+      const workflow = workflowResponse.ok ? await workflowResponse.json() : null;
+      setProcessDetail(detail);
+      setWorkflowInfo(workflow);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       setVersionSelection((previous) => ({
         fromVersion: previous.fromVersion || String(detail.versions?.[1]?.version_number || detail.versions?.[0]?.version_number || ''),
         toVersion: previous.toVersion || String(detail.versions?.[0]?.version_number || ''),
@@ -1388,7 +1434,10 @@ export function ProcessManagement({ publicView = false }) {
       return detail;
     } finally {
       setDetailLoading(false);
+<<<<<<< HEAD
       setManualPreviewLoading(false);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     }
   };
 
@@ -1430,13 +1479,19 @@ export function ProcessManagement({ publicView = false }) {
     const resolvedCategoryId = defaultCategoryId || (categoryOptions.length === 1 ? String(categoryOptions[0].id) : '');
     setEditingProcess(null);
     setProcessDetail(null);
+<<<<<<< HEAD
     setManualPreview(null);
     setManualPreviewLoading(false);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     setWorkflowInfo(null);
     setWorkflowComment('');
     setVersionDiff(null);
     setVersionSelection({ fromVersion: '', toVersion: '' });
+<<<<<<< HEAD
     setActiveProcessDetailPanel('');
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     setFormData({
       name: '',
       description: '',
@@ -1491,7 +1546,11 @@ export function ProcessManagement({ publicView = false }) {
     }
 
     const activeProcessId = Number(processDetail?.id || editingProcess?.id || 0);
+<<<<<<< HEAD
     if (!showModal && activeProcessId === processId) {
+=======
+    if (showModal && activeProcessId === processId) {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       lastOpenedProcessRef.current = { id: processId, at: openAttemptTime };
       return;
     }
@@ -1513,9 +1572,13 @@ export function ProcessManagement({ publicView = false }) {
     setVersionDiff(null);
     setWorkflowInfo(null);
     setProcessDetail(null);
+<<<<<<< HEAD
     setManualPreview(null);
     setActiveProcessDetailPanel('');
     setShowModal(false);
+=======
+    setShowModal(true);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     try {
       const detail = await hydrateProcessDetail(processId);
       applyProcessForm(detail);
@@ -1604,6 +1667,7 @@ export function ProcessManagement({ publicView = false }) {
       return next;
     });
     loadProcesses();
+<<<<<<< HEAD
 
     // Keep the manual preview in sync with BPMN edits (e.g., risks added/changed in the diagram).
     // Otherwise users must click "Save metadata" to see the regenerated matrices.
@@ -1615,6 +1679,8 @@ export function ProcessManagement({ publicView = false }) {
     } catch {
       // Non-blocking: the diagram save succeeded; preview refresh failure should not break saving.
     }
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   };
 
   const handleBpmnImportExisting = async (processId) => {
@@ -1921,11 +1987,16 @@ export function ProcessManagement({ publicView = false }) {
     const closingProcessId = Number(processDetail?.id || editingProcess?.id || searchParams.get('processId') || 0);
     closingProcessRef.current = Number.isInteger(closingProcessId) && closingProcessId > 0 ? closingProcessId : null;
     setShowModal(false);
+<<<<<<< HEAD
     setActiveProcessDetailPanel('');
     setEditingProcess(null);
     setProcessDetail(null);
     setManualPreview(null);
     setManualPreviewLoading(false);
+=======
+    setEditingProcess(null);
+    setProcessDetail(null);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     setWorkflowInfo(null);
     setWorkflowComment('');
     setVersionDiff(null);
@@ -2192,9 +2263,14 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
+<<<<<<< HEAD
   const handleExport = async (process, version = null) => {
     try {
       const id = Number(process?.id || 0);
+=======
+  const handleExport = async (id, version = null) => {
+    try {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       const suffix = version ? `?version=${version}` : '';
       const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
       if (!response.ok) {
@@ -2202,20 +2278,31 @@ export function ProcessManagement({ publicView = false }) {
         return;
       }
       const blob = await response.blob();
+<<<<<<< HEAD
       const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
       const fallbackFilename = version ? `${fallbackBase} v${version}.bpmn` : `${fallbackBase}.bpmn`;
       const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), fallbackFilename);
+=======
+      const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), 'process.bpmn');
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       downloadBlob(blob, filename);
     } catch (error) {
       showMsg(error.message || 'Network error', 'danger');
     }
   };
 
+<<<<<<< HEAD
   const renderProcessDiagramImage = async (process, { version = null, mimeType = 'image/png', quality = 0.92 } = {}) => {
     let viewer;
     let mountNode;
     let svgUrl;
     const id = Number(process?.id || 0);
+=======
+  const renderProcessDiagramImage = async (id, { version = null, mimeType = 'image/png', quality = 0.92 } = {}) => {
+    let viewer;
+    let mountNode;
+    let svgUrl;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
     const suffix = version ? `?version=${version}` : '';
     const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
@@ -2226,11 +2313,15 @@ export function ProcessManagement({ publicView = false }) {
 
     try {
       const xml = await response.text();
+<<<<<<< HEAD
       const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
       const sourceFilename = parseFilenameFromDisposition(
         response.headers.get('Content-Disposition'),
         version ? `${fallbackBase} v${version}.bpmn` : `${fallbackBase}.bpmn`
       );
+=======
+      const sourceFilename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), `process-${id}.bpmn`);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       const { default: NavigatedViewer } = await import('bpmn-js/lib/NavigatedViewer');
 
       mountNode = document.createElement('div');
@@ -2298,9 +2389,15 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
+<<<<<<< HEAD
   const handleImageExport = async (process, version = null) => {
     try {
       const rendered = await renderProcessDiagramImage(process, { version, mimeType: 'image/png' });
+=======
+  const handleImageExport = async (id, version = null) => {
+    try {
+      const rendered = await renderProcessDiagramImage(id, { version, mimeType: 'image/png' });
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       if (!rendered) {
         return;
       }
@@ -2311,6 +2408,7 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
+<<<<<<< HEAD
   const handleProcessReportDownload = async (process, format = 'pdf') => {
     setProcessReportBusy(format);
     try {
@@ -2319,6 +2417,15 @@ export function ProcessManagement({ publicView = false }) {
       let diagramImageDataUrl = null;
       if (needsDiagramImage) {
         const rendered = await renderProcessDiagramImage(process, { mimeType: 'image/jpeg', quality: 0.9 });
+=======
+  const handleProcessReportDownload = async (id, format = 'pdf') => {
+    setProcessReportBusy(format);
+    try {
+      const needsDiagramImage = format === 'pdf' || format === 'docx' || format === 'html';
+      let diagramImageDataUrl = null;
+      if (needsDiagramImage) {
+        const rendered = await renderProcessDiagramImage(id, { mimeType: 'image/jpeg', quality: 0.9 });
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         if (!rendered?.blob) {
           throw new Error(`Diagram preview could not be rendered for the ${format.toUpperCase()} export.`);
         }
@@ -2347,10 +2454,16 @@ export function ProcessManagement({ publicView = false }) {
       }
       const blob = await response.blob();
       const extension = format === 'pdf' ? 'pdf' : format === 'docx' ? 'docx' : 'html';
+<<<<<<< HEAD
       const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
       const filename = parseFilenameFromDisposition(
         response.headers.get('Content-Disposition'),
         `${fallbackBase} - manuel de procedure.${extension}`
+=======
+      const filename = parseFilenameFromDisposition(
+        response.headers.get('Content-Disposition'),
+        `process-${id}-manuel-de-procedure.${extension}`
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       );
       downloadBlob(blob, filename);
     } catch (error) {
@@ -2406,7 +2519,10 @@ export function ProcessManagement({ publicView = false }) {
     return directProcesses.length + category.children.reduce((total, childCategory) => total + countProcessesInCategoryBranch(childCategory), 0);
   };
   const selectedProcessCount = selectedProcessIds.length;
+<<<<<<< HEAD
   const showExpandedProcessDownloadButton = processes.length <= 1;
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const selectableProcesses = processes.filter((process) => canDeleteProcessDefinition(process));
   const selectableProcessIds = selectableProcesses.map((process) => Number(process.id));
   const areAllSelectableProcessesSelected =
@@ -2450,6 +2566,7 @@ export function ProcessManagement({ publicView = false }) {
   const workflowFlags = getWorkflowFlags(workflowInfo, currentWorkflowStatus);
   const workflowJourney = buildWorkflowJourney(workflowInfo, currentWorkflowStatus);
   const previewBpmnXml = processDetail?.bpmn_xml || editingProcess?.bpmn_xml || formData.bpmn_xml || '';
+<<<<<<< HEAD
   const manualWorkflowRows = Array.isArray(manualPreview?.workflowBullets)
     ? manualPreview.workflowBullets.map((value, index) => ({ label: `Note ${index + 1}`, value }))
     : [];
@@ -2459,6 +2576,8 @@ export function ProcessManagement({ publicView = false }) {
     { label: 'Consulted', value: Array.isArray(manualPreview?.raci?.consulted) ? manualPreview.raci.consulted.join(', ') : '-' },
     { label: 'Informed', value: Array.isArray(manualPreview?.raci?.informed) ? manualPreview.raci.informed.join(', ') : '-' },
   ];
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const previewSubprocesses = useMemo(() => getBpmnSubprocesses(previewBpmnXml), [previewBpmnXml]);
   const previewSubprocessTrail = useMemo(
     () => buildBpmnSubprocessTrail(previewSubprocesses, previewRootElementId),
@@ -2468,6 +2587,7 @@ export function ProcessManagement({ publicView = false }) {
     ? previewSubprocessTrail[previewSubprocessTrail.length - 1]
     : null;
   const canEditSelectedProcess = editingProcess ? canEditProcessDefinition(selectedProcessRecord) : canCreateDefinitions;
+<<<<<<< HEAD
   const showProcessDetailsPage = Boolean(selectedProcessRecord?.id) && !showModal;
   const processDetailsStatus = ({
     draft: { bg: '#e2e8f0', color: '#334155', label: 'Draft' },
@@ -2476,6 +2596,8 @@ export function ProcessManagement({ publicView = false }) {
     active: { bg: '#dcfce7', color: '#166534', label: 'Approve' },
     archived: { bg: '#fef3c7', color: '#92400e', label: 'Archive' },
   }[normalizeUiStatus(selectedProcessRecord?.status)] || { bg: '#e2e8f0', color: '#334155', label: statusLabel(selectedProcessRecord?.status) });
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   useEffect(() => {
     setPreviewRootElementId(null);
@@ -2603,7 +2725,11 @@ export function ProcessManagement({ publicView = false }) {
         {canDeleteProcessDefinition(process) ? (
           <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} title="Delete" style={{ width: 30, height: 30, background: '#dc2626', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-trash" /></button>
         ) : null}
+<<<<<<< HEAD
         <ExportMenu process={process} compact={!showExpandedProcessDownloadButton} />
+=======
+        <ExportMenu process={process} compact />
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       </div>
     </div>
   );
@@ -2613,13 +2739,17 @@ export function ProcessManagement({ publicView = false }) {
       return null;
     }
 
+<<<<<<< HEAD
     const toggleStyle = compact ? { padding: '3px 7px' } : { minWidth: 110 };
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     return (
     <Dropdown align="end" onClick={(event) => event.stopPropagation()}>
       <Dropdown.Toggle
         variant="outline-secondary"
         size="sm"
+<<<<<<< HEAD
         style={toggleStyle}
         title="Download process files"
       >
@@ -2628,29 +2758,54 @@ export function ProcessManagement({ publicView = false }) {
       </Dropdown.Toggle>
       <Dropdown.Menu>
         <Dropdown.Item onClick={() => handleExport(process, version)}>
+=======
+        style={compact ? { padding: '3px 7px' } : undefined}
+      >
+        <i className="bi bi-download" />
+        {!compact ? <span className="ms-1">Export</span> : null}
+      </Dropdown.Toggle>
+      <Dropdown.Menu>
+        <Dropdown.Item onClick={() => handleExport(process.id, version)}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           <i className="bi bi-filetype-xml me-2" />
           BPMN
         </Dropdown.Item>
         {!version ? (
+<<<<<<< HEAD
           <Dropdown.Item onClick={() => handleImageExport(process)}>
+=======
+          <Dropdown.Item onClick={() => handleImageExport(process.id)}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             <i className="bi bi-image me-2" />
             Image (PNG)
           </Dropdown.Item>
         ) : null}
         {!version ? (
+<<<<<<< HEAD
           <Dropdown.Item onClick={() => handleProcessReportDownload(process, 'html')}>
+=======
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'html')}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             <i className="bi bi-file-earmark-text me-2" />
             Manuel HTML
           </Dropdown.Item>
         ) : null}
         {!version ? (
+<<<<<<< HEAD
           <Dropdown.Item onClick={() => handleProcessReportDownload(process, 'pdf')}>
+=======
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'pdf')}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             <i className="bi bi-file-earmark-pdf me-2" />
             Manuel PDF
           </Dropdown.Item>
         ) : null}
         {!version ? (
+<<<<<<< HEAD
           <Dropdown.Item onClick={() => handleProcessReportDownload(process, 'docx')}>
+=======
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'docx')}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             <i className="bi bi-file-earmark-word me-2" />
             Manuel Word
           </Dropdown.Item>
@@ -2660,6 +2815,7 @@ export function ProcessManagement({ publicView = false }) {
     );
   };
 
+<<<<<<< HEAD
   const supportObjectSections = Array.isArray(manualPreview?.matrices?.supportObjects?.sections)
     ? manualPreview.matrices.supportObjects.sections
     : [];
@@ -3663,6 +3819,8 @@ export function ProcessManagement({ publicView = false }) {
     );
   }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const CategoryBranch = ({ category, level = 0 }) => {
     const isCollapsed = !!collapsedCategories[category.id];
     const directProcesses = processesByCategory.get(String(category.id)) || [];
@@ -3981,7 +4139,11 @@ export function ProcessManagement({ publicView = false }) {
                       <button type="button" onClick={(event) => handleDuplicateProcess(process, event)} className="btn btn-success btn-sm" style={{ padding: '3px 7px' }} title="Duplicate process"><i className="bi bi-copy" /></button>
                     ) : null}
                     <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} className="btn btn-outline-primary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-info-circle" /></button>
+<<<<<<< HEAD
                     <ExportMenu process={process} compact={!showExpandedProcessDownloadButton} />
+=======
+                    <ExportMenu process={process} compact />
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                     {canDeleteProcessDefinition(process) ? (
                       <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} className="btn btn-danger btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-trash" /></button>
                     ) : null}
@@ -4023,17 +4185,28 @@ export function ProcessManagement({ publicView = false }) {
                           ) : null}
                           {!publicView ? (
                             <>
+<<<<<<< HEAD
                               <Button type="button" size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess)}>
                                 PNG
                               </Button>
                               <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess)}>
+=======
+                              <Button type="button" size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess.id)}>
+                                PNG
+                              </Button>
+                              <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess.id)}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                                 BPMN
                               </Button>
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline-dark"
+<<<<<<< HEAD
                                 onClick={() => handleProcessReportDownload(editingProcess, 'html')}
+=======
+                                onClick={() => handleProcessReportDownload(editingProcess.id, 'html')}
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                                 disabled={processReportBusy === 'html'}
                               >
                                 {processReportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
@@ -4042,7 +4215,11 @@ export function ProcessManagement({ publicView = false }) {
                                 type="button"
                                 size="sm"
                                 variant="outline-secondary"
+<<<<<<< HEAD
                                 onClick={() => handleProcessReportDownload(editingProcess, 'pdf')}
+=======
+                                onClick={() => handleProcessReportDownload(editingProcess.id, 'pdf')}
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                                 disabled={processReportBusy === 'pdf'}
                               >
                                 {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
@@ -4051,7 +4228,11 @@ export function ProcessManagement({ publicView = false }) {
                                 type="button"
                                 size="sm"
                                 variant="outline-primary"
+<<<<<<< HEAD
                                 onClick={() => handleProcessReportDownload(editingProcess, 'docx')}
+=======
+                                onClick={() => handleProcessReportDownload(editingProcess.id, 'docx')}
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                                 disabled={processReportBusy === 'docx'}
                               >
                                 {processReportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
@@ -4194,7 +4375,181 @@ export function ProcessManagement({ publicView = false }) {
                             </Form.Group>
                           </Col>
                         </Row>
+<<<<<<< HEAD
                         {renderManualMetadataEditor()}
+=======
+                        <div className="border rounded-4 p-3 mb-3" style={{ background: '#fffdfa' }}>
+                          <div className="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                              <h6 className="mb-1">Manuel de procedure</h6>
+                              <div className="text-muted small">Champs standard utilises pour generer automatiquement les matrices du manuel.</div>
+                            </div>
+                          </div>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Code</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.code || ''}
+                                  onChange={(event) => updateManualDataField('code', event.target.value)}
+                                  placeholder="Ex: MP-CRT-001"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Owner</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.owner || ''}
+                                  onChange={(event) => updateManualDataField('owner', event.target.value)}
+                                  placeholder="Responsable du processus"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Form.Group className="mb-3">
+                            <Form.Label>Objectif</Form.Label>
+                            <Form.Control
+                              as="textarea"
+                              rows={2}
+                              disabled={!canEditSelectedProcess}
+                              value={formData.manual_data?.objective || ''}
+                              onChange={(event) => updateManualDataField('objective', event.target.value)}
+                              placeholder="Objectif principal du processus"
+                            />
+                          </Form.Group>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Perimetre</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.scope || ''}
+                                  onChange={(event) => updateManualDataField('scope', event.target.value)}
+                                  placeholder="Perimetre fonctionnel ou organisationnel"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Frequence</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.frequency || ''}
+                                  onChange={(event) => updateManualDataField('frequency', event.target.value)}
+                                  placeholder="Ex: Quotidienne / Hebdomadaire / A la demande"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Declencheur</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.trigger || ''}
+                                  onChange={(event) => updateManualDataField('trigger', event.target.value)}
+                                  placeholder="Evenement de demarrage du processus"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Resultat attendu</Form.Label>
+                                <Form.Control
+                                  disabled={!canEditSelectedProcess}
+                                  value={formData.manual_data?.expected_result || ''}
+                                  onChange={(event) => updateManualDataField('expected_result', event.target.value)}
+                                  placeholder="Livrable ou resultat final"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Form.Group className="mb-3">
+                            <Form.Label>Contexte</Form.Label>
+                            <Form.Control
+                              as="textarea"
+                              rows={2}
+                              disabled={!canEditSelectedProcess}
+                              value={formData.manual_data?.context || ''}
+                              onChange={(event) => updateManualDataField('context', event.target.value)}
+                              placeholder="Contexte, limites ou remarques"
+                            />
+                          </Form.Group>
+                          <Row>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>KPI cles</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.kpis)}
+                                  onChange={(event) => updateManualDataListField('kpis', event.target.value)}
+                                  placeholder="Une ligne par KPI"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={6}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Controles cles</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.controls)}
+                                  onChange={(event) => updateManualDataListField('controls', event.target.value)}
+                                  placeholder="Un controle par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                          <Row>
+                            <Col md={4}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Systemes supports</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.support_systems)}
+                                  onChange={(event) => updateManualDataListField('support_systems', event.target.value)}
+                                  placeholder="Un systeme par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Documents supports</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.support_documents)}
+                                  onChange={(event) => updateManualDataListField('support_documents', event.target.value)}
+                                  placeholder="Un document par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                            <Col md={4}>
+                              <Form.Group className="mb-3">
+                                <Form.Label>Donnees supports</Form.Label>
+                                <Form.Control
+                                  as="textarea"
+                                  rows={4}
+                                  disabled={!canEditSelectedProcess}
+                                  value={manualListToTextarea(formData.manual_data?.support_data)}
+                                  onChange={(event) => updateManualDataListField('support_data', event.target.value)}
+                                  placeholder="Une donnee par ligne"
+                                />
+                              </Form.Group>
+                            </Col>
+                          </Row>
+                        </div>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                         <Row>
                           <Col md={6}>
                             <Form.Group className="mb-3">
@@ -4346,6 +4701,7 @@ export function ProcessManagement({ publicView = false }) {
               )}
             </Row>
 
+<<<<<<< HEAD
             {editingProcess ? (
               <Row className="g-4 mt-1">
                 <Col lg={12}>
@@ -4386,6 +4742,8 @@ export function ProcessManagement({ publicView = false }) {
               </Row>
             ) : null}
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             {editingProcess && !publicView && (
               <Row className="g-4 mt-1">
                 <Col lg={12}>

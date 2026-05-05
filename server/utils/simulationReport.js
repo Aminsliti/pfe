@@ -50,6 +50,7 @@ export function buildSimulationExplanation(scenario, extras = {}) {
     .sort((left, right) => Number(right.utilization_rate || 0) - Number(left.utilization_rate || 0))
     .slice(0, 3);
 
+<<<<<<< HEAD
   const scenarioName = scenario?.name || `Scenario #${scenario?.id}`;
   const overview = results.avg_duration_min !== undefined
     ? `${scenarioName} processed ${results.instances ?? 0} instance(s). The empirical mean cycle time is ${formatNumber(results.avg_duration_min)} minutes, the empirical P95 is ${formatNumber(results.p95_duration_min)} minutes, and the aggregate cost is ${formatNumber(results.total_cost, 2)} EUR.`
@@ -97,10 +98,50 @@ export function buildSimulationExplanation(scenario, extras = {}) {
           `Average cycle time: ${formatNumber(results.avg_duration_min)} min`,
           `P95 cycle time: ${formatNumber(results.p95_duration_min)} min`,
           `Simulation horizon: ${formatNumber(results.simulation_horizon_min)} min`,
+=======
+  const overview = [
+    `${scenario?.name || `Scenario #${scenario?.id}` } is ${scenario?.status || 'draft'} and targets the process ${scenario?.process_name || '-'}.`,
+    results.avg_duration_min !== undefined
+      ? `The last run processed ${results.instances ?? 0} instance(s) with an average cycle time of ${formatNumber(results.avg_duration_min)} minutes and a total cost of ${formatNumber(results.total_cost, 2)} EUR.`
+      : 'The scenario has not been executed yet, so no performance evidence is available.',
+    results.arrival_source ? `Instance arrivals came from the ${results.arrival_source} schedule.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const throughputNarrative = longestTasks.length
+    ? `The slowest activities are ${humanJoin(longestTasks.map((task) => `${task.task_name} (${formatNumber(task.avg_duration)} min)`))}.`
+    : 'No task-level performance data is available yet.';
+
+  const waitNarrative = longestQueues.some((task) => Number(task.avg_wait_min || 0) > 0)
+    ? `The largest waiting times appear around ${humanJoin(longestQueues.map((task) => `${task.task_name} (${formatNumber(task.avg_wait_min)} min)`))}.`
+    : 'The run does not show significant queueing delays.';
+
+  const resourceNarrative = busiestResources.length
+    ? `The most loaded resources are ${humanJoin(busiestResources.map((resource) => `${resource.resource_name} (${formatNumber(resource.utilization_rate)}%)`))}.`
+    : 'No resource utilisation data is available.';
+
+  const bottleneckNarrative = bottlenecks.length
+    ? `The dominant bottlenecks are ${humanJoin(bottlenecks.slice(0, 4).map((entry) => `${entry.name} (${formatNumber(entry.metric)} ${entry.unit})`))}.`
+    : 'No critical bottleneck was detected in the current run.';
+
+  return {
+    generated_at: new Date().toISOString(),
+    summary: `${overview} ${throughputNarrative} ${resourceNarrative}`.trim(),
+    sections: [
+      {
+        title: 'Run overview',
+        body: overview,
+        bullets: [
+          `Instances simulated: ${results.instances ?? 0}`,
+          `Average cycle time: ${formatNumber(results.avg_duration_min)} min`,
+          `P95 cycle time: ${formatNumber(results.p95_duration_min)} min`,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           `Total cost: ${formatNumber(results.total_cost, 2)} EUR`,
         ],
       },
       {
+<<<<<<< HEAD
         title: 'Queueing and capacity',
         body: `${throughputNarrative} ${waitNarrative} ${resourceNarrative} ${bottleneckNarrative}`.trim(),
         bullets: [
@@ -121,6 +162,32 @@ export function buildSimulationExplanation(scenario, extras = {}) {
           sensitivity?.impacts?.[0] ? `Largest sensitivity driver: ${sensitivity.impacts[0].name}` : null,
           planning?.recommendations?.[0]
             ? `Best capacity action: add ${planning.recommendations[0].add_units} unit(s) to ${planning.recommendations[0].resource_name}`
+=======
+        title: 'Performance interpretation',
+        body: `${throughputNarrative} ${waitNarrative}`.trim(),
+        bullets: longestTasks.map((task) => `${task.task_name}: ${formatNumber(task.avg_duration)} min avg duration`),
+      },
+      {
+        title: 'Resources and bottlenecks',
+        body: `${resourceNarrative} ${bottleneckNarrative}`.trim(),
+        bullets: [
+          ...busiestResources.map((resource) => `${resource.resource_name}: ${formatNumber(resource.utilization_rate)}% utilisation`),
+          ...bottlenecks.slice(0, 3).map((entry) => `${entry.name}: ${formatNumber(entry.metric)} ${entry.unit}`),
+        ],
+      },
+      {
+        title: 'Service levels and planning',
+        body:
+          results.sla_summary
+            ? `The simulation tracked ${results.sla_summary.monitored_tasks ?? 0} task(s) with ${results.sla_summary.total_breaches ?? 0} SLA breach(es), and ${formatNumber(results.sla_summary.late_instance_rate ?? 0)}% late instances.`
+            : 'No SLA metrics were available for this run.',
+        bullets: [
+          monteCarlo ? `Monte Carlo iterations: ${monteCarlo.iterations}` : null,
+          monteCarlo ? `Cycle-time confidence interval: ${formatNumber(monteCarlo.duration?.ci_low)} - ${formatNumber(monteCarlo.duration?.ci_high)} min` : null,
+          sensitivity?.impacts?.[0] ? `Highest sensitivity driver: ${sensitivity.impacts[0].name}` : null,
+          planning?.recommendations?.[0]
+            ? `Best staffing action: add ${planning.recommendations[0].add_units} to ${planning.recommendations[0].resource_name}`
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             : null,
         ].filter(Boolean),
       },
@@ -145,7 +212,11 @@ function buildMetricCards(scenario) {
     ['Total cost', `${formatNumber(results.total_cost, 2)} EUR`],
     ['Late instances', `${results.late_instances ?? 0}`],
     ['Max utilisation', `${formatNumber(Math.max(0, ...(results.resource_results || []).map((resource) => Number(resource.utilization_rate || 0))))}%`],
+<<<<<<< HEAD
     ['Simulation horizon', `${formatNumber(results.simulation_horizon_min)} min`],
+=======
+    ['Arrival source', results.arrival_source || '-'],
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   ];
 
   return metrics
@@ -222,14 +293,22 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
       <div class="hero-meta">
         Instances: ${escapeHtml(results.instances ?? '-')}<br />
         Active instances: ${escapeHtml(results.active_instances ?? '-')}<br />
+<<<<<<< HEAD
         Offset rule: ${escapeHtml(results.instance_offset_rule || '-')}
+=======
+        Arrival source: ${escapeHtml(results.arrival_source || '-')}
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       </div>
     </div>
 
     <div class="metrics">${buildMetricCards(scenario)}</div>
 
     <div class="section">
+<<<<<<< HEAD
       <h2>Mathematical explanation</h2>
+=======
+      <h2>Executive explanation</h2>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       <p>${escapeHtml(explanation.summary || '')}</p>
       ${explanation.sections
         .map(
@@ -247,7 +326,11 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
     </div>
 
     <div class="section">
+<<<<<<< HEAD
       <h2>Task metrics</h2>
+=======
+      <h2>Task performance</h2>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       <table>
         <thead>
           <tr>
@@ -280,7 +363,10 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
             <th>Resource</th>
             <th>Quantity</th>
             <th>Busy time</th>
+<<<<<<< HEAD
             <th>Theoretical capacity</th>
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             <th>Tasks handled</th>
             <th>Utilisation</th>
           </tr>
@@ -290,7 +376,10 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
             { key: 'resource_name' },
             { key: 'quantity' },
             { key: 'total_busy_min', format: (value) => `${formatNumber(value)} min` },
+<<<<<<< HEAD
             { key: 'theoretical_capacity_min', format: (value) => `${formatNumber(value)} min` },
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             { key: 'tasks_handled' },
             { key: 'utilization_rate', format: (value) => `${formatNumber(value)}%` },
           ])}
@@ -328,11 +417,19 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
         <div>
           <p>Iterations: ${escapeHtml(monteCarlo.iterations)}</p>
           <p>Mean cycle time: ${escapeHtml(formatNumber(monteCarlo.duration?.mean))} min</p>
+<<<<<<< HEAD
           <p>Empirical 90% band: ${escapeHtml(formatNumber(monteCarlo.duration?.ci_low))} - ${escapeHtml(formatNumber(monteCarlo.duration?.ci_high))} min</p>
         </div>
         <div>
           <p>Mean total cost: ${escapeHtml(formatNumber(monteCarlo.total_cost?.mean, 2))} EUR</p>
           <p>Late-rate band: ${escapeHtml(formatNumber(monteCarlo.late_instance_rate?.ci_low))}% - ${escapeHtml(formatNumber(monteCarlo.late_instance_rate?.ci_high))}%</p>
+=======
+          <p>Confidence range: ${escapeHtml(formatNumber(monteCarlo.duration?.ci_low))} - ${escapeHtml(formatNumber(monteCarlo.duration?.ci_high))} min</p>
+        </div>
+        <div>
+          <p>Mean total cost: ${escapeHtml(formatNumber(monteCarlo.total_cost?.mean, 2))} EUR</p>
+          <p>Late rate range: ${escapeHtml(formatNumber(monteCarlo.late_instance_rate?.ci_low))}% - ${escapeHtml(formatNumber(monteCarlo.late_instance_rate?.ci_high))}%</p>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         </div>
       </div>
     </div>`
@@ -372,7 +469,11 @@ export function buildSimulationReportHtml(scenario, extras = {}) {
       planning?.recommendations?.length
         ? `
     <div class="section">
+<<<<<<< HEAD
       <h2>Capacity planning</h2>
+=======
+      <h2>Resource planning</h2>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       <p>${escapeHtml(planning.summary || '')}</p>
       <table>
         <thead>
@@ -448,8 +549,13 @@ export function buildSimulationReportPdf(scenario, extras = {}) {
             title: 'Monte Carlo',
             bullets: [
               `Iterations: ${monteCarlo.iterations}`,
+<<<<<<< HEAD
               `Empirical 90% band for cycle time: ${formatNumber(monteCarlo.duration?.ci_low)} - ${formatNumber(monteCarlo.duration?.ci_high)} min`,
               `Empirical 90% band for cost: ${formatNumber(monteCarlo.total_cost?.ci_low, 2)} - ${formatNumber(monteCarlo.total_cost?.ci_high, 2)} EUR`,
+=======
+              `Cycle-time confidence interval: ${formatNumber(monteCarlo.duration?.ci_low)} - ${formatNumber(monteCarlo.duration?.ci_high)} min`,
+              `Cost confidence interval: ${formatNumber(monteCarlo.total_cost?.ci_low, 2)} - ${formatNumber(monteCarlo.total_cost?.ci_high, 2)} EUR`,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             ],
           }]
         : []),
@@ -463,7 +569,11 @@ export function buildSimulationReportPdf(scenario, extras = {}) {
         : []),
       ...(planning?.recommendations?.length
         ? [{
+<<<<<<< HEAD
             title: 'Capacity planning',
+=======
+            title: 'Resource planning',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             paragraphs: [planning.summary || ''],
             bullets: planning.recommendations
               .slice(0, 5)

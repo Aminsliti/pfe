@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+<<<<<<< HEAD
+=======
+import NavigatedViewer from 'bpmn-js/lib/NavigatedViewer';
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css';
 
@@ -25,7 +29,11 @@ function buildHeatmapEntries(results = {}) {
       const waitScore = Number(task.avg_wait_min ?? 0) / maxWait;
       const bottleneckBoost = taskBottleneckNames.has(task.task_name || task.task_id) ? 0.25 : 0;
       const score = durationScore * 0.55 + waitScore * 0.35 + bottleneckBoost;
+<<<<<<< HEAD
       const level = score >= 0.85 ? 'very-high' : score >= 0.6 ? 'high' : score >= 0.35 ? 'medium' : score >= 0.15 ? 'low' : 'normal';
+=======
+      const level = score >= 0.75 ? 'high' : score >= 0.45 ? 'medium' : score >= 0.18 ? 'low' : 'normal';
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
       return {
         ...task,
@@ -38,10 +46,15 @@ function buildHeatmapEntries(results = {}) {
 
 export default function BpmnHeatmapViewer({ bpmnXml, results }) {
   const containerRef = useRef(null);
+<<<<<<< HEAD
+=======
+  const viewerRef = useRef(null);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const [error, setError] = useState('');
   const heatmapEntries = useMemo(() => buildHeatmapEntries(results), [results]);
 
   useEffect(() => {
+<<<<<<< HEAD
     let cancelled = false;
     let viewer = null;
     let renderPromise = Promise.resolve();
@@ -72,6 +85,23 @@ export default function BpmnHeatmapViewer({ bpmnXml, results }) {
 
         const canvas = viewer.get('canvas');
         canvas.zoom('fit-viewport');
+=======
+    if (!containerRef.current || !bpmnXml) {
+      return undefined;
+    }
+
+    const viewer = new NavigatedViewer({
+      container: containerRef.current,
+    });
+    viewerRef.current = viewer;
+
+    const render = async () => {
+      try {
+        setError('');
+        await viewer.importXML(bpmnXml);
+        const canvas = viewer.get('canvas');
+        canvas.zoom('fit-viewport', 'auto');
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
         heatmapEntries.forEach((entry) => {
           if (entry.level === 'normal') {
@@ -80,6 +110,7 @@ export default function BpmnHeatmapViewer({ bpmnXml, results }) {
 
           canvas.addMarker(entry.task_id, `sim-heat-${entry.level}`);
         });
+<<<<<<< HEAD
 
         setError('');
       } catch (importError) {
@@ -97,6 +128,19 @@ export default function BpmnHeatmapViewer({ bpmnXml, results }) {
       Promise.resolve(renderPromise).finally(() => {
         viewer?.destroy();
       });
+=======
+      } catch (importError) {
+        console.error('BPMN heatmap import error:', importError);
+        setError('Impossible d afficher le diagramme BPMN pour cette simulation.');
+      }
+    };
+
+    render();
+
+    return () => {
+      viewer.destroy();
+      viewerRef.current = null;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     };
   }, [bpmnXml, heatmapEntries]);
 
@@ -110,8 +154,12 @@ export default function BpmnHeatmapViewer({ bpmnXml, results }) {
         <div className="sim-heatmap-legend">
           <span className="sim-heatmap-chip level-low">Faible</span>
           <span className="sim-heatmap-chip level-medium">Moyen</span>
+<<<<<<< HEAD
           <span className="sim-heatmap-chip level-high">Élevé</span>
           <span className="sim-heatmap-chip level-very-high">Très Élevé</span>
+=======
+          <span className="sim-heatmap-chip level-high">Critique</span>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         </div>
       </div>
 

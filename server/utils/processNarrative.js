@@ -31,6 +31,7 @@ function escapeHtml(value = '') {
 function decodeXmlEntities(value = '') {
   return String(value)
     .replace(/&quot;/g, '"')
+<<<<<<< HEAD
     .replace(/&#34;/g, '"')
     .replace(/&#x22;/gi, '"')
     .replace(/&apos;/g, "'")
@@ -42,6 +43,11 @@ function decodeXmlEntities(value = '') {
     .replace(/&gt;/g, '>')
     .replace(/&#62;/g, '>')
     .replace(/&#x3e;/gi, '>')
+=======
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 }
@@ -186,6 +192,7 @@ function normalizeTextList(value) {
   return [];
 }
 
+<<<<<<< HEAD
 function normalizeManualRowList(value, fields = []) {
   if (!Array.isArray(value)) {
     return [];
@@ -210,6 +217,8 @@ function normalizeManualRowList(value, fields = []) {
     .filter(Boolean);
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function normalizeManualData(value = {}) {
   const source = value && typeof value === 'object' ? value : {};
 
@@ -227,6 +236,7 @@ function normalizeManualData(value = {}) {
     support_systems: normalizeTextList(source.support_systems || source.supportSystems),
     support_documents: normalizeTextList(source.support_documents || source.supportDocuments),
     support_data: normalizeTextList(source.support_data || source.supportData),
+<<<<<<< HEAD
     workflow_notes: normalizeTextList(source.workflow_notes || source.workflowNotes),
     raci_responsible: normalizeTextList(source.raci_responsible || source.raciResponsible),
     raci_accountable: normalizeTextList(source.raci_accountable || source.raciAccountable),
@@ -237,6 +247,8 @@ function normalizeManualData(value = {}) {
     support_document_details: normalizeManualRowList(source.support_document_details || source.supportDocumentDetails, ['name', 'type', 'generated_by', 'output_of', 'version']),
     support_system_details: normalizeManualRowList(source.support_system_details || source.supportSystemDetails, ['name', 'role']),
     risk_details: normalizeManualRowList(source.risk_details || source.riskDetails, ['title', 'severity', 'status', 'category', 'element', 'description', 'mitigation']),
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   };
 }
 
@@ -351,6 +363,7 @@ function extractActorAssignments(bpmnXml = '') {
 function extractRiskRegister(bpmnXml = '') {
   const register = [];
 
+<<<<<<< HEAD
   // Risks can be attached to any visible BPMN element in the editor, including
   // data objects / data stores / annotations. The manual should reflect those too.
   const riskElementNames = [
@@ -361,6 +374,9 @@ function extractRiskRegister(bpmnXml = '') {
   ];
 
   parseNamedElementsWithAttrs(bpmnXml, riskElementNames).forEach((element) => {
+=======
+  parseNamedElementsWithAttrs(bpmnXml, PROCEDURE_ELEMENT_NAMES).forEach((element) => {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     const rawRisks = getXmlAttr(element.attrs, 'pfe:risks');
     if (!rawRisks) {
       return;
@@ -535,7 +551,11 @@ function buildActivityDescription({
   return joinMatrixCellValues(details);
 }
 
+<<<<<<< HEAD
 function buildActivityRows(process = {}, documentationById = new Map(), actorAssignments = [], manualData = {}) {
+=======
+function buildActivityRows(process = {}, documentationById = new Map(), actorAssignments = []) {
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const actorByElementId = new Map();
   actorAssignments.forEach((actor) => {
     actor.elements.forEach((element) => {
@@ -543,8 +563,11 @@ function buildActivityRows(process = {}, documentationById = new Map(), actorAss
     });
   });
 
+<<<<<<< HEAD
   const fallbackActor = normalizeText(manualData.raci_responsible?.[0] || manualData.owner || '');
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   return parseNamedElementsWithAttrs(process.bpmn_xml || '', ACTIVITY_ELEMENT_NAMES).map((element, index) => {
     const actor = actorByElementId.get(String(element.id || ''));
     const isSystemActivity = element.type === 'serviceTask' || /system|core banking|swift|api|application/i.test(element.name || '');
@@ -557,7 +580,11 @@ function buildActivityRows(process = {}, documentationById = new Map(), actorAss
       element_id: element.id || '',
       type: element.type,
       type_label: formatActivityTypeLabel(element.type),
+<<<<<<< HEAD
       actor: actor?.actorName || fallbackActor || 'Non assigne',
+=======
+      actor: actor?.actorName || 'Non assigne',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       documentation,
       description: buildActivityDescription({
         documentation,
@@ -729,6 +756,7 @@ function buildActivityIndex(activityRows = []) {
   return new Map(activityRows.map((activity) => [String(activity.element_id || ''), activity]));
 }
 
+<<<<<<< HEAD
 function buildRowKey(row = {}, keyFields = []) {
   const parts = keyFields
     .map((field) => normalizeText(row?.[field]))
@@ -784,6 +812,8 @@ function dropPlaceholderRows(rows = [], keyField = 'name') {
   return rows.filter((row) => normalizeText(row?.[keyField]).toLowerCase() !== 'non renseigne');
 }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function extractSupportEdges(bpmnXml = '') {
   const edges = [];
   const addEdge = (sourceRef, targetRef) => {
@@ -914,6 +944,7 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     sectionByKey.documents.push(createDocumentRow({ label }));
   });
 
+<<<<<<< HEAD
   manualData.support_data_details.forEach((entry) => {
     sectionByKey.data.push(createDataRow(entry));
   });
@@ -922,6 +953,8 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     sectionByKey.documents.push(createDocumentRow(entry));
   });
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const systemsFromActivities = {};
   activityRows.forEach((activity) => {
     if (!hasMeaningfulValue(activity.systems)) {
@@ -953,6 +986,7 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     );
   });
 
+<<<<<<< HEAD
   manualData.support_system_details.forEach((entry) => {
     sectionByKey.systems.push(createSystemRow(entry.name, entry.role));
   });
@@ -978,6 +1012,11 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     ),
     'name'
   );
+=======
+  const dataRows = dedupeRows(sectionByKey.data, (row) => row.name.toLowerCase());
+  const documentRows = dedupeRows(sectionByKey.documents, (row) => row.name.toLowerCase());
+  const systemRows = dedupeRows(sectionByKey.systems, (row) => row.name.toLowerCase());
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   return {
     intro: 'Ces objets viennent du referentiel BPM/GRC.',
@@ -1034,17 +1073,24 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
 }
 
 function buildKpiRows(manualData = {}) {
+<<<<<<< HEAD
   const baseRows = normalizeTextList(manualData.kpis).map((label) => ({
+=======
+  const rows = normalizeTextList(manualData.kpis).map((label) => ({
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     name: label,
     target: 'A definir',
     source: 'Saisie manuelle',
   }));
+<<<<<<< HEAD
   const detailRows = manualData.kpi_details.map((entry) => ({
     name: entry.name,
     target: entry.target || 'Non renseigne',
     source: entry.source || 'Saisie manuelle',
   }));
   const rows = mergeRowsByKey(baseRows, detailRows, ['name']);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   return rows.length
     ? rows
@@ -1056,7 +1102,11 @@ function buildKpiRows(manualData = {}) {
 }
 
 function buildRiskRows(risks = []) {
+<<<<<<< HEAD
   const baseRows = risks.length
+=======
+  return risks.length
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     ? risks.map((risk) => ({
         title: risk.title,
         severity: risk.severity,
@@ -1066,10 +1116,13 @@ function buildRiskRows(risks = []) {
         description: risk.description || 'Non renseigne',
         mitigation: risk.mitigation || 'Non renseigne',
       }))
+<<<<<<< HEAD
     : [];
 
   return baseRows.length
     ? baseRows
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     : [{
         title: 'Aucun risque rattache',
         severity: '-',
@@ -1089,6 +1142,7 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
   const manualData = normalizeManualData(process.manual_data);
   const startEnd = extractStartEndSummary(process.bpmn_xml || '');
   const documentationById = extractDocumentationByElementId(process.bpmn_xml || '');
+<<<<<<< HEAD
   const activityRows = buildActivityRows(process, documentationById, actors, manualData);
   const supportObjectMatrix = buildSupportObjectMatrix(process, manualData, activityRows);
   const kpiRows = buildKpiRows(manualData);
@@ -1130,6 +1184,19 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
   const informed = manualData.raci_informed.length
     ? manualData.raci_informed
     : uniqueValues([process.created_by_name, workflow?.approved_by_name, process.approved_by_name]);
+=======
+  const activityRows = buildActivityRows(process, documentationById, actors);
+  const supportObjectMatrix = buildSupportObjectMatrix(process, manualData, activityRows);
+  const kpiRows = buildKpiRows(manualData);
+  const riskRows = buildRiskRows(risks);
+  const responsible = uniqueValues(actors.map((actor) => actor.actorName));
+  const accountable = normalizeNameList(
+    manualData.owner ? [manualData.owner] : process.assigned_validator_names,
+    manualData.owner || process.assigned_validator_name || process.created_by_name
+  );
+  const consulted = normalizeNameList(process.assigned_designer_names, process.assigned_designer_name);
+  const informed = uniqueValues([process.created_by_name, workflow?.approved_by_name, process.approved_by_name]);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const identityRows = [
     { label: 'Code', value: displayValue(manualData.code, `PROC-${process.id || '-'}`) },
     { label: 'Nom du processus', value: displayValue(process.name) },
@@ -1164,8 +1231,12 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
       consulted: buildDisplayList(consulted),
       informed: buildDisplayList(informed),
     },
+<<<<<<< HEAD
     workflowBullets: uniqueValues([
       ...manualData.workflow_notes,
+=======
+    workflowBullets: [
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       `Status: ${normalizeProcessStatus(process.status, 'draft')}`,
       process.version ? `Version: v${process.version}` : null,
       process.company_name ? `Company: ${process.company_name}` : null,
@@ -1174,6 +1245,7 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
       workflow?.submitted_at ? `Submitted on ${formatDisplayDate(workflow.submitted_at)}` : null,
       workflow?.approved_at ? `Approved on ${formatDisplayDate(workflow.approved_at)}` : null,
       workflow?.approved_by_name ? `Approved by ${workflow.approved_by_name}` : null,
+<<<<<<< HEAD
     ].filter(Boolean)),
   };
 }
@@ -1196,6 +1268,12 @@ function buildRaciRowsForManual(manual = {}) {
   ];
 }
 
+=======
+    ].filter(Boolean),
+  };
+}
+
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 export function buildProcessExplanation(process = {}, workflow = null) {
   const bpmnXml = process.bpmn_xml || '';
   const summary = summarizeBpmnDefinition(bpmnXml);
@@ -1313,11 +1391,15 @@ function buildRows(rows = [], columns = []) {
       (row) => `
         <tr>
           ${columns
+<<<<<<< HEAD
             .map((column) => {
               const rawValue = column.format ? column.format(row[column.key], row) : (row[column.key] ?? '');
               const safeValue = column.html ? String(rawValue ?? '') : escapeHtml(rawValue ?? '');
               return `<td>${safeValue}</td>`;
             })
+=======
+            .map((column) => `<td>${escapeHtml(column.format ? column.format(row[column.key], row) : row[column.key] ?? '')}</td>`)
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             .join('')}
         </tr>
       `
@@ -1360,6 +1442,7 @@ function createDocxParagraph(text = '', options = {}) {
 }
 
 function createDocxTableCell(text = '', options = {}) {
+<<<<<<< HEAD
   const { header = false, width = null, size = 18, headerSize = 20, fill = null, color = null } = options;
 
   return new TableCell({
@@ -1368,6 +1451,16 @@ function createDocxTableCell(text = '', options = {}) {
       ? {
           fill: (fill || (header ? 'e2e8f0' : 'ffffff')).replace('#', ''),
           color: color || 'auto',
+=======
+  const { header = false, width = null, size = 18, headerSize = 20 } = options;
+
+  return new TableCell({
+    width: width ? { size: width, type: WidthType.PERCENTAGE } : undefined,
+    shading: header
+      ? {
+          fill: 'e2e8f0',
+          color: 'auto',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           type: ShadingType.CLEAR,
         }
       : undefined,
@@ -1422,6 +1515,7 @@ function createDocxTableSection(title, columns = [], rows = [], options = {}) {
           })),
         }),
         ...safeRows.map((row) => new TableRow({
+<<<<<<< HEAD
           children: columns.map((column, columnIndex) => {
             const isPlaceholderRow = columnIndex === 0 && !rows.length;
             const rawValue = isPlaceholderRow
@@ -1440,6 +1534,14 @@ function createDocxTableSection(title, columns = [], rows = [], options = {}) {
 
             return createDocxTableCell(rawValue, { width: column.width, size: options.cellSize, headerSize: options.headerSize });
           }),
+=======
+          children: columns.map((column, columnIndex) => createDocxTableCell(
+            columnIndex === 0 && !rows.length
+              ? row[column.key] ?? ''
+              : (column.format ? column.format(row[column.key], row) : row[column.key]) ?? '',
+            { width: column.width, size: options.cellSize, headerSize: options.headerSize }
+          )),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         })),
       ],
     }),
@@ -1461,8 +1563,11 @@ function parseDocxImageDataUrl(value = '') {
 
 export function buildProcessReportHtml(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+<<<<<<< HEAD
   const workflowRows = buildWorkflowRowsForManual(manual);
   const raciRows = buildRaciRowsForManual(manual);
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const renderTable = (title, columns, rows) => `
     <div class="section">
       <h2>${escapeHtml(title)}</h2>
@@ -1533,11 +1638,14 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; min-width: 100%; }
     th, td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: top; }
     th { background: #f8fafc; color: #475569; text-transform: uppercase; font-size: 11px; letter-spacing: 0.08em; }
+<<<<<<< HEAD
     .risk-pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
     .risk-pill--low { background: #dcfce7; color: #166534; }
     .risk-pill--medium { background: #fef9c3; color: #854d0e; }
     .risk-pill--high { background: #ffedd5; color: #9a3412; }
     .risk-pill--critical { background: #fee2e2; color: #991b1b; }
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     @media print { body { margin: 0; background: #fff; } .report-shell { box-shadow: none; border-radius: 0; } }
   </style>
 </head>
@@ -1556,16 +1664,21 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
       { key: 'value', label: 'Valeur' },
     ], manual.matrices.identity)}
 
+<<<<<<< HEAD
     ${renderTable('2. Matrice what who when why', [
       ...manual.matrices.whatWhoWhenWhy.columns,
     ], manual.matrices.whatWhoWhenWhy.rows)}
 
     ${renderTable('3. Matrice des activites', [
+=======
+    ${renderTable('2. Matrice des activites', [
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       { key: 'activity', label: 'Activite' },
       { key: 'actor', label: 'Acteur' },
       { key: 'description', label: 'Description' },
     ], manual.matrices.activities)}
 
+<<<<<<< HEAD
     ${renderTable('Workflow notes', [
       { key: 'label', label: 'Note' },
       { key: 'value', label: 'Value' },
@@ -1575,6 +1688,12 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
       { key: 'label', label: 'Role' },
       { key: 'value', label: 'Value' },
     ], raciRows)}
+=======
+    ${renderTable('3. Matrice what who when why', [
+      ...manual.matrices.whatWhoWhenWhy.columns,
+    ], manual.matrices.whatWhoWhenWhy.rows)}
+
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     ${supportObjectsHtml}
 
     ${renderTable('5.1 Matrice KPI', [
@@ -1585,6 +1704,7 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
 
     ${renderTable('5.2 Matrice des risques', [
       { key: 'title', label: 'Risque' },
+<<<<<<< HEAD
       {
         key: 'severity',
         label: 'Severite',
@@ -1596,6 +1716,9 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
           return `<span class="risk-pill risk-pill--${klass}">${label}</span>`;
         },
       },
+=======
+      { key: 'severity', label: 'Severite' },
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       { key: 'status', label: 'Statut' },
       { key: 'category', label: 'Categorie' },
       { key: 'element', label: 'Element BPMN' },
@@ -1609,6 +1732,7 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
 
 export function buildProcessReportPdf(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+<<<<<<< HEAD
   const workflowRows = buildWorkflowRowsForManual(manual);
   const raciRows = buildRaciRowsForManual(manual);
   const severityFill = (value) => {
@@ -1619,6 +1743,8 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
     if (severity === 'critical') return [0.996, 0.886, 0.886]; // red (#fee2e2)
     return null;
   };
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
   return buildPdfDocument({
     title: `Manuel de procedure - ${process.name || `Process #${process.id}`}`,
@@ -1639,6 +1765,7 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         },
       },
       {
+<<<<<<< HEAD
         title: '2. Matrice what who when why',
         table: {
           columns: manual.matrices.whatWhoWhenWhy.columns,
@@ -1649,6 +1776,9 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
       },
       {
         title: '3. Matrice des activites',
+=======
+        title: '2. Matrice des activites',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         table: {
           columns: [
             { key: 'activity', label: 'Activite', width: 20 },
@@ -1659,6 +1789,7 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         },
       },
       {
+<<<<<<< HEAD
         title: 'Workflow notes',
         table: {
           columns: [
@@ -1676,6 +1807,14 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
             { key: 'value', label: 'Value', width: 82 },
           ],
           rows: raciRows,
+=======
+        title: '3. Matrice what who when why',
+        table: {
+          columns: manual.matrices.whatWhoWhenWhy.columns,
+          rows: manual.matrices.whatWhoWhenWhy.rows,
+          fontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.2 : 8,
+          headerFontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.6 : 8.4,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         },
       },
       {
@@ -1703,12 +1842,16 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         table: {
           columns: [
             { key: 'title', label: 'Risque', width: 14 },
+<<<<<<< HEAD
             {
               key: 'severity',
               label: 'Severite',
               width: 8,
               cellFill: (row) => severityFill(row?.severity),
             },
+=======
+            { key: 'severity', label: 'Severite', width: 8 },
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
             { key: 'status', label: 'Statut', width: 8 },
             { key: 'category', label: 'Categorie', width: 10 },
             { key: 'element', label: 'Element BPMN', width: 16 },
@@ -1726,6 +1869,7 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
 
 export async function buildProcessReportDocx(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+<<<<<<< HEAD
   const workflowRows = buildWorkflowRowsForManual(manual);
   const raciRows = buildRaciRowsForManual(manual);
   const severityDocxFill = (value) => {
@@ -1736,6 +1880,8 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
     if (severity === 'critical') return 'fee2e2';
     return null;
   };
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const docChildren = [
     createDocxParagraph('Manuel de procedure', {
       heading: HeadingLevel.TITLE,
@@ -1781,6 +1927,7 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
   );
 
   docChildren.push(
+<<<<<<< HEAD
     ...createDocxTableSection(
       '2. Matrice what who when why',
       manual.matrices.whatWhoWhenWhy.columns,
@@ -1788,11 +1935,15 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
       { cellSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 13 : 15, headerSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 14 : 16 }
     ),
     ...createDocxTableSection('3. Matrice des activites', [
+=======
+    ...createDocxTableSection('2. Matrice des activites', [
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       { key: 'activity', label: 'Activite', width: 28 },
       { key: 'actor', label: 'Acteur', width: 22 },
       { key: 'description', label: 'Description', width: 50 },
     ], manual.matrices.activities),
     ...createDocxTableSection(
+<<<<<<< HEAD
       'Workflow notes',
       [
         { key: 'label', label: 'Note', width: 18 },
@@ -1807,6 +1958,12 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
         { key: 'value', label: 'Value', width: 82 },
       ],
       raciRows
+=======
+      '3. Matrice what who when why',
+      manual.matrices.whatWhoWhenWhy.columns,
+      manual.matrices.whatWhoWhenWhy.rows,
+      { cellSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 13 : 15, headerSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 14 : 16 }
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     ),
     createDocxParagraph('4. NIVEAU OBJETS SUPPORTS', {
       heading: HeadingLevel.HEADING_2,
@@ -1825,6 +1982,7 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
     ], manual.matrices.kpis),
     ...createDocxTableSection('5.2 Matrice des risques', [
       { key: 'title', label: 'Risque', width: 16 },
+<<<<<<< HEAD
       {
         key: 'severity',
         label: 'Severite',
@@ -1834,6 +1992,9 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
           fill: severityDocxFill(row?.severity),
         }),
       },
+=======
+      { key: 'severity', label: 'Severite', width: 10 },
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       { key: 'status', label: 'Statut', width: 10 },
       { key: 'category', label: 'Categorie', width: 12 },
       { key: 'element', label: 'Element BPMN', width: 16 },

@@ -11,6 +11,11 @@ const SIMULATED_TASK_TYPES = new Set([
   'callActivity',
 ]);
 
+<<<<<<< HEAD
+=======
+const MINUTES_PER_DAY = 24 * 60;
+
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 function round(value, decimals = 1) {
   const factor = 10 ** decimals;
   return Math.round((Number(value) || 0) * factor) / factor;
@@ -33,8 +38,342 @@ function percentile(sortedValues, ratio) {
   return sortedValues[index] ?? 0;
 }
 
+<<<<<<< HEAD
 function buildInstanceOffsets(totalInstances, stepMinutes = 3) {
   return Array.from({ length: totalInstances }, (_, index) => index * stepMinutes);
+=======
+function normalizeArrivalValue(arrival, index) {
+  if (typeof arrival === 'number' && Number.isFinite(arrival)) {
+    return arrival;
+  }
+
+  const candidates = [
+    arrival?.arrival_offset_min,
+    arrival?.arrivalOffsetMin,
+    arrival?.offset_minutes,
+    arrival?.offsetMinutes,
+    arrival?.offset,
+    arrival?.minutes,
+    arrival?.value,
+  ];
+
+  for (const candidate of candidates) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+
+  return index * 3;
+}
+
+function buildArrivalSchedule(totalInstances, arrivals = []) {
+  if (Array.isArray(arrivals) && arrivals.length > 0) {
+    return arrivals
+      .map((arrival, index) => normalizeArrivalValue(arrival, index))
+      .filter((value) => Number.isFinite(value))
+      .sort((left, right) => left - right);
+  }
+
+  return Array.from({ length: totalInstances }, (_, index) => index * 3);
+}
+
+function parseTimeToMinutes(value, fallback) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return clamp(value, 0, MINUTES_PER_DAY);
+  }
+
+  if (!value) {
+    return fallback;
+  }
+
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return fallback;
+  }
+
+  const hours = clamp(Number(match[1]) || 0, 0, 23);
+  const minutes = clamp(Number(match[2]) || 0, 0, 59);
+  return hours * 60 + minutes;
+}
+
+function normalizeWindow(window, fallbackDays = null) {
+  if (!window) {
+    return null;
+  }
+
+  const start = parseTimeToMinutes(window.start, null);
+  const end = parseTimeToMinutes(window.end, null);
+  if (start === null || end === null || end <= start) {
+    return null;
+  }
+
+  return {
+    start,
+    end,
+    days: Array.isArray(window.days)
+      ? window.days.map((day) => Number(day)).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+      : fallbackDays,
+  };
+}
+
+function mergeWindows(windows = []) {
+  if (!windows.length) {
+    return [];
+  }
+
+  const sorted = [...windows].sort((left, right) => left.start - right.start);
+  const merged = [sorted[0]];
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const last = merged[merged.length - 1];
+
+    if (current.start <= last.end) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+
+  return merged;
+}
+
+function intersectWindows(left = [], right = []) {
+  const intersections = [];
+
+  left.forEach((leftWindow) => {
+    right.forEach((rightWindow) => {
+      const start = Math.max(leftWindow.start, rightWindow.start);
+      const end = Math.min(leftWindow.end, rightWindow.end);
+      if (end > start) {
+        intersections.push({ start, end });
+      }
+    });
+  });
+
+  return mergeWindows(intersections);
+}
+
+function normalizeCalendarSettings(settings = {}) {
+  const businessHours = {
+    start: parseTimeToMinutes(settings?.business_hours?.start, 0),
+    end: parseTimeToMinutes(settings?.business_hours?.end, MINUTES_PER_DAY),
+  };
+
+  const weekendDays = Array.isArray(settings?.weekend_days)
+    ? settings.weekend_days
+        .map((day) => Number(day))
+        .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    : [];
+
+  const holidays = new Set(
+    Array.isArray(settings?.holidays)
+      ? settings.holidays.map((entry) => String(entry).trim()).filter(Boolean)
+      : []
+  );
+
+  const shifts = Array.isArray(settings?.shifts)
+    ? settings.shifts.map((shift) => normalizeWindow(shift)).filter(Boolean)
+    : [];
+
+  return {
+    businessHours,
+    weekendDays,
+    holidays,
+    shifts,
+  };
+}
+
+function safeParseJson(value, fallbackValue = null) {
+  if (typeof value !== 'string') {
+    return value ?? fallbackValue;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallbackValue;
+  }
+}
+
+function normalizeResourceWindows(value) {
+  if (!value) {
+    return [];
+  }
+
+  const rawValue = typeof value === 'string' ? safeParseJson(value, []) : value;
+  if (!Array.isArray(rawValue)) {
+    return [];
+  }
+
+  return rawValue.map((window) => normalizeWindow(window, null)).filter(Boolean);
+}
+
+function getLocalDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getBaseDate(scenario) {
+  if (scenario?.start_date) {
+    const candidate = new Date(`${scenario.start_date}T00:00:00`);
+    if (!Number.isNaN(candidate.getTime())) {
+      return candidate;
+    }
+  }
+
+  return new Date('2026-01-05T00:00:00');
+}
+
+function absoluteToDate(baseDate, absoluteMinutes) {
+  return new Date(baseDate.getTime() + absoluteMinutes * 60 * 1000);
+}
+
+function getDayWindows(baseDate, absoluteMinutes, calendar, resourceWindows = []) {
+  const date = absoluteToDate(baseDate, absoluteMinutes);
+  const dayKey = getLocalDateKey(date);
+  const day = date.getDay();
+
+  if (calendar.holidays.has(dayKey)) {
+    return [];
+  }
+
+  if (calendar.weekendDays.includes(day)) {
+    return [];
+  }
+
+  const calendarWindows =
+    calendar.shifts.length > 0
+      ? calendar.shifts.filter((shift) => !shift.days || shift.days.includes(day))
+      : [{ start: calendar.businessHours.start, end: calendar.businessHours.end }];
+
+  const normalizedCalendarWindows = mergeWindows(
+    calendarWindows.map((window) => ({ start: window.start, end: window.end }))
+  );
+
+  if (!resourceWindows.length) {
+    return normalizedCalendarWindows;
+  }
+
+  const matchingResourceWindows = resourceWindows
+    .filter((window) => !window.days || window.days.includes(day))
+    .map((window) => ({ start: window.start, end: window.end }));
+
+  if (!matchingResourceWindows.length) {
+    return [];
+  }
+
+  return intersectWindows(normalizedCalendarWindows, mergeWindows(matchingResourceWindows));
+}
+
+function alignToWorkingTime(baseDate, candidateMinutes, calendar, resourceWindows = []) {
+  if (!calendar) {
+    return Math.max(0, candidateMinutes);
+  }
+
+  let candidate = Math.max(0, candidateMinutes);
+
+  for (let guard = 0; guard < 3660; guard += 1) {
+    const dayStart = Math.floor(candidate / MINUTES_PER_DAY) * MINUTES_PER_DAY;
+    const minuteOfDay = candidate - dayStart;
+    const windows = getDayWindows(baseDate, candidate, calendar, resourceWindows);
+
+    for (const window of windows) {
+      if (minuteOfDay >= window.start && minuteOfDay < window.end) {
+        return candidate;
+      }
+
+      if (minuteOfDay < window.start) {
+        return dayStart + window.start;
+      }
+    }
+
+    candidate = dayStart + MINUTES_PER_DAY;
+  }
+
+  return candidateMinutes;
+}
+
+function addWorkingMinutes(baseDate, startMinutes, durationMinutes, calendar, resourceWindows = []) {
+  if (!calendar) {
+    return startMinutes + durationMinutes;
+  }
+
+  let current = alignToWorkingTime(baseDate, startMinutes, calendar, resourceWindows);
+  let remaining = Math.max(0, durationMinutes);
+
+  if (remaining <= 0) {
+    return current;
+  }
+
+  for (let guard = 0; guard < 50000 && remaining > 0; guard += 1) {
+    const dayStart = Math.floor(current / MINUTES_PER_DAY) * MINUTES_PER_DAY;
+    const minuteOfDay = current - dayStart;
+    const windows = getDayWindows(baseDate, current, calendar, resourceWindows);
+
+    const nextWindow =
+      windows.find((window) => minuteOfDay >= window.start && minuteOfDay < window.end) ||
+      windows.find((window) => minuteOfDay < window.start);
+
+    if (!nextWindow) {
+      current = dayStart + MINUTES_PER_DAY;
+      current = alignToWorkingTime(baseDate, current, calendar, resourceWindows);
+      continue;
+    }
+
+    if (minuteOfDay < nextWindow.start) {
+      current = dayStart + nextWindow.start;
+    }
+
+    const available = dayStart + nextWindow.end - current;
+    const consumed = Math.min(remaining, available);
+    current += consumed;
+    remaining -= consumed;
+
+    if (remaining > 0) {
+      current = alignToWorkingTime(baseDate, current, calendar, resourceWindows);
+    }
+  }
+
+  return current;
+}
+
+function sumWorkingMinutesBetween(baseDate, fromMinutes, toMinutes, calendar, resourceWindows = []) {
+  if (!calendar) {
+    return Math.max(0, toMinutes - fromMinutes);
+  }
+
+  let current = Math.max(0, fromMinutes);
+  const end = Math.max(current, toMinutes);
+  let total = 0;
+
+  for (let guard = 0; guard < 50000 && current < end; guard += 1) {
+    const aligned = alignToWorkingTime(baseDate, current, calendar, resourceWindows);
+    if (aligned >= end) {
+      break;
+    }
+
+    const dayStart = Math.floor(aligned / MINUTES_PER_DAY) * MINUTES_PER_DAY;
+    const minuteOfDay = aligned - dayStart;
+    const windows = getDayWindows(baseDate, aligned, calendar, resourceWindows);
+    const activeWindow = windows.find((window) => minuteOfDay >= window.start && minuteOfDay < window.end);
+
+    if (!activeWindow) {
+      current = aligned + 1;
+      continue;
+    }
+
+    const windowEnd = dayStart + activeWindow.end;
+    const consumed = Math.min(end, windowEnd) - aligned;
+    total += Math.max(0, consumed);
+    current = Math.max(aligned + consumed, windowEnd);
+  }
+
+  return total;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 }
 
 function createResourceRuntime(resources = [], infiniteResources = false) {
@@ -56,7 +395,13 @@ function createResourceRuntime(resources = [], infiniteResources = false) {
           busyMinutes: 0,
           totalWaitMinutes: 0,
           totalQueueWaitMinutes: 0,
+<<<<<<< HEAD
           tasksHandled: 0,
+=======
+          totalCalendarWaitMinutes: 0,
+          tasksHandled: 0,
+          availabilityWindows: normalizeResourceWindows(resource.availability_windows),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         },
       ];
     })
@@ -126,7 +471,11 @@ function getBottlenecks(taskResults, resourceResults, slaSummary) {
       metric: round(task.avg_wait_min, 1),
       unit: 'min wait',
       severity: task.avg_wait_min >= 15 ? 'high' : task.avg_wait_min >= 5 ? 'medium' : 'low',
+<<<<<<< HEAD
       details: 'Average queue delay before service begins.',
+=======
+      details: 'Average queue or calendar delay before the task starts.',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     }));
 
   const resourceBottlenecks = resourceResults
@@ -138,7 +487,11 @@ function getBottlenecks(taskResults, resourceResults, slaSummary) {
       unit: '% utilisation',
       severity:
         resource.utilization_rate >= 90 ? 'high' : resource.utilization_rate >= 80 ? 'medium' : 'low',
+<<<<<<< HEAD
       details: 'Busy time divided by theoretical capacity is high.',
+=======
+      details: 'Resource capacity is close to saturation.',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     }));
 
   const slaBottlenecks =
@@ -155,7 +508,11 @@ function getBottlenecks(taskResults, resourceResults, slaSummary) {
                 : slaSummary.worst_task.breach_rate >= 15
                   ? 'medium'
                   : 'low',
+<<<<<<< HEAD
             details: `Task lead time exceeds its ${slaSummary.worst_task.target_min}-minute threshold too often.`,
+=======
+            details: `Task breaches its ${slaSummary.worst_task.target_min}-minute SLA too often.`,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
           },
         ]
       : [];
@@ -287,16 +644,34 @@ export function runSimulation({
   arrivals = [],
   random = Math.random,
 }) {
+<<<<<<< HEAD
   void arrivals;
 
   const taskList = Array.isArray(tasks) ? cloneTasks(tasks) : [];
   const resourceList = Array.isArray(resources) ? cloneResources(resources) : [];
   const totalInstances = Math.max(0, Number(scenario?.process_instances) || 0);
   const instanceOffsets = buildInstanceOffsets(totalInstances);
+=======
+  const taskList = Array.isArray(tasks) ? cloneTasks(tasks) : [];
+  const resourceList = Array.isArray(resources) ? cloneResources(resources) : [];
+  const importedArrivals = Array.isArray(arrivals) ? arrivals : [];
+  const totalInstances =
+    importedArrivals.length > 0
+      ? importedArrivals.length
+      : Math.max(0, Number(scenario?.process_instances) || 0);
+  const arrivalSchedule = buildArrivalSchedule(totalInstances, importedArrivals);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const warmup = Math.floor(totalInstances * ((scenario?.warmup_percent || 0) / 100));
   const cooldown = Math.floor(totalInstances * ((scenario?.cooldown_percent || 0) / 100));
   const activeInstances = Math.max(0, totalInstances - warmup - cooldown);
   const infiniteResources = Boolean(scenario?.infinite_resources);
+<<<<<<< HEAD
+=======
+  const calendar = scenario?.calendar_settings
+    ? normalizeCalendarSettings(safeParseJson(scenario.calendar_settings, scenario.calendar_settings))
+    : null;
+  const baseDate = getBaseDate(scenario);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const resourceRuntime = createResourceRuntime(resourceList, infiniteResources);
 
   const instanceRecords = [];
@@ -307,8 +682,15 @@ export function runSimulation({
         task_id: task.task_id,
         task_name: task.task_name,
         durations: [],
+<<<<<<< HEAD
         waits: [],
         queueWaits: [],
+=======
+        elapsedDurations: [],
+        waits: [],
+        queueWaits: [],
+        calendarWaits: [],
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
         costs: [],
         resource_id: task.resource_id ? Number(task.resource_id) : null,
         sla_target_min: Number(task.sla_target_min) || null,
@@ -318,8 +700,13 @@ export function runSimulation({
   );
 
   for (let instanceIndex = 0; instanceIndex < totalInstances; instanceIndex += 1) {
+<<<<<<< HEAD
     const instanceOffset = instanceOffsets[instanceIndex] ?? 0;
     let currentTime = instanceOffset;
+=======
+    const arrivalTime = arrivalSchedule[instanceIndex] ?? instanceIndex * 3;
+    let currentTime = arrivalTime;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     let totalCost = 0;
     let breached = false;
 
@@ -336,11 +723,16 @@ export function runSimulation({
       const effectiveDuration =
         resourceState && !infiniteResources ? baseDuration / availabilityRatio : baseDuration;
 
+<<<<<<< HEAD
       let startTime = currentTime;
+=======
+      let earliestReady = currentTime;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       let queueWaitMinutes = 0;
 
       if (resourceState && !infiniteResources) {
         const [slotIndex, slotReadyAt] = findEarliestSlot(resourceState.slots);
+<<<<<<< HEAD
         startTime = Math.max(currentTime, slotReadyAt);
         queueWaitMinutes = Math.max(0, startTime - currentTime);
         resourceState.slots[slotIndex] = startTime + effectiveDuration;
@@ -354,13 +746,52 @@ export function runSimulation({
       const executionCost =
         (effectiveDuration / 60) *
         ((Number(task.cost) || 0) + (Number(resourceState?.cost_per_hour) || 0));
+=======
+        earliestReady = Math.max(currentTime, slotReadyAt);
+        queueWaitMinutes = Math.max(0, earliestReady - currentTime);
+        resourceState.activeSlotIndex = slotIndex;
+      }
+
+      const resourceWindows = resourceState?.availabilityWindows || [];
+      const startTime = calendar
+        ? alignToWorkingTime(baseDate, earliestReady, calendar, resourceWindows)
+        : earliestReady;
+      const calendarWaitMinutes = Math.max(0, startTime - earliestReady);
+      const waitMinutes = Math.max(0, startTime - currentTime);
+      const endTime = calendar
+        ? addWorkingMinutes(baseDate, startTime, effectiveDuration, calendar, resourceWindows)
+        : startTime + effectiveDuration;
+      const elapsedDuration = Math.max(0, endTime - startTime);
+
+      if (resourceState && !infiniteResources) {
+        resourceState.slots[resourceState.activeSlotIndex] = endTime;
+        resourceState.busyMinutes += effectiveDuration;
+        resourceState.totalWaitMinutes += waitMinutes;
+        resourceState.totalQueueWaitMinutes += queueWaitMinutes;
+        resourceState.totalCalendarWaitMinutes += calendarWaitMinutes;
+        resourceState.tasksHandled += 1;
+        delete resourceState.activeSlotIndex;
+      }
+
+      const executionCost =
+        (effectiveDuration / 60) *
+        ((Number(task.cost) || 0) + (Number(resourceState?.cost_per_hour) || 0));
+
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       const taskLeadTime = Math.max(0, endTime - currentTime);
       const slaTarget = Number(task.sla_target_min) || null;
       const slaBreached = slaTarget ? taskLeadTime > slaTarget : false;
 
       taskStats[task.task_id].durations.push(effectiveDuration);
+<<<<<<< HEAD
       taskStats[task.task_id].waits.push(queueWaitMinutes);
       taskStats[task.task_id].queueWaits.push(queueWaitMinutes);
+=======
+      taskStats[task.task_id].elapsedDurations.push(elapsedDuration);
+      taskStats[task.task_id].waits.push(waitMinutes);
+      taskStats[task.task_id].queueWaits.push(queueWaitMinutes);
+      taskStats[task.task_id].calendarWaits.push(calendarWaitMinutes);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       taskStats[task.task_id].costs.push(executionCost);
       if (slaBreached) {
         taskStats[task.task_id].slaBreaches += 1;
@@ -372,9 +803,15 @@ export function runSimulation({
     }
 
     instanceRecords.push({
+<<<<<<< HEAD
       instanceOffset,
       finishTime: currentTime,
       cycleTime: currentTime - instanceOffset,
+=======
+      arrivalTime,
+      finishTime: currentTime,
+      cycleTime: currentTime - arrivalTime,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       totalCost,
       breached,
     });
@@ -389,8 +826,15 @@ export function runSimulation({
   const totalCost = activeRecords.reduce((sum, record) => sum + record.totalCost, 0);
   const simulationHorizon =
     instanceRecords.length > 0
+<<<<<<< HEAD
       ? Math.max(...instanceRecords.map((record) => record.finishTime)) - Math.min(...instanceOffsets)
       : 0;
+=======
+      ? Math.max(...instanceRecords.map((record) => record.finishTime)) - Math.min(...arrivalSchedule)
+      : 0;
+  const horizonStart = instanceRecords.length > 0 ? Math.min(...arrivalSchedule) : 0;
+  const horizonEnd = instanceRecords.length > 0 ? Math.max(...instanceRecords.map((record) => record.finishTime)) : 0;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const lateInstances = activeRecords.filter((record) => record.breached).length;
 
   const taskResults = taskList.map((task) => {
@@ -398,16 +842,28 @@ export function runSimulation({
     const durations = stats.durations || [];
     const waits = stats.waits || [];
     const queueWaits = stats.queueWaits || [];
+<<<<<<< HEAD
     const costs = stats.costs || [];
     const sortedDurations = [...durations].sort((left, right) => left - right);
     const resourceState = task.resource_id ? resourceRuntime.get(Number(task.resource_id)) : null;
     const executions = durations.length;
     const slaBreachCount = stats.slaBreaches || 0;
     const averageDuration = round(durations.reduce((sum, value) => sum + value, 0) / (executions || 1), 1);
+=======
+    const calendarWaits = stats.calendarWaits || [];
+    const elapsedDurations = stats.elapsedDurations || [];
+    const costs = stats.costs || [];
+    const sortedDurations = [...durations].sort((left, right) => left - right);
+    const sortedElapsed = [...elapsedDurations].sort((left, right) => left - right);
+    const resourceState = task.resource_id ? resourceRuntime.get(Number(task.resource_id)) : null;
+    const executions = durations.length;
+    const slaBreachCount = stats.slaBreaches || 0;
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
     return {
       task_id: task.task_id,
       task_name: task.task_name,
+<<<<<<< HEAD
       avg_duration: averageDuration,
       min_duration: round(durations.length ? Math.min(...durations) : 0, 1),
       max_duration: round(durations.length ? Math.max(...durations) : 0, 1),
@@ -419,6 +875,17 @@ export function runSimulation({
         queueWaits.reduce((sum, value) => sum + value, 0) / (queueWaits.length || 1),
         1
       ),
+=======
+      avg_duration: round(durations.reduce((sum, value) => sum + value, 0) / (executions || 1), 1),
+      min_duration: round(durations.length ? Math.min(...durations) : 0, 1),
+      max_duration: round(durations.length ? Math.max(...durations) : 0, 1),
+      p95_duration: round(percentile(sortedDurations, 0.95), 1),
+      avg_elapsed_duration: round(elapsedDurations.reduce((sum, value) => sum + value, 0) / (executions || 1), 1),
+      p95_elapsed_duration: round(percentile(sortedElapsed, 0.95), 1),
+      avg_wait_min: round(waits.reduce((sum, value) => sum + value, 0) / (waits.length || 1), 1),
+      avg_queue_wait_min: round(queueWaits.reduce((sum, value) => sum + value, 0) / (queueWaits.length || 1), 1),
+      avg_calendar_wait_min: round(calendarWaits.reduce((sum, value) => sum + value, 0) / (calendarWaits.length || 1), 1),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       executions,
       resource_name: resourceState?.name ?? null,
       total_cost: round(costs.reduce((sum, value) => sum + value, 0), 2),
@@ -431,11 +898,25 @@ export function runSimulation({
   const resourceResults = resourceList.map((resource) => {
     const state = resourceRuntime.get(Number(resource.id));
     const quantity = Math.max(1, Number(resource.quantity) || 1);
+<<<<<<< HEAD
     const theoreticalCapacityMinutes = simulationHorizon * quantity;
     const utilizationRate =
       theoreticalCapacityMinutes > 0
         ? ((state?.busyMinutes || 0) / theoreticalCapacityMinutes) * 100
         : 0;
+=======
+    const capacityWindowMinutes =
+      horizonEnd > horizonStart
+        ? sumWorkingMinutesBetween(baseDate, horizonStart, horizonEnd, calendar, state?.availabilityWindows || []) *
+          quantity
+        : 0;
+    const utilizationRate =
+      (capacityWindowMinutes > 0
+        ? ((state?.busyMinutes || 0) / capacityWindowMinutes) * 100
+        : simulationHorizon > 0
+          ? ((state?.busyMinutes || 0) / (simulationHorizon * quantity)) * 100
+          : 0);
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 
     return {
       resource_id: Number(resource.id),
@@ -444,16 +925,31 @@ export function runSimulation({
       availability: Number(resource.availability) || 100,
       total_busy_min: round(state?.busyMinutes || 0, 1),
       avg_wait_min: round((state?.totalWaitMinutes || 0) / ((state?.tasksHandled || 0) || 1), 1),
+<<<<<<< HEAD
       avg_queue_wait_min: round(
         (state?.totalQueueWaitMinutes || 0) / ((state?.tasksHandled || 0) || 1),
         1
       ),
       tasks_handled: state?.tasksHandled || 0,
       theoretical_capacity_min: round(theoreticalCapacityMinutes, 1),
+=======
+      avg_queue_wait_min: round((state?.totalQueueWaitMinutes || 0) / ((state?.tasksHandled || 0) || 1), 1),
+      avg_calendar_wait_min: round((state?.totalCalendarWaitMinutes || 0) / ((state?.tasksHandled || 0) || 1), 1),
+      tasks_handled: state?.tasksHandled || 0,
+      capacity_window_min: round(capacityWindowMinutes, 1),
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
       utilization_rate: round(utilizationRate, 1),
     };
   });
 
+<<<<<<< HEAD
+=======
+  const arrivalPreview = arrivalSchedule.slice(0, 10).map((value, index) => ({
+    index: index + 1,
+    offset_min: round(value, 2),
+  }));
+
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   const slaSummary = buildSlaSummary(taskResults, lateInstances, activeRecords.length);
 
   return {
@@ -461,7 +957,11 @@ export function runSimulation({
     instances: totalInstances,
     active_instances: activeInstances,
     status: 'completed',
+<<<<<<< HEAD
     instance_offset_rule: 'offset(i) = 3 * (i - 1) minutes',
+=======
+    arrival_source: importedArrivals.length > 0 ? 'csv' : 'generated',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     avg_duration_min: round(cycleTimes.reduce((sum, value) => sum + value, 0) / (cycleTimes.length || 1), 1),
     min_duration_min: round(cycleTimes.length ? Math.min(...cycleTimes) : 0, 1),
     max_duration_min: round(cycleTimes.length ? Math.max(...cycleTimes) : 0, 1),
@@ -472,14 +972,32 @@ export function runSimulation({
     simulation_horizon_min: round(simulationHorizon, 1),
     late_instances: lateInstances,
     sla_summary: slaSummary,
+<<<<<<< HEAD
+=======
+    calendar_summary: calendar
+      ? {
+          business_hours: {
+            start: scenario?.calendar_settings?.business_hours?.start || null,
+            end: scenario?.calendar_settings?.business_hours?.end || null,
+          },
+          weekend_days: Array.from(calendar.weekendDays),
+          holidays: Array.from(calendar.holidays),
+          shifts: safeParseJson(scenario?.calendar_settings?.shifts, scenario?.calendar_settings?.shifts) || [],
+        }
+      : null,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     task_results: taskResults,
     resource_results: resourceResults,
     bottlenecks: getBottlenecks(taskResults, resourceResults, slaSummary),
     histogram: buildHistogram(cycleTimes, 10),
+<<<<<<< HEAD
     instance_offset_preview: instanceOffsets.slice(0, 10).map((value, index) => ({
       index: index + 1,
       offset_min: round(value, 2),
     })),
+=======
+    arrival_preview: arrivalPreview,
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   };
 }
 
@@ -665,7 +1183,11 @@ export function runResourcePlanning({
       target_cycle_time_min: null,
       meets_target: false,
       recommendations: [],
+<<<<<<< HEAD
       summary: 'Provide a valid target cycle time to calculate a capacity plan.',
+=======
+      summary: 'Provide a valid target cycle time to calculate a staffing plan.',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     };
   }
 
@@ -675,7 +1197,11 @@ export function runResourcePlanning({
       target_cycle_time_min: target,
       meets_target: true,
       recommendations: [],
+<<<<<<< HEAD
       summary: 'Current resource capacity already meets the requested target.',
+=======
+      summary: 'Current staffing already meets the requested SLA target.',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     };
   }
 
@@ -728,7 +1254,11 @@ export function runResourcePlanning({
     recommendations: sortedRecommendations.slice(0, 8),
     summary: sortedRecommendations[0]?.meets_target
       ? `Adding ${sortedRecommendations[0].add_units} unit(s) to ${sortedRecommendations[0].resource_name} reaches the target.`
+<<<<<<< HEAD
       : 'No tested capacity change reached the target within the allowed search range.',
+=======
+      : 'No tested resource change reached the target within the allowed search range.',
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
   };
 }
 

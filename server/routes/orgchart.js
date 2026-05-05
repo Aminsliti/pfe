@@ -702,6 +702,7 @@ router.post('/orgchart/nodes', async (req, res) => {
       ]
     );
 
+<<<<<<< HEAD
     // Enforce "sticky" inside/outside behavior:
     // when creating children under a parent, all descendants of that parent follow the chosen placement_mode.
     // (We exclude the parent itself so it can remain visible depending on its own mode.)
@@ -724,6 +725,8 @@ router.post('/orgchart/nodes', async (req, res) => {
       );
     }
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
     await client.query(
       'UPDATE org_chart_nodes SET color = $1, updated_at = CURRENT_TIMESTAMP WHERE node_type = $2',
       [color, nodeType]
@@ -1052,6 +1055,7 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
 router.post('/orgchart/positions/clear', async (req, res) => {
   await ensureOrgChartSchema();
   const client = await pool.connect();
@@ -1130,4 +1134,6 @@ router.post('/orgchart/clear', async (req, res) => {
   }
 });
 
+=======
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
 export default router;

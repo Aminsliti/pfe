@@ -1322,7 +1322,11 @@ function SimulationResultsPanel({ scenario, scenarios, onRun }) {
                         <div className="sim-kpi-label">{bottleneck.type === 'resource' ? 'Ressource' : 'Tache'}</div>
                         <h6 className="mb-0">{bottleneck.name}</h6>
                       </div>
+<<<<<<< HEAD
                       <Badge className={`badge-risk-${bottleneck.severity || 'low'}`}>
+=======
+                      <Badge bg={bottleneck.severity === 'high' ? 'danger' : bottleneck.severity === 'medium' ? 'warning' : 'secondary'}>
+>>>>>>> 7935281cd37df18e8a4e1f81ec5268af2dc5a435
                         {bottleneck.severity}
                       </Badge>
                     </div>
