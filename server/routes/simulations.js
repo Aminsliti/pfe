@@ -5,7 +5,6 @@ import {
   ensureCompanyAccess,
   ensurePermission,
 } from '../utils/access.js';
-import { parseArrivalCsv } from '../utils/simulationCsv.js';
 import {
   extractTasksFromDiagram,
   runSimulation,
@@ -157,7 +156,7 @@ function buildSimulationExportCsv(scenario) {
     ['simulated_at', results.simulated_at || ''],
     ['instances', results.instances ?? ''],
     ['active_instances', results.active_instances ?? ''],
-    ['arrival_source', results.arrival_source || ''],
+    ['instance_offset_rule', results.instance_offset_rule || ''],
     ['avg_duration_min', results.avg_duration_min ?? ''],
     ['min_duration_min', results.min_duration_min ?? ''],
     ['max_duration_min', results.max_duration_min ?? ''],
@@ -207,13 +206,6 @@ function buildSimulationExportCsv(scenario) {
       ])
     : [];
 
-  const arrivalRows = Array.isArray(results.arrival_preview)
-    ? results.arrival_preview.map((arrival) => [
-        arrival.index,
-        arrival.offset_min,
-      ])
-    : [];
-
   return [
     'sep=;',
     buildCsvSection('Scenario Summary', ['field', 'value'], summaryRows),
@@ -231,11 +223,6 @@ function buildSimulationExportCsv(scenario) {
       'Bottlenecks',
       ['type', 'name', 'metric', 'unit', 'severity', 'details'],
       bottleneckRows
-    ),
-    buildCsvSection(
-      'Arrival Preview',
-      ['index', 'offset_min'],
-      arrivalRows
     ),
   ]
     .filter(Boolean)
@@ -429,10 +416,9 @@ function mergeScenarioInsights(results, insights = {}) {
 }
 
 async function loadScenarioInputs(scenarioId) {
-  const [tasks, resources, arrivals] = await Promise.all([
+  const [tasks, resources] = await Promise.all([
     pool.query('SELECT * FROM simulation_task_data WHERE scenario_id = $1 ORDER BY id', [scenarioId]),
     pool.query('SELECT * FROM simulation_resources WHERE scenario_id = $1 ORDER BY id', [scenarioId]),
-    getScenarioArrivals(scenarioId),
   ]);
 
   return {
@@ -440,11 +426,8 @@ async function loadScenarioInputs(scenarioId) {
       ...task,
       sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
     })),
-    resources: resources.rows.map((resource) => ({
-      ...resource,
-      availability_windows: safeJsonParse(resource.availability_windows, []),
-    })),
-    arrivals,
+    resources: resources.rows,
+    arrivals: [],
   };
 }
 
@@ -527,12 +510,7 @@ router.get('/simulations', async (req, res) => {
 
     query += ' ORDER BY s.updated_at DESC';
     const result = await pool.query(query, params);
-    res.json(
-      result.rows.map((row) => ({
-        ...row,
-        calendar_settings: safeJsonParse(row.calendar_settings, {}),
-      }))
-    );
+    res.json(result.rows);
   } catch (error) {
     serverErr(res, error);
   }
@@ -549,26 +527,23 @@ router.get('/simulations/:id', async (req, res) => {
       return;
     }
 
-    const [resources, tasks, flows, arrivals] = await Promise.all([
+    const [resources, tasks, flows] = await Promise.all([
       pool.query('SELECT * FROM simulation_resources WHERE scenario_id = $1 ORDER BY id', [req.params.id]),
       pool.query('SELECT * FROM simulation_task_data WHERE scenario_id = $1 ORDER BY id', [req.params.id]),
       pool.query('SELECT * FROM simulation_flow_probabilities WHERE scenario_id = $1 ORDER BY id', [req.params.id]),
-      getScenarioArrivals(req.params.id),
     ]);
 
     res.json({
       ...scenario,
-      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
       resources: resources.rows.map((resource) => ({
         ...resource,
-        availability_windows: safeJsonParse(resource.availability_windows, []),
+        availability_windows: [],
       })),
       task_data: tasks.rows.map((task) => ({
         ...task,
         sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
       })),
       flow_probs: flows.rows,
-      arrival_times: arrivals,
     });
   } catch (error) {
     serverErr(res, error);
@@ -592,13 +567,6 @@ router.post('/simulations', async (req, res) => {
       cooldown_percent = 10,
       infinite_resources = false,
       simulate_all_levels = false,
-      import_csv_arrivals = false,
-      calendar_settings = {
-        business_hours: { start: '09:00', end: '17:00' },
-        weekend_days: [0, 6],
-        holidays: [],
-        shifts: [],
-      },
       monte_carlo_runs = 1,
       notifications_enabled = true,
     } = req.body;
@@ -649,8 +617,8 @@ router.post('/simulations', async (req, res) => {
         cooldown_percent,
         infinite_resources,
         simulate_all_levels,
-        import_csv_arrivals,
-        JSON.stringify(normalizeCalendarSettingsInput(calendar_settings)),
+        false,
+        JSON.stringify({}),
         Math.max(1, Number(monte_carlo_runs) || 1),
         notifications_enabled !== false,
         req.user.id,
@@ -670,10 +638,7 @@ router.post('/simulations', async (req, res) => {
       },
     });
 
-    res.status(201).json({
-      ...result.rows[0],
-      calendar_settings: safeJsonParse(result.rows[0].calendar_settings, {}),
-    });
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
   }
@@ -701,8 +666,6 @@ router.put('/simulations/:id', async (req, res) => {
       cooldown_percent,
       infinite_resources,
       simulate_all_levels,
-      import_csv_arrivals,
-      calendar_settings,
       monte_carlo_runs,
       notifications_enabled,
     } = req.body;
@@ -745,12 +708,8 @@ router.put('/simulations/:id', async (req, res) => {
         cooldown_percent,
         infinite_resources,
         simulate_all_levels,
-        import_csv_arrivals,
-        JSON.stringify(
-          normalizeCalendarSettingsInput(
-            calendar_settings ?? safeJsonParse(currentScenario.calendar_settings, {})
-          )
-        ),
+        false,
+        JSON.stringify({}),
         Math.max(1, Number(monte_carlo_runs) || Number(currentScenario.monte_carlo_runs) || 1),
         notifications_enabled ?? currentScenario.notifications_enabled ?? true,
         req.params.id,
@@ -774,10 +733,7 @@ router.put('/simulations/:id', async (req, res) => {
       },
     });
 
-    res.json({
-      ...result.rows[0],
-      calendar_settings: safeJsonParse(result.rows[0].calendar_settings, {}),
-    });
+    res.json(result.rows[0]);
   } catch (error) {
     serverErr(res, error);
   }
@@ -837,24 +793,7 @@ router.get('/simulations/:id/compare/:otherId', async (req, res) => {
 });
 
 router.get('/simulations/:id/arrival-times', async (req, res) => {
-  try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
-      return;
-    }
-
-    const scenario = await ensureScenarioAccess(req, res, req.params.id);
-    if (!scenario) {
-      return;
-    }
-
-    const arrivals = await getScenarioArrivals(scenario.id);
-    res.json({
-      count: arrivals.length,
-      arrivals,
-    });
-  } catch (error) {
-    serverErr(res, error);
-  }
+  res.status(410).json({ error: 'Arrival imports were removed from the mathematical simulation model.' });
 });
 
 router.get('/simulations/:id/export', async (req, res) => {
@@ -899,13 +838,9 @@ router.get('/simulations/:id/sensitivity', async (req, res) => {
 
     const inputs = await loadScenarioInputs(scenario.id);
     const sensitivity = runSensitivityAnalysis({
-      scenario: {
-        ...scenario,
-        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
-      },
+      scenario,
       tasks: inputs.tasks,
       resources: inputs.resources,
-      arrivals: inputs.arrivals,
     });
 
     res.json(sensitivity);
@@ -927,13 +862,9 @@ router.post('/simulations/:id/what-if', async (req, res) => {
 
     const inputs = await loadScenarioInputs(scenario.id);
     const analysis = runWhatIfAnalysis({
-      scenario: {
-        ...scenario,
-        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
-      },
+      scenario,
       tasks: inputs.tasks,
       resources: inputs.resources,
-      arrivals: inputs.arrivals,
       overrides: req.body || {},
     });
 
@@ -957,13 +888,9 @@ router.post('/simulations/:id/resource-plan', async (req, res) => {
     const targetCycleTimeMin = Number(req.body?.target_cycle_time_min) || 0;
     const inputs = await loadScenarioInputs(scenario.id);
     const planning = runResourcePlanning({
-      scenario: {
-        ...scenario,
-        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
-      },
+      scenario,
       tasks: inputs.tasks,
       resources: inputs.resources,
-      arrivals: inputs.arrivals,
       targetCycleTimeMin,
     });
 
@@ -989,16 +916,9 @@ router.get('/simulations/:id/report', async (req, res) => {
     }
 
     const inputs = await loadScenarioInputs(scenario.id);
-    const extras = await buildScenarioInsights(
-      {
-        ...scenario,
-        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
-      },
-      inputs
-    );
+    const extras = await buildScenarioInsights(scenario, inputs);
     const reportScenario = {
       ...scenario,
-      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
       results: mergeScenarioInsights(scenario.results, extras),
     };
     const filenameBase =
@@ -1040,16 +960,9 @@ router.get('/simulations/:id/explanation', async (req, res) => {
     }
 
     const inputs = await loadScenarioInputs(scenario.id);
-    const extras = await buildScenarioInsights(
-      {
-        ...scenario,
-        calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
-      },
-      inputs
-    );
+    const extras = await buildScenarioInsights(scenario, inputs);
     const enrichedScenario = {
       ...scenario,
-      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
       results: scenario.results ? mergeScenarioInsights(scenario.results, extras) : scenario.results,
     };
 
@@ -1063,144 +976,11 @@ router.get('/simulations/:id/explanation', async (req, res) => {
 });
 
 router.post('/simulations/:id/arrival-times/import', async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
-      return;
-    }
-
-    const scenario = await ensureScenarioAccess(req, res, req.params.id);
-    if (!scenario) {
-      return;
-    }
-
-    const csvText = String(req.body?.csvText || '');
-    if (!csvText.trim()) {
-      return res.status(400).json({ error: 'csvText is required.' });
-    }
-
-    const arrivals = parseArrivalCsv(csvText);
-
-    await client.query('BEGIN');
-    await client.query('DELETE FROM simulation_arrival_times WHERE scenario_id = $1', [scenario.id]);
-
-    for (const arrival of arrivals) {
-      await client.query(
-        `
-          INSERT INTO simulation_arrival_times (
-            scenario_id,
-            arrival_order,
-            raw_value,
-            arrival_at,
-            arrival_offset_min
-          )
-          VALUES ($1, $2, $3, $4, $5)
-        `,
-        [
-          scenario.id,
-          arrival.arrivalOrder,
-          arrival.rawValue,
-          arrival.arrivalAt,
-          arrival.arrivalOffsetMin,
-        ]
-      );
-    }
-
-    await client.query(
-      `
-        UPDATE simulation_scenarios
-        SET
-          import_csv_arrivals = TRUE,
-          process_instances = $1,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `,
-      [arrivals.length, scenario.id]
-    );
-
-    await client.query('COMMIT');
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'simulation',
-      entityId: scenario.id,
-      companyId: scenario.process_company_id,
-      action: 'arrival_import',
-      summary: `Imported ${arrivals.length} arrival times for "${scenario.name}"`,
-      details: {
-        count: arrivals.length,
-      },
-    });
-
-    res.status(201).json({
-      message: 'Arrival times imported successfully.',
-      count: arrivals.length,
-      arrivals,
-    });
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Ignore rollback failures.
-    }
-
-    if (error.message?.includes('CSV') || error.message?.includes('arrival')) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    serverErr(res, error);
-  } finally {
-    client.release();
-  }
+  res.status(410).json({ error: 'Arrival imports were removed from the mathematical simulation model.' });
 });
 
 router.delete('/simulations/:id/arrival-times', async (req, res) => {
-  try {
-    if (!ensurePermission(req, res, PERMISSIONS.MANAGE_PROCESSES)) {
-      return;
-    }
-
-    const scenario = await ensureScenarioAccess(req, res, req.params.id);
-    if (!scenario) {
-      return;
-    }
-
-    await pool.query('DELETE FROM simulation_arrival_times WHERE scenario_id = $1', [scenario.id]);
-    await pool.query(
-      `
-        UPDATE simulation_scenarios
-        SET import_csv_arrivals = FALSE,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `,
-      [scenario.id]
-    );
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'simulation',
-      entityId: scenario.id,
-      companyId: scenario.process_company_id,
-      action: 'run_start',
-      summary: `Started simulation "${scenario.name}"`,
-      details: {},
-    });
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'simulation',
-      entityId: scenario.id,
-      companyId: scenario.process_company_id,
-      action: 'arrival_clear',
-      summary: `Cleared imported arrival times for "${scenario.name}"`,
-      details: {},
-    });
-
-    res.json({ message: 'Imported arrival times cleared.' });
-  } catch (error) {
-    serverErr(res, error);
-  }
+  res.status(410).json({ error: 'Arrival imports were removed from the mathematical simulation model.' });
 });
 
 router.get('/simulations/:id/resources', async (req, res) => {
@@ -1222,7 +1002,7 @@ router.get('/simulations/:id/resources', async (req, res) => {
     res.json(
       result.rows.map((resource) => ({
         ...resource,
-        availability_windows: safeJsonParse(resource.availability_windows, []),
+        availability_windows: [],
       }))
     );
   } catch (error) {
@@ -1247,7 +1027,6 @@ router.post('/simulations/:id/resources', async (req, res) => {
       quantity = 1,
       cost_per_hour = 0,
       availability = 100,
-      availability_windows = [],
     } = req.body;
 
     if (!name) {
@@ -1275,7 +1054,7 @@ router.post('/simulations/:id/resources', async (req, res) => {
         quantity,
         cost_per_hour,
         availability,
-        JSON.stringify(normalizeAvailabilityWindowsInput(availability_windows)),
+        JSON.stringify([]),
       ]
     );
 
@@ -1293,7 +1072,7 @@ router.post('/simulations/:id/resources', async (req, res) => {
 
     res.status(201).json({
       ...result.rows[0],
-      availability_windows: safeJsonParse(result.rows[0].availability_windows, []),
+      availability_windows: [],
     });
   } catch (error) {
     serverErr(res, error);
@@ -1311,7 +1090,7 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
       return;
     }
 
-    const { name, resource_type, quantity, cost_per_hour, availability, availability_windows } = req.body;
+    const { name, resource_type, quantity, cost_per_hour, availability } = req.body;
     const result = await pool.query(
       `
         UPDATE simulation_resources
@@ -1331,7 +1110,7 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
         quantity,
         cost_per_hour,
         availability,
-        JSON.stringify(normalizeAvailabilityWindowsInput(availability_windows)),
+        JSON.stringify([]),
         req.params.rid,
         scenario.id,
       ]
@@ -1355,7 +1134,7 @@ router.put('/simulations/:id/resources/:rid', async (req, res) => {
 
     res.json({
       ...result.rows[0],
-      availability_windows: safeJsonParse(result.rows[0].availability_windows, []),
+      availability_windows: [],
     });
   } catch (error) {
     serverErr(res, error);
@@ -1708,40 +1487,29 @@ router.post('/simulations/:id/run', async (req, res) => {
       );
     }
 
-    const [tasks, resources, arrivals] = await Promise.all([
+    const [tasks, resources] = await Promise.all([
       pool.query('SELECT * FROM simulation_task_data WHERE scenario_id = $1', [scenario.id]),
       pool.query('SELECT * FROM simulation_resources WHERE scenario_id = $1', [scenario.id]),
-      scenario.import_csv_arrivals ? getScenarioArrivals(scenario.id) : Promise.resolve([]),
     ]);
-
-    if (scenario.import_csv_arrivals && arrivals.length === 0) {
-      throw new Error('CSV arrivals are enabled but no arrival times have been imported.');
-    }
 
     const normalizedScenario = {
       ...scenario,
-      process_instances: scenario.import_csv_arrivals ? arrivals.length : scenario.process_instances,
-      calendar_settings: safeJsonParse(scenario.calendar_settings, {}),
+      process_instances: scenario.process_instances,
     };
     const normalizedTasks = tasks.rows.map((task) => ({
       ...task,
       sla_target_min: task.sla_target_min === null || task.sla_target_min === undefined ? null : Number(task.sla_target_min),
     }));
-    const normalizedResources = resources.rows.map((resource) => ({
-      ...resource,
-      availability_windows: safeJsonParse(resource.availability_windows, []),
-    }));
+    const normalizedResources = resources.rows;
 
     const results = runSimulation({
       scenario: normalizedScenario,
       tasks: normalizedTasks,
       resources: normalizedResources,
-      arrivals,
     });
     const insights = await buildScenarioInsights(normalizedScenario, {
       tasks: normalizedTasks,
       resources: normalizedResources,
-      arrivals,
     });
     const enrichedResults = mergeScenarioInsights(results, insights);
 
@@ -1811,10 +1579,7 @@ router.post('/simulations/:id/run', async (req, res) => {
       // Ignore follow-up status update failures so we can return the original error.
     }
 
-    const statusCode =
-      error.message?.includes('CSV arrivals') || error.message?.includes('arrival')
-        ? 400
-        : 500;
+    const statusCode = 500;
 
     console.error(error);
 

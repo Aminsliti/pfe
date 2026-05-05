@@ -140,6 +140,32 @@
   background: transparent !important;
 }
 
+.bpmn-modeler-btn-levelup {
+  margin-left: 16px;
+  padding: 4px 12px;
+  background: white;
+  border: 1px solid var(--bpmn-slate-200);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bpmn-slate-600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  box-shadow: var(--bpmn-shadow-sm);
+}
+
+.bpmn-modeler-btn-levelup:hover {
+  background: var(--bpmn-slate-50);
+  border-color: var(--bpmn-primary-border);
+  color: var(--bpmn-primary);
+  box-shadow: var(--bpmn-shadow-md);
+}
+
 /* Header Buttons */
 .bpmn-modeler-header-right button {
   padding: 8px 16px;

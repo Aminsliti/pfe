@@ -1,16 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Row } from 'react-bootstrap';
 import { useSnackbar } from '../../components/SnackbarProvider';
-import ArrivalImportCard from './ArrivalImportCard';
-import {
-  API,
-  DAY_OPTIONS,
-  normalizeCalendarState,
-  parseHolidayText,
-  parseWindowsText,
-  readApiPayload,
-  windowsToText,
-} from './utils';
+import { API, readApiPayload } from './utils';
 
 const EntityCollaborationPanel = lazy(() => import('../../components/EntityCollaborationPanel'));
 
@@ -21,32 +12,14 @@ function CollaborationFallback() {
 export default function OverviewTab({ scenario, processes, onScenarioChange, onReload }) {
   const { showSnackbar } = useSnackbar();
   const [form, setForm] = useState(scenario);
-  const [holidayText, setHolidayText] = useState('');
-  const [shiftText, setShiftText] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     setForm(scenario);
-    const calendar = normalizeCalendarState(scenario.calendar_settings || {});
-    setHolidayText(calendar.holidays.join('\n'));
-    setShiftText(windowsToText(calendar.shifts));
   }, [scenario]);
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
-  const calendar = normalizeCalendarState(form.calendar_settings || {});
-
-  const toggleWeekend = (dayValue) => {
-    const current = new Set(calendar.weekend_days || []);
-
-    if (current.has(dayValue)) {
-      current.delete(dayValue);
-    } else {
-      current.add(dayValue);
-    }
-
-    update('calendar_settings', { ...calendar, weekend_days: Array.from(current) });
-  };
 
   const save = async () => {
     setSaving(true);
@@ -54,12 +27,18 @@ export default function OverviewTab({ scenario, processes, onScenarioChange, onR
 
     try {
       const payload = {
-        ...form,
-        calendar_settings: {
-          ...calendar,
-          holidays: parseHolidayText(holidayText),
-          shifts: parseWindowsText(shiftText),
-        },
+        name: form.name,
+        description: form.description,
+        process_id: form.process_id,
+        status: form.status,
+        start_date: form.start_date,
+        process_instances: form.process_instances,
+        warmup_percent: form.warmup_percent,
+        cooldown_percent: form.cooldown_percent,
+        infinite_resources: form.infinite_resources,
+        simulate_all_levels: form.simulate_all_levels,
+        monte_carlo_runs: form.monte_carlo_runs,
+        notifications_enabled: form.notifications_enabled,
       };
       const response = await fetch(`${API}/simulations/${scenario.id}`, {
         method: 'PUT',
@@ -87,7 +66,7 @@ export default function OverviewTab({ scenario, processes, onScenarioChange, onR
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div>
               <h6 className="mb-1">Scenario settings</h6>
-              <div className="text-muted small">Manage baseline parameters, status, and advanced run options.</div>
+              <div className="text-muted small">Manage baseline parameters and mathematical run options.</div>
             </div>
             <Button variant="danger" size="sm" onClick={save} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
@@ -213,83 +192,14 @@ export default function OverviewTab({ scenario, processes, onScenarioChange, onR
 
       <Card className="border-0 shadow-sm">
         <Card.Body>
-          <h6 className="mb-3">Working calendar</h6>
-          <Row className="g-3">
-            <Col md={3}>
-              <Form.Group>
-                <Form.Label>Business start</Form.Label>
-                <Form.Control
-                  type="time"
-                  value={calendar.business_hours.start}
-                  onChange={(event) =>
-                    update('calendar_settings', {
-                      ...calendar,
-                      business_hours: { ...calendar.business_hours, start: event.target.value },
-                    })
-                  }
-                />
-              </Form.Group>
-            </Col>
-            <Col md={3}>
-              <Form.Group>
-                <Form.Label>Business end</Form.Label>
-                <Form.Control
-                  type="time"
-                  value={calendar.business_hours.end}
-                  onChange={(event) =>
-                    update('calendar_settings', {
-                      ...calendar,
-                      business_hours: { ...calendar.business_hours, end: event.target.value },
-                    })
-                  }
-                />
-              </Form.Group>
-            </Col>
-            <Col md={6}>
-              <Form.Label>Weekend days</Form.Label>
-              <div className="d-flex flex-wrap gap-2">
-                {DAY_OPTIONS.map((day) => (
-                  <Button
-                    key={day.value}
-                    size="sm"
-                    variant={calendar.weekend_days.includes(day.value) ? 'dark' : 'outline-secondary'}
-                    onClick={() => toggleWeekend(day.value)}
-                  >
-                    {day.label}
-                  </Button>
-                ))}
-              </div>
-            </Col>
-            <Col md={6}>
-              <Form.Group>
-                <Form.Label>Holidays</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={4}
-                  value={holidayText}
-                  onChange={(event) => setHolidayText(event.target.value)}
-                  placeholder={'2026-12-25\n2026-12-31'}
-                />
-              </Form.Group>
-            </Col>
-            <Col md={6}>
-              <Form.Group>
-                <Form.Label>Shift windows</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={4}
-                  value={shiftText}
-                  onChange={(event) => setShiftText(event.target.value)}
-                  placeholder={'09:00-12:30 | 1,2,3,4,5\n13:30-17:00 | 1,2,3,4,5'}
-                />
-                <Form.Text>One shift per line. Add optional days after a pipe.</Form.Text>
-              </Form.Group>
-            </Col>
-          </Row>
+          <h6 className="mb-3">Mathematical model</h6>
+          <div className="d-flex flex-column gap-2 text-muted small">
+            <div>Each simulation run treats process execution as a queueing system with task durations, waits, and resource capacity.</div>
+            <div>Cycle time is measured as `finish time - instance offset`, and task wait is measured as `service start - ready time`.</div>
+            <div>Resource utilisation is computed from `busy time / theoretical capacity`, and Monte Carlo runs estimate the distribution of those outputs.</div>
+          </div>
         </Card.Body>
       </Card>
-
-      <ArrivalImportCard scenario={scenario} onScenarioUpdated={onScenarioChange} />
 
       <Suspense fallback={<CollaborationFallback />}>
         <EntityCollaborationPanel entityType="simulation" entityId={scenario.id} title="Scenario discussion and files" />

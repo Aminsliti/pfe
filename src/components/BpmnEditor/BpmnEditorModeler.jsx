@@ -2017,6 +2017,17 @@ const BpmnEditorModeler = ({
               </React.Fragment>
             ))}
           </div>
+
+          {currentSubprocess && (
+            <button 
+              onClick={() => openDiagramLevel(currentSubprocess.parentId || null)}
+              className="bpmn-modeler-btn-levelup"
+              title="Go to parent level"
+            >
+              <ArrowLeft size={14} />
+              Level Up
+            </button>
+          )}
         </div>
 
         <div className="bpmn-modeler-header-right">
@@ -2141,6 +2152,17 @@ const BpmnEditorModeler = ({
               </div>
             ))}
           </div>
+
+          {currentSubprocess && (
+            <button 
+              onClick={() => openDiagramLevel(currentSubprocess.parentId || null)}
+              className="bpmn-modeler-btn-levelup"
+              title="Go to parent level"
+            >
+              <ArrowLeft size={14} />
+              Level Up
+            </button>
+          )}
         </div>
 
         {/* Canvas */}

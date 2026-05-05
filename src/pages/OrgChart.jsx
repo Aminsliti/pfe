@@ -936,6 +936,18 @@ export function OrgChart({ publicView = false }) {
     updateZoomAtPoint(nextZoom, event.clientX, event.clientY);
   }, [updateZoomAtPoint]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return undefined;
+    }
+
+    canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', handleCanvasWheel);
+    };
+  }, [handleCanvasWheel]);
+
   const handleCanvasPointerDown = useCallback((event) => {
     if (event.button !== 0) {
       return;
@@ -1215,7 +1227,6 @@ export function OrgChart({ publicView = false }) {
               <div
                 className={`org-canvas${boardFullscreen ? ' is-fullscreen-fit' : ''}${isPanning ? ' is-panning' : ''}`}
                 ref={canvasRef}
-                onWheel={handleCanvasWheel}
                 onPointerDown={handleCanvasPointerDown}
                 onPointerMove={handleCanvasPointerMove}
                 onPointerUp={handleCanvasPointerUp}

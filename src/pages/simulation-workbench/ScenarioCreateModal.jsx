@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Col, Form, Modal, Row } from 'react-bootstrap';
-import { API, normalizeCalendarState, readApiPayload } from './utils';
+import { API, readApiPayload } from './utils';
 
 export default function ScenarioCreateModal({ show, onHide, processes, onCreated }) {
   const [form, setForm] = useState({
@@ -14,10 +14,8 @@ export default function ScenarioCreateModal({ show, onHide, processes, onCreated
     status: 'draft',
     infinite_resources: false,
     simulate_all_levels: false,
-    import_csv_arrivals: false,
     notifications_enabled: true,
     monte_carlo_runs: 1,
-    calendar_settings: normalizeCalendarState(),
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
