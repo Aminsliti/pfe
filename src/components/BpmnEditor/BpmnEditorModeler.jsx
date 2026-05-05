@@ -4,6 +4,24 @@ import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css';
 import './BpmnEditorModeler.css';
 import {
+  Save, 
+  Download, 
+  Maximize2, 
+  Minimize2, 
+  X, 
+  ArrowLeft, 
+  Search, 
+  Target,
+  FileDown,
+  ChevronRight,
+  SlidersHorizontal,
+  ShieldAlert,
+  UserCheck,
+  Link as LinkIcon,
+  Trash2
+} from 'lucide-react';
+import logo from '../../assets/logo.png';
+import {
   buildBpmnSubprocessTrail,
   getBpmnSubprocesses,
   getSubprocessIdFromPlaneId,
@@ -498,6 +516,78 @@ const PALETTE_ELEMENTS = [
   },
 ];
 
+const FEATURED_PALETTE_ELEMENTS = [
+  { id: 'bpmn:Task', name: 'Task', category: 'Quick Elements', icon: 'TK' },
+  {
+    id: 'bpmn:SubProcess',
+    name: 'Sous Process',
+    category: 'Quick Elements',
+    icon: 'SP',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: true },
+  },
+  { id: 'bpmn:StartEvent', name: 'Start', category: 'Quick Elements', icon: 'ST' },
+  { id: 'bpmn:EndEvent', name: 'End', category: 'Quick Elements', icon: 'EN' },
+  { id: 'bpmn:ExclusiveGateway', name: 'Gateway', category: 'Quick Elements', icon: 'GW' },
+  { id: 'bpmn:Participant', name: 'Pool', category: 'Quick Elements', icon: 'PL' },
+  {
+    id: 'pfe:RiskAnnotation',
+    name: 'Risk',
+    category: 'Quick Elements',
+    icon: 'RK',
+    createOptions: { type: 'bpmn:TextAnnotation' },
+    presetName: 'Risk',
+  },
+  {
+    id: 'pfe:ControlAnnotation',
+    name: 'Control',
+    category: 'Quick Elements',
+    icon: 'CT',
+    createOptions: { type: 'bpmn:TextAnnotation' },
+    presetName: 'Control',
+  },
+  {
+    id: 'pfe:CommentAnnotation',
+    name: 'Comment',
+    category: 'Quick Elements',
+    icon: 'CM',
+    createOptions: { type: 'bpmn:TextAnnotation' },
+    presetName: 'Comment',
+  },
+  {
+    id: 'pfe:DocumentObject',
+    name: 'Document',
+    category: 'Quick Elements',
+    icon: 'DC',
+    createOptions: { type: 'bpmn:DataObjectReference' },
+    presetName: 'Document',
+  },
+];
+
+const SEARCHABLE_PALETTE_ELEMENTS = (() => {
+  const merged = new Map(PALETTE_ELEMENTS.map((element) => [element.id, element]));
+  FEATURED_PALETTE_ELEMENTS.forEach((element) => {
+    const previous = merged.get(element.id);
+    merged.set(
+      element.id,
+      previous
+        ? { ...previous, ...element, createOptions: element.createOptions || previous.createOptions }
+        : element
+    );
+  });
+  return Array.from(merged.values());
+})();
+
+const PALETTE_DND_TYPE = 'application/vnd.vbpm.palette-element';
+const PALETTE_DEFAULTS_STORAGE_KEY = 'vbpm.bpmnEditor.defaultPaletteElements';
+
+const getElementPropertyName = (element) =>
+  String(
+    element?.businessObject?.name ||
+    element?.businessObject?.text ||
+    element?.businessObject?.id ||
+    ''
+  );
+
 const createPaletteShape = (elementFactory, element) => {
   const createOptions = element?.createOptions || {};
   const type = createOptions.type || element?.id;
@@ -507,6 +597,172 @@ const createPaletteShape = (elementFactory, element) => {
   }
 
   return elementFactory.createShape({ type, ...createOptions });
+};
+
+const applyPaletteElementDefaults = (modeler, createdElement, element) => {
+  const presetName = String(element?.presetName || '').trim();
+  if (!presetName || !createdElement || !modeler) {
+    return;
+  }
+
+  try {
+    const modeling = modeler.get('modeling');
+    modeling.updateLabel(createdElement, presetName);
+  } catch (error) {
+    console.warn('Unable to apply palette defaults:', error);
+  }
+};
+
+const ARTIFACT_TYPES = new Set([
+  'bpmn:TextAnnotation',
+  'bpmn:Group',
+]);
+
+const PROCESS_CONTAINER_TYPES = new Set([
+  'bpmn:Process',
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+
+const ensureArrayProperty = (target, key) => {
+  if (!target) {
+    return [];
+  }
+
+  if (!Array.isArray(target[key])) {
+    target[key] = [];
+  }
+
+  return target[key];
+};
+
+const findDefinitionsBusinessObject = (businessObject) => {
+  let current = businessObject || null;
+
+  while (current && current.$type !== 'bpmn:Definitions') {
+    current = current.$parent || null;
+  }
+
+  return current || null;
+};
+
+const ensureParticipantProcessRef = (participantElement, moddle) => {
+  const participantBusinessObject = participantElement?.businessObject;
+  if (!participantBusinessObject || !moddle) {
+    return null;
+  }
+
+  let processRef = participantBusinessObject.processRef || null;
+
+  if (!processRef) {
+    processRef = moddle.create('bpmn:Process', {
+      id: sanitizeId(`${participantBusinessObject.id || participantBusinessObject.name || 'Participant'}_Process`),
+      isExecutable: false,
+    });
+    participantBusinessObject.processRef = processRef;
+
+    const definitions = findDefinitionsBusinessObject(participantBusinessObject);
+    if (definitions) {
+      const rootElements = ensureArrayProperty(definitions, 'rootElements');
+      if (!rootElements.includes(processRef)) {
+        rootElements.push(processRef);
+      }
+      processRef.$parent = definitions;
+    }
+  }
+
+  ensureArrayProperty(processRef, 'flowElements');
+  ensureArrayProperty(processRef, 'artifacts');
+  ensureArrayProperty(processRef, 'laneSets');
+  return processRef;
+};
+
+const ensureContainerSemantics = (parentElement, elementType, moddle) => {
+  const businessObject = parentElement?.businessObject;
+  if (!businessObject) {
+    return;
+  }
+
+  if (parentElement.type === 'bpmn:Participant') {
+    ensureParticipantProcessRef(parentElement, moddle);
+    return;
+  }
+
+  if (parentElement.type === 'bpmn:Collaboration') {
+    ensureArrayProperty(businessObject, 'participants');
+    ensureArrayProperty(businessObject, 'artifacts');
+    ensureArrayProperty(businessObject, 'messageFlows');
+    return;
+  }
+
+  if (parentElement.type === 'bpmn:Lane') {
+    ensureArrayProperty(businessObject, 'flowNodeRef');
+    if (!businessObject.childLaneSet) {
+      businessObject.childLaneSet = moddle.create('bpmn:LaneSet', {
+        id: sanitizeId(`${businessObject.id || 'Lane'}_ChildLaneSet`),
+      });
+      businessObject.childLaneSet.$parent = businessObject;
+    }
+    ensureArrayProperty(businessObject.childLaneSet, 'lanes');
+    return;
+  }
+
+  if (PROCESS_CONTAINER_TYPES.has(parentElement.type) || businessObject.$type === 'bpmn:Process') {
+    ensureArrayProperty(businessObject, 'flowElements');
+    ensureArrayProperty(businessObject, 'artifacts');
+    return;
+  }
+
+  if (ARTIFACT_TYPES.has(elementType)) {
+    ensureArrayProperty(businessObject, 'artifacts');
+  }
+};
+
+const resolveCreationParent = ({ rootElement, selection, elementType, moddle }) => {
+  const activeSelection = selection?.get?.() || [];
+  const selectedElement = activeSelection[0] || null;
+  const allowsArtifactsOnRoot = ARTIFACT_TYPES.has(elementType);
+
+  if (elementType === 'bpmn:Participant') {
+    if (rootElement?.type !== 'bpmn:Collaboration') {
+      throw new Error('Participants can only be added inside a collaboration diagram.');
+    }
+
+    ensureContainerSemantics(rootElement, elementType, moddle);
+    return rootElement;
+  }
+
+  if (selectedElement?.type === 'bpmn:Lane') {
+    ensureContainerSemantics(selectedElement, elementType, moddle);
+    return selectedElement;
+  }
+
+  if (selectedElement?.type === 'bpmn:Participant') {
+    ensureContainerSemantics(selectedElement, elementType, moddle);
+    return selectedElement;
+  }
+
+  if (selectedElement && PROCESS_CONTAINER_TYPES.has(selectedElement.type)) {
+    ensureContainerSemantics(selectedElement, elementType, moddle);
+    return selectedElement;
+  }
+
+  if (rootElement?.type === 'bpmn:Collaboration' && !allowsArtifactsOnRoot) {
+    const participantElement = activeSelection.find((element) => element?.type === 'bpmn:Participant')
+      || rootElement.children?.find((child) => child?.type === 'bpmn:Participant' && !child?.labelTarget)
+      || null;
+
+    if (!participantElement) {
+      throw new Error('Add a participant before adding flow elements to a collaboration diagram.');
+    }
+
+    ensureContainerSemantics(participantElement, elementType, moddle);
+    return participantElement;
+  }
+
+  ensureContainerSemantics(rootElement, elementType, moddle);
+  return rootElement;
 };
 
 const PFE_NAMESPACE_PREFIX = 'pfe';
@@ -561,7 +817,19 @@ const buildCalledElementKey = (processId) => {
 };
 
 const isActorAssignableElement = (element) => ASSIGNABLE_ACTOR_TYPES.has(element?.type);
-const isCallActivityElement = (element) => element?.type === 'bpmn:CallActivity';
+const LINKABLE_PROCESS_ELEMENT_TYPES = new Set([
+  'bpmn:CallActivity',
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+const DRILLDOWN_PROCESS_ELEMENT_TYPES = new Set([
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+const isLinkedProcessElement = (element) => LINKABLE_PROCESS_ELEMENT_TYPES.has(element?.type);
+const isDrilldownProcessElement = (element) => DRILLDOWN_PROCESS_ELEMENT_TYPES.has(element?.type);
 const isRiskAssignableElement = (element) =>
   Boolean(element?.businessObject) &&
   Boolean(element?.parent) &&
@@ -726,7 +994,7 @@ function getRiskMetadata(businessObject) {
 function getLinkedProcessMetadata(businessObject) {
   const attrs = businessObject?.$attrs || {};
   return {
-    calledElement: String(businessObject?.calledElement || ''),
+    calledElement: String(businessObject?.calledElement || attrs[pfeAttrKey('calledElement')] || ''),
     linkedProcessId: String(attrs[pfeAttrKey('linkedProcessId')] || ''),
     linkedProcessName: attrs[pfeAttrKey('linkedProcessName')] || '',
   };
@@ -779,9 +1047,18 @@ function ensurePfeNamespace(modeler) {
     return;
   }
 
-  definitions.$attrs = definitions.$attrs || {};
+  if (!definitions.$attrs) {
+    try {
+      definitions.$attrs = {};
+    } catch (e) {
+      // Read-only or handled by moddle
+    }
+  }
+
   const attrs = definitions.$attrs;
-  attrs[`xmlns:${PFE_NAMESPACE_PREFIX}`] = PFE_NAMESPACE_URI;
+  if (attrs) {
+    attrs[`xmlns:${PFE_NAMESPACE_PREFIX}`] = PFE_NAMESPACE_URI;
+  }
 }
 
 function applyActorAssignment(modeler, element, actor, options = {}) {
@@ -791,7 +1068,13 @@ function applyActorAssignment(modeler, element, actor, options = {}) {
 
   ensurePfeNamespace(modeler);
 
-  element.businessObject.$attrs = element.businessObject.$attrs || {};
+  if (!element.businessObject.$attrs) {
+    try {
+      element.businessObject.$attrs = {};
+    } catch (e) {
+      // Read-only
+    }
+  }
   const nextAttrs = element.businessObject.$attrs;
 
   if (actor) {
@@ -827,7 +1110,13 @@ function applyRiskAssignment(modeler, element, risks = []) {
 
   ensurePfeNamespace(modeler);
 
-  element.businessObject.$attrs = element.businessObject.$attrs || {};
+  if (!element.businessObject.$attrs) {
+    try {
+      element.businessObject.$attrs = {};
+    } catch (e) {
+      // Read-only
+    }
+  }
   const nextAttrs = element.businessObject.$attrs;
   const serializedRisks = serializeRiskMetadata(risks);
 
@@ -848,7 +1137,13 @@ function applyCalledProcessAssignment(modeler, element, linkedProcess = null, op
   ensurePfeNamespace(modeler);
 
   const businessObject = element.businessObject;
-  businessObject.$attrs = businessObject.$attrs || {};
+  if (!businessObject.$attrs) {
+    try {
+      businessObject.$attrs = {};
+    } catch (e) {
+      // Read-only
+    }
+  }
   const nextAttrs = businessObject.$attrs;
   const calledElement = String(
     options.calledElement !== undefined
@@ -858,10 +1153,16 @@ function applyCalledProcessAssignment(modeler, element, linkedProcess = null, op
         : ''
   ).trim();
 
-  if (calledElement) {
+  if (calledElement && element.type === 'bpmn:CallActivity') {
     businessObject.calledElement = calledElement;
   } else {
     delete businessObject.calledElement;
+  }
+
+  if (calledElement) {
+    nextAttrs[pfeAttrKey('calledElement')] = calledElement;
+  } else {
+    delete nextAttrs[pfeAttrKey('calledElement')];
   }
 
   if (linkedProcess?.id) {
@@ -917,6 +1218,84 @@ function syncRiskOverlays(modeler, overlayIdsRef) {
     });
 }
 
+function syncNavigationOverlays(modeler, overlayIdsRef, { onEnterSubprocess, onOpenLinkedProcess } = {}) {
+  if (!modeler || !overlayIdsRef) {
+    return;
+  }
+
+  const overlays = modeler.get('overlays');
+  const elementRegistry = modeler.get('elementRegistry');
+
+  if (!overlays || !elementRegistry) {
+    return;
+  }
+
+  overlayIdsRef.current.forEach((overlayId) => overlays.remove(overlayId));
+  overlayIdsRef.current = [];
+
+  elementRegistry
+    .filter((element) => Boolean(element?.businessObject) && !element?.labelTarget && !Array.isArray(element?.waypoints))
+    .forEach((element) => {
+      const linkedMetadata = getLinkedProcessMetadata(element.businessObject);
+      const actions = [];
+
+      if (isDrilldownProcessElement(element) && typeof onEnterSubprocess === 'function') {
+        actions.push({
+          key: 'enter',
+          label: 'Enter',
+          handler: () => onEnterSubprocess(element),
+        });
+      }
+
+      const linkedProcessId = Number(linkedMetadata.linkedProcessId || 0);
+      if (
+        !isDrilldownProcessElement(element) &&
+        Number.isInteger(linkedProcessId) &&
+        linkedProcessId > 0 &&
+        typeof onOpenLinkedProcess === 'function'
+      ) {
+        actions.push({
+          key: 'open',
+          label: 'Open',
+          handler: () => onOpenLinkedProcess(element, {
+            id: linkedProcessId,
+            name: linkedMetadata.linkedProcessName || `Process ${linkedProcessId}`,
+          }),
+        });
+      }
+
+      if (!actions.length) {
+        return;
+      }
+
+      const container = document.createElement('div');
+      container.className = 'bpmn-nav-overlay';
+
+      actions.forEach((action) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'bpmn-nav-overlay__btn';
+        button.textContent = action.label;
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          action.handler();
+        });
+        container.appendChild(button);
+      });
+
+      const overlayId = overlays.add(element, {
+        position: {
+          top: -12,
+          left: 12,
+        },
+        html: container,
+      });
+
+      overlayIdsRef.current.push(overlayId);
+    });
+}
+
 const BpmnEditorModeler = ({
   process,
   onClose,
@@ -937,6 +1316,9 @@ const BpmnEditorModeler = ({
   const mainRootIdRef = useRef(null);
   const fileInputRef = useRef(null);
   const riskOverlayIdsRef = useRef([]);
+  const navigationOverlayIdsRef = useRef([]);
+  const modelerInitIdRef = useRef(0);
+  const suppressSelectionDialogRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [xml, setXml] = useState(() => normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
@@ -946,8 +1328,25 @@ const BpmnEditorModeler = ({
   const [navigationStack, setNavigationStack] = useState([]);
   const [currentSubprocess, setCurrentSubprocess] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPropertiesCollapsed, setIsPropertiesCollapsed] = useState(false);
+  const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
+  const [showElementActionDialog, setShowElementActionDialog] = useState(false);
+  const [showPaletteDefaultsDialog, setShowPaletteDefaultsDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredElements, setFilteredElements] = useState([]);
+  const [defaultPaletteElementIds, setDefaultPaletteElementIds] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(PALETTE_DEFAULTS_STORAGE_KEY);
+      if (!raw) {
+        return FEATURED_PALETTE_ELEMENTS.map((element) => element.id);
+      }
+
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map((value) => String(value || '')).filter(Boolean) : FEATURED_PALETTE_ELEMENTS.map((element) => element.id);
+    } catch {
+      return FEATURED_PALETTE_ELEMENTS.map((element) => element.id);
+    }
+  });
   const [actorOptions, setActorOptions] = useState([]);
   const [actorLoading, setActorLoading] = useState(false);
   const [actorError, setActorError] = useState('');
@@ -957,10 +1356,41 @@ const BpmnEditorModeler = ({
   const [editingRiskId, setEditingRiskId] = useState('');
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [selectedImportId, setSelectedImportId] = useState('');
+  const [importSearch, setImportSearch] = useState('');
+  const [callActivitySearch, setCallActivitySearch] = useState('');
   const [importing, setImporting] = useState(false);
-  const editorSubprocesses = useMemo(() => getBpmnSubprocesses(xml), [xml]);
+  const [editorSubprocesses, setEditorSubprocesses] = useState(() => getBpmnSubprocesses(xml));
 
-  const bpmnElements = PALETTE_ELEMENTS;
+  const filteredImportOptions = useMemo(() => {
+    if (!importSearch) return importOptions;
+    return importOptions.filter(opt => 
+      opt.name.toLowerCase().includes(importSearch.toLowerCase()) || 
+      String(opt.id).includes(importSearch)
+    );
+  }, [importOptions, importSearch]);
+
+  const filteredCallActivityOptions = useMemo(() => {
+    if (!callActivitySearch) return importOptions;
+    return importOptions.filter(opt => 
+      opt.name.toLowerCase().includes(callActivitySearch.toLowerCase()) || 
+      String(opt.id).includes(callActivitySearch)
+    );
+  }, [importOptions, callActivitySearch]);
+  const callActivitySuggestions = useMemo(() => {
+    const normalized = callActivitySearch.trim().toLowerCase();
+    if (!normalized) {
+      return [];
+    }
+
+    return filteredCallActivityOptions.slice(0, 6);
+  }, [callActivitySearch, filteredCallActivityOptions]);
+
+  const bpmnElements = SEARCHABLE_PALETTE_ELEMENTS;
+  const defaultPaletteElements = useMemo(() => {
+    const allowedIds = new Set(defaultPaletteElementIds);
+    const defaults = bpmnElements.filter((element) => allowedIds.has(element.id));
+    return defaults.length ? defaults : FEATURED_PALETTE_ELEMENTS;
+  }, [bpmnElements, defaultPaletteElementIds]);
   /*
     { id: 'bpmn:StartEvent', name: 'Start Event', category: 'Events', icon: '⭕' },
     { id: 'bpmn:EndEvent', name: 'End Event', category: 'Events', icon: '⭕' },
@@ -986,9 +1416,26 @@ const BpmnEditorModeler = ({
   }, [process]);
 
   useEffect(() => {
+    setEditorSubprocesses(getBpmnSubprocesses(xml));
+  }, [xml]);
+
+  useEffect(() => {
     setShowImportPanel(false);
     setSelectedImportId('');
+    setShowElementActionDialog(false);
   }, [process?.id]);
+
+  useEffect(() => {
+    setIsPropertiesCollapsed(false);
+  }, [process?.id]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PALETTE_DEFAULTS_STORAGE_KEY, JSON.stringify(defaultPaletteElementIds));
+    } catch {
+      // Ignore storage failures and keep the current session state.
+    }
+  }, [defaultPaletteElementIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1029,7 +1476,7 @@ const BpmnEditorModeler = ({
   // Filter elements based on search
   useEffect(() => {
     if (!searchTerm) {
-      setFilteredElements(bpmnElements);
+      setFilteredElements(defaultPaletteElements);
     } else {
       const filtered = bpmnElements.filter(element => 
         element.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1037,7 +1484,7 @@ const BpmnEditorModeler = ({
       );
       setFilteredElements(filtered);
     }
-  }, [searchTerm]);
+  }, [searchTerm, bpmnElements, defaultPaletteElements]);
 
   // Group filtered elements by category
   const groupedElements = filteredElements.reduce((groups, element) => {
@@ -1080,6 +1527,49 @@ const BpmnEditorModeler = ({
   const canNavigateBack = Boolean(navigationStack.length > 0 || isLinkedProcessView);
   const mainProcessName = process?.rootProcessName || process?.name || 'Main Process';
 
+  const openLinkedProcessForElement = async (element = null, fallbackProcess = null) => {
+    const linkedMetadata = element?.businessObject
+      ? getLinkedProcessMetadata(element.businessObject)
+      : {
+          linkedProcessId: properties.linkedProcessId,
+          linkedProcessName: properties.linkedProcessName,
+        };
+    const linkedProcessId = Number(linkedMetadata.linkedProcessId || 0);
+
+    if (!onOpenLinkedProcess || !Number.isInteger(linkedProcessId) || linkedProcessId <= 0) {
+      return;
+    }
+
+    const resolvedFallbackProcess = fallbackProcess || selectedLinkedProcess || {
+      id: linkedProcessId,
+      name: linkedMetadata.linkedProcessName || `Process ${linkedProcessId}`,
+    };
+
+    setShowElementActionDialog(false);
+
+    try {
+      await onOpenLinkedProcess(linkedProcessId, resolvedFallbackProcess);
+    } catch (openError) {
+      alert(openError.message || 'Failed to open the called process.');
+    }
+  };
+
+  const syncNavigationOverlayButtons = (modeler = modelerRef.current) => {
+    syncNavigationOverlays(modeler, navigationOverlayIdsRef, {
+      onEnterSubprocess: (element) => {
+        if (!element?.id) {
+          return;
+        }
+
+        setShowElementActionDialog(false);
+        openDiagramLevel(element.id);
+      },
+      onOpenLinkedProcess: (element, fallbackProcess) => {
+        void openLinkedProcessForElement(element, fallbackProcess);
+      },
+    });
+  };
+
   useEffect(() => {
     if (!modelerRef.current) {
       return;
@@ -1089,7 +1579,8 @@ const BpmnEditorModeler = ({
     setDiagramActors(buildDiagramActorSummary(elementRegistry, actorOptions));
     setDiagramRisks(buildDiagramRiskSummary(elementRegistry));
     syncRiskOverlays(modelerRef.current, riskOverlayIdsRef);
-  }, [actorOptions, xml]);
+    syncNavigationOverlayButtons(modelerRef.current);
+  }, [actorOptions, xml, onOpenLinkedProcess]);
 
   useEffect(() => {
     setEditingRiskId('');
@@ -1126,51 +1617,105 @@ const BpmnEditorModeler = ({
   useEffect(() => {
     if (!xml || !containerRef.current) return;
 
+    const initId = modelerInitIdRef.current + 1;
+    modelerInitIdRef.current = initId;
     let disposed = false;
+    let localModeler = null;
+
+    const destroyLocalModeler = () => {
+      const targetModeler = localModeler;
+
+      if (!targetModeler) {
+        return;
+      }
+
+      if (modelerRef.current === targetModeler) {
+        modelerRef.current = null;
+      }
+
+      targetModeler.destroy();
+      localModeler = null;
+    };
 
     const initModeler = async () => {
+      if (disposed || initId !== modelerInitIdRef.current) return;
+
       try {
+        const previousModeler = modelerRef.current;
+        if (previousModeler) {
+          modelerRef.current = null;
+          previousModeler.destroy();
+        }
+
+        if (!containerRef.current || disposed || initId !== modelerInitIdRef.current) {
+          return;
+        }
+
+        containerRef.current.innerHTML = '';
+
         const modeler = new BpmnModeler({
           container: containerRef.current,
-          palette: !readOnly
+          palette: !readOnly,
         });
+        localModeler = modeler;
 
-        if (disposed) {
-          modeler.destroy();
+        if (disposed || initId !== modelerInitIdRef.current) {
+          destroyLocalModeler();
           return;
         }
 
         modelerRef.current = modeler;
+
         setError(null);
         setLoading(true);
         setSelectedElement(null);
         setProperties({});
 
-        // Import XML
         try {
-          await modeler.importXML(xml);
-          console.log('✅ BPMN XML imported successfully');
+          const { warnings } = await modeler.importXML(xml);
+
+          if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+            destroyLocalModeler();
+            return;
+          }
+
+          if (warnings && warnings.length) {
+            console.warn('BPMN Import Warnings:', warnings);
+          }
+          console.log('BPMN XML imported successfully');
         } catch (err) {
-          console.error('❌ BPMN Import Error:', err);
+          if (disposed || initId !== modelerInitIdRef.current) return;
+          console.error('BPMN Import Error:', err);
+
           try {
-            await modeler.importXML(buildFallbackXml(process?.name || 'Process'));
+            const fallback = buildFallbackXml(process?.name || 'Process');
+            await modeler.importXML(fallback);
+            if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+              destroyLocalModeler();
+              return;
+            }
             setError('Warning: Using minimal BPMN template');
           } catch (fallbackErr) {
-            console.error('âŒ BPMN fallback import error:', fallbackErr);
+            if (disposed || initId !== modelerInitIdRef.current) return;
+            console.error('BPMN fallback import error:', fallbackErr);
             try {
               await modeler.createDiagram();
+              if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+                destroyLocalModeler();
+                return;
+              }
               setError('Warning: Opened a blank BPMN diagram');
             } catch (createErr) {
-              console.error('âŒ BPMN create diagram error:', createErr);
-              setError('Failed to initialize BPMN editor');
+              if (disposed) return;
+              setError('Failed to initialize BPMN editor: ' + createErr.message);
               setLoading(false);
               return;
             }
           }
         }
 
-        if (disposed) {
-          modeler.destroy();
+        if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+          destroyLocalModeler();
           return;
         }
 
@@ -1188,6 +1733,7 @@ const BpmnEditorModeler = ({
         const refreshDerivedPanels = () => {
           refreshDiagramActors();
           refreshDiagramRisks();
+          syncNavigationOverlayButtons(modeler);
         };
 
         if (canvas) {
@@ -1197,18 +1743,26 @@ const BpmnEditorModeler = ({
         setLoading(false);
         refreshDerivedPanels();
 
-        // Listen for selection changes
         eventBus.on('selection.changed', (event) => {
           const selection = event.newSelection;
+          if (suppressSelectionDialogRef.current) {
+            suppressSelectionDialogRef.current = false;
+            setShowElementActionDialog(false);
+            setSelectedElement(null);
+            setProperties({});
+            return;
+          }
+
           if (selection.length === 1) {
-            const el = selection[0];
+            const el = selection[0]?.labelTarget || selection[0];
             const actorMetadata = getActorMetadata(el.businessObject);
             const riskMetadata = getRiskMetadata(el.businessObject);
             const linkedProcessMetadata = getLinkedProcessMetadata(el.businessObject);
+            setShowElementActionDialog(true);
             setSelectedElement(el);
             setProperties({
               id: el.id,
-              name: el.businessObject?.name || '',
+              name: getElementPropertyName(el),
               type: el.type,
               documentation: el.businessObject?.documentation?.[0]?.text || '',
               actorNodeId: actorMetadata.actorNodeId,
@@ -1221,6 +1775,7 @@ const BpmnEditorModeler = ({
               risks: riskMetadata.risks,
             });
           } else {
+            setShowElementActionDialog(false);
             setSelectedElement(null);
             setProperties({});
           }
@@ -1233,14 +1788,7 @@ const BpmnEditorModeler = ({
         eventBus.on('commandStack.changed', refreshDerivedPanels);
         eventBus.on('elements.changed', refreshDerivedPanels);
 
-        if (initialSubprocessId && canvas) {
-          const initialRoot = canvas.findRoot(toSubprocessPlaneId(initialSubprocessId));
-          if (initialRoot) {
-            canvas.setRootElement(initialRoot);
-          }
-        }
-
-        canvas?.zoom('fit-viewport');
+        openDiagramLevel(initialSubprocessId || null);
         syncNavigationFromRoot(canvas?.getRootElement());
         refreshDerivedPanels();
 
@@ -1252,19 +1800,27 @@ const BpmnEditorModeler = ({
       }
     };
 
-    const timer = setTimeout(initModeler, 100);
+    initModeler();
     return () => {
       disposed = true;
-      clearTimeout(timer);
-      if (modelerRef.current) {
-        modelerRef.current.destroy();
-        modelerRef.current = null;
+      if (modelerInitIdRef.current === initId) {
+        modelerInitIdRef.current += 1;
       }
+      destroyLocalModeler();
       riskOverlayIdsRef.current = [];
+      navigationOverlayIdsRef.current = [];
     };
-  }, [xml, process?.name, readOnly, initialSubprocessId, editorSubprocesses]);
+  }, [xml, process?.name, readOnly]);
 
-  const handlePropertyChange = (key, value) => {
+  useEffect(() => {
+    if (!modelerRef.current) {
+      return;
+    }
+
+    openDiagramLevel(initialSubprocessId || null);
+  }, [initialSubprocessId]);
+
+  const handlePropertyChange = async (key, value) => {
     if (readOnly || !selectedElement || !modelerRef.current) return;
 
     const modeling = modelerRef.current.get('modeling');
@@ -1282,6 +1838,13 @@ const BpmnEditorModeler = ({
     } else if (key === 'linkedProcessId') {
       const linkedProcess = importOptions.find((option) => String(option.id) === String(value)) || null;
       applyCalledProcessAssignment(modelerRef.current, selectedElement, linkedProcess);
+      if (linkedProcess && isDrilldownProcessElement(selectedElement)) {
+        try {
+          await syncLinkedProcessIntoSubprocess(selectedElement, linkedProcess);
+        } catch (syncError) {
+          alert(syncError.message || 'Failed to turn this called process into the sous-process content.');
+        }
+      }
     } else if (key === 'actorNodeId') {
       const actor = actorOptions.find((option) => String(option.nodeId) === String(value)) || null;
       applyActorAssignment(modelerRef.current, selectedElement, actor, {
@@ -1419,20 +1982,16 @@ const BpmnEditorModeler = ({
   };
 
   const handleOpenLinkedProcess = async () => {
-    const linkedProcessId = Number(properties.linkedProcessId || 0);
-    if (!onOpenLinkedProcess || !Number.isInteger(linkedProcessId) || linkedProcessId <= 0) {
+    await openLinkedProcessForElement(selectedElement);
+  };
+
+  const handleEnterSelectedSubprocess = () => {
+    if (!selectedElement || !isDrilldownProcessElement(selectedElement)) {
       return;
     }
 
-    const fallbackProcess = selectedLinkedProcess
-      ? selectedLinkedProcess
-      : null;
-
-    try {
-      await onOpenLinkedProcess(linkedProcessId, fallbackProcess);
-    } catch (openError) {
-      alert(openError.message || 'Failed to open the called process.');
-    }
+    setShowElementActionDialog(false);
+    openDiagramLevel(selectedElement.id);
   };
 
   const handleSave = async () => {
@@ -1443,18 +2002,7 @@ const BpmnEditorModeler = ({
       const { xml: newXml } = await modelerRef.current.saveXML({ format: true });
       
       if (onSave) await onSave(newXml);
-      
-      // Download option
-      const blob = new Blob([newXml], { type: 'application/xml' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${process?.name || 'process'}.bpmn`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
+
       setSaving(false);
     } catch (err) {
       alert('Error saving: ' + err.message);
@@ -1496,21 +2044,228 @@ const BpmnEditorModeler = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Add element from palette
-  const addSearchElement = (element) => {
+  const syncLinkedProcessIntoSubprocess = async (element, linkedProcess) => {
+    if (
+      !modelerRef.current ||
+      !element ||
+      !linkedProcess?.id ||
+      !isDrilldownProcessElement(element) ||
+      !onImportExisting
+    ) {
+      return;
+    }
+
+    const imported = await onImportExisting(linkedProcess.id);
+    if (!imported?.xml) {
+      throw new Error('This process does not contain a diagram yet.');
+    }
+
+    const importable = await extractImportableDiagram(imported.xml, imported.name || linkedProcess.name || 'Process');
+    if (!importable.shapes.length) {
+      throw new Error('No importable BPMN elements were found in that diagram.');
+    }
+
+    const modeler = modelerRef.current;
+    const canvas = modeler.get('canvas');
+    const elementRegistry = modeler.get('elementRegistry');
+    const elementFactory = modeler.get('elementFactory');
+    const modeling = modeler.get('modeling');
+    const moddle = modeler.get('moddle');
+    const selection = modeler.get('selection');
+    const activeRoot = canvas.getRootElement();
+    const subprocessRoot = canvas.findRoot(toSubprocessPlaneId(element.id));
+    const importParent = subprocessRoot || element;
+    const usingDedicatedRoot = Boolean(subprocessRoot);
+
+    if (usingDedicatedRoot && activeRoot?.id !== subprocessRoot.id) {
+      canvas.setRootElement(subprocessRoot);
+    }
+
+    const existingElements = elementRegistry.filter(
+      (entry) => entry.parent === importParent && !entry.labelTarget
+    );
+
+    if (existingElements.length) {
+      modeling.removeElements(existingElements);
+    }
+
+    const timestamp = Date.now();
+    const importedShapeMap = new Map();
+
+    if (usingDedicatedRoot) {
+      const importedLeft = Math.min(...importable.shapes.map((shape) => shape.x));
+      const importedTop = Math.min(...importable.shapes.map((shape) => shape.y));
+
+      importable.shapes.forEach((shape, index) => {
+        const businessObject = moddle.create(shape.type, {
+          id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
+          name: shape.name || undefined,
+        });
+
+        if (!businessObject.$attrs) {
+          try {
+            businessObject.$attrs = {};
+          } catch (e) {
+            // Handled lazily by moddle internals.
+          }
+        }
+
+        if (shape.documentation) {
+          businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
+        }
+
+        const importedActorMetadata = shape.actorMetadata || {};
+        if (importedActorMetadata.actorNodeId && businessObject.$attrs) {
+          ensurePfeNamespace(modeler);
+          businessObject.$attrs[pfeAttrKey('actorNodeId')] = importedActorMetadata.actorNodeId;
+          businessObject.$attrs[pfeAttrKey('actorName')] = importedActorMetadata.actorName || '';
+          businessObject.$attrs[pfeAttrKey('actorType')] = importedActorMetadata.actorType || '';
+          businessObject.$attrs[pfeAttrKey('actorPath')] = importedActorMetadata.actorPath || '';
+
+          if (importedActorMetadata.actorUserId) {
+            businessObject.$attrs[pfeAttrKey('actorUserId')] = importedActorMetadata.actorUserId;
+          }
+        }
+
+        const importedRiskMetadata = shape.riskMetadata || {};
+        if (Array.isArray(importedRiskMetadata.risks) && importedRiskMetadata.risks.length && businessObject.$attrs) {
+          ensurePfeNamespace(modeler);
+          businessObject.$attrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
+        }
+
+        const importedLinkedProcessMetadata = shape.linkedProcessMetadata || {};
+        if ((importedLinkedProcessMetadata.calledElement || importedLinkedProcessMetadata.linkedProcessId) && businessObject.$attrs) {
+          ensurePfeNamespace(modeler);
+
+          if (shape.type === 'bpmn:CallActivity' && importedLinkedProcessMetadata.calledElement) {
+            businessObject.calledElement = importedLinkedProcessMetadata.calledElement;
+          }
+
+          if (importedLinkedProcessMetadata.calledElement) {
+            businessObject.$attrs[pfeAttrKey('calledElement')] = importedLinkedProcessMetadata.calledElement;
+          }
+
+          if (importedLinkedProcessMetadata.linkedProcessId) {
+            businessObject.$attrs[pfeAttrKey('linkedProcessId')] = importedLinkedProcessMetadata.linkedProcessId;
+            businessObject.$attrs[pfeAttrKey('linkedProcessName')] = importedLinkedProcessMetadata.linkedProcessName || '';
+          }
+        }
+
+        const createdShape = elementFactory.createShape({
+          type: shape.type,
+          businessObject,
+          width: shape.width,
+          height: shape.height,
+        });
+
+        modeling.createShape(
+          createdShape,
+          {
+            x: 120 + (shape.x - importedLeft) + (shape.width / 2),
+            y: 120 + (shape.y - importedTop) + (shape.height / 2),
+          },
+          importParent
+        );
+
+        importedShapeMap.set(shape.id, createdShape);
+      });
+    } else {
+      const importedLeft = Math.min(...importable.shapes.map((shape) => shape.x));
+      const importedTop = Math.min(...importable.shapes.map((shape) => shape.y));
+      const importedRight = Math.max(...importable.shapes.map((shape) => shape.x + shape.width));
+      const importedBottom = Math.max(...importable.shapes.map((shape) => shape.y + shape.height));
+      const importedWidth = Math.max(importedRight - importedLeft, 1);
+      const importedHeight = Math.max(importedBottom - importedTop, 1);
+      const innerPadding = 24;
+      const availableWidth = Math.max((element.width || 220) - innerPadding * 2, 80);
+      const availableHeight = Math.max((element.height || 140) - innerPadding * 2, 60);
+      const scale = Math.min(availableWidth / importedWidth, availableHeight / importedHeight, 1);
+
+      importable.shapes.forEach((shape, index) => {
+        const businessObject = moddle.create(shape.type, {
+          id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
+          name: shape.name || undefined,
+        });
+
+        const createdShape = elementFactory.createShape({
+          type: shape.type,
+          businessObject,
+          width: Math.max(24, Math.round(shape.width * scale)),
+          height: Math.max(24, Math.round(shape.height * scale)),
+        });
+
+        const scaledWidth = createdShape.width;
+        const scaledHeight = createdShape.height;
+        const relativeX = (shape.x - importedLeft) * scale;
+        const relativeY = (shape.y - importedTop) * scale;
+
+        modeling.createShape(
+          createdShape,
+          {
+            x: element.x + innerPadding + relativeX + (scaledWidth / 2),
+            y: element.y + innerPadding + relativeY + (scaledHeight / 2),
+          },
+          importParent
+        );
+
+        importedShapeMap.set(shape.id, createdShape);
+      });
+    }
+
+    importable.connections.forEach((connection, index) => {
+      const source = importedShapeMap.get(connection.sourceId);
+      const target = importedShapeMap.get(connection.targetId);
+      if (!source || !target) {
+        return;
+      }
+
+      const businessObject = moddle.create('bpmn:SequenceFlow', {
+        id: sanitizeId(`SequenceFlow_${timestamp}_${index + 1}`),
+        name: connection.name || undefined,
+      });
+
+      ensureContainerSemantics(importParent, 'bpmn:SequenceFlow', moddle);
+      modeling.createConnection(source, target, { type: 'bpmn:SequenceFlow', businessObject }, importParent);
+    });
+
+    selection.select([]);
+
+    if (usingDedicatedRoot && activeRoot?.id && activeRoot.id !== importParent.id) {
+      const restoreRoot = canvas.findRoot(activeRoot.id);
+      if (restoreRoot) {
+        canvas.setRootElement(restoreRoot);
+      }
+    }
+
+    const { xml: liveXml } = await modeler.saveXML({ format: true });
+    setEditorSubprocesses(getBpmnSubprocesses(liveXml));
+  };
+
+  const createPaletteElement = (element, position = null, options = {}) => {
     if (readOnly || !modelerRef.current) return;
 
     try {
+      const { selectAfterCreate = true } = options;
+      suppressSelectionDialogRef.current = !selectAfterCreate;
       const modeler = modelerRef.current;
       const elementFactory = modeler.get('elementFactory');
       const canvas = modeler.get('canvas');
       const modeling = modeler.get('modeling');
+      const moddle = modeler.get('moddle');
       const selection = modeler.get('selection');
       
       const rootElement = canvas.getRootElement();
+      const targetParent = resolveCreationParent({
+        rootElement,
+        selection,
+        elementType: element?.createOptions?.type || element?.id,
+        moddle,
+      });
       const viewbox = canvas.viewbox();
-      const centerX = -viewbox.x + viewbox.width / 2;
-      const centerY = -viewbox.y + viewbox.height / 2;
+      const resolvedPosition = position || {
+        x: -viewbox.x + viewbox.width / 2,
+        y: -viewbox.y + viewbox.height / 2,
+      };
       const randomOffset = () => (Math.random() - 0.5) * 100;
 
       const createdElement = createPaletteShape(elementFactory, element);
@@ -1518,17 +2273,132 @@ const BpmnEditorModeler = ({
       modeling.createShape(
         createdElement,
         {
-          x: centerX + randomOffset(),
-          y: centerY + randomOffset(),
+          x: resolvedPosition.x + (position ? 0 : randomOffset()),
+          y: resolvedPosition.y + (position ? 0 : randomOffset()),
         },
-        rootElement
+        targetParent
       );
 
-      selection.select(createdElement);
-      
+      applyPaletteElementDefaults(modeler, createdElement, element);
+      if (selectAfterCreate) {
+        selection.select(createdElement);
+      }
+
+      return createdElement;
     } catch (error) {
       console.error('Error adding element:', error);
     }
+  };
+
+  const addSearchElement = (element) => {
+    createPaletteElement(element);
+  };
+
+  const handlePaletteDragStart = (event, element) => {
+    if (readOnly) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(PALETTE_DND_TYPE, element.id);
+    event.dataTransfer.setData('text/plain', element.name);
+  };
+
+  const handleCanvasDragOver = (event) => {
+    if (readOnly) {
+      return;
+    }
+
+    if (!event.dataTransfer.types.includes(PALETTE_DND_TYPE)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsCanvasDragOver(true);
+  };
+
+  const handleCanvasDragLeave = () => {
+    setIsCanvasDragOver(false);
+  };
+
+  const handleCanvasDrop = (event) => {
+    if (readOnly || !containerRef.current || !modelerRef.current) {
+      setIsCanvasDragOver(false);
+      return;
+    }
+
+    const paletteId = event.dataTransfer.getData(PALETTE_DND_TYPE);
+    const element = SEARCHABLE_PALETTE_ELEMENTS.find((entry) => entry.id === paletteId);
+    setIsCanvasDragOver(false);
+
+    if (!element) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const canvas = modelerRef.current.get('canvas');
+    const viewbox = canvas.viewbox();
+    const offsetX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    const offsetY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const diagramX = -viewbox.x + ((offsetX / Math.max(rect.width, 1)) * viewbox.width);
+    const diagramY = -viewbox.y + ((offsetY / Math.max(rect.height, 1)) * viewbox.height);
+
+    createPaletteElement(element, { x: diagramX, y: diagramY }, { selectAfterCreate: false });
+  };
+
+  const clearSelectedElement = () => {
+    setShowElementActionDialog(false);
+    if (modelerRef.current) {
+      const selection = modelerRef.current.get('selection');
+      selection.select([]);
+      return;
+    }
+    setSelectedElement(null);
+    setProperties({});
+  };
+
+  const handleDeleteSelectedElement = () => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    try {
+      const modeling = modelerRef.current.get('modeling');
+      modeling.removeElements([selectedElement]);
+      clearSelectedElement();
+    } catch (deleteError) {
+      alert(deleteError.message || 'Failed to delete this element.');
+    }
+  };
+
+  const applyLinkedProcessSelection = (option) => {
+    if (!option) {
+      return;
+    }
+
+    setCallActivitySearch(option.name || '');
+    handlePropertyChange('linkedProcessId', String(option.id));
+  };
+
+  const toggleDefaultPaletteElement = (elementId) => {
+    const normalizedId = String(elementId || '').trim();
+    if (!normalizedId) {
+      return;
+    }
+
+    setDefaultPaletteElementIds((current) => (
+      current.includes(normalizedId)
+        ? current.filter((entry) => entry !== normalizedId)
+        : [...current, normalizedId]
+    ));
+  };
+
+  const resetDefaultPaletteElements = () => {
+    setDefaultPaletteElementIds(FEATURED_PALETTE_ELEMENTS.map((element) => element.id));
   };
 
   const applyImportedDiagram = async (rawValue, sourceName = 'Process') => {
@@ -1565,20 +2435,35 @@ const BpmnEditorModeler = ({
     const importedShapeMap = new Map();
 
     imported.shapes.forEach((shape, index) => {
+      const targetParent = resolveCreationParent({
+        rootElement: root,
+        selection,
+        elementType: shape.type,
+        moddle,
+      });
       const businessObject = moddle.create(shape.type, {
         id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
         name: shape.name || undefined,
       });
-      businessObject.$attrs = businessObject.$attrs || {};
+
+      // Safely ensure $attrs exists without breaking on read-only properties
+      if (!businessObject.$attrs) {
+        try {
+          businessObject.$attrs = {};
+        } catch (e) {
+          // If $attrs is read-only but undefined, we may need to use moddle-specific methods 
+          // or just proceed if the library handles it lazily.
+        }
+      }
 
       if (shape.documentation) {
         businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
       }
 
       const importedActorMetadata = shape.actorMetadata || {};
-      if (importedActorMetadata.actorNodeId) {
+      if (importedActorMetadata.actorNodeId && businessObject.$attrs) {
         ensurePfeNamespace(modeler);
-        const nextAttrs = businessObject.$attrs || {};
+        const nextAttrs = businessObject.$attrs;
 
         nextAttrs[pfeAttrKey('actorNodeId')] = importedActorMetadata.actorNodeId;
         nextAttrs[pfeAttrKey('actorName')] = importedActorMetadata.actorName || '';
@@ -1593,16 +2478,15 @@ const BpmnEditorModeler = ({
       }
 
       const importedRiskMetadata = shape.riskMetadata || {};
-      if (Array.isArray(importedRiskMetadata.risks) && importedRiskMetadata.risks.length) {
+      if (Array.isArray(importedRiskMetadata.risks) && importedRiskMetadata.risks.length && businessObject.$attrs) {
         ensurePfeNamespace(modeler);
-        const nextAttrs = businessObject.$attrs || {};
-        nextAttrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
+        businessObject.$attrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
       }
 
       const importedLinkedProcessMetadata = shape.linkedProcessMetadata || {};
-      if (importedLinkedProcessMetadata.calledElement || importedLinkedProcessMetadata.linkedProcessId) {
+      if ((importedLinkedProcessMetadata.calledElement || importedLinkedProcessMetadata.linkedProcessId) && businessObject.$attrs) {
         ensurePfeNamespace(modeler);
-        const nextAttrs = businessObject.$attrs || {};
+        const nextAttrs = businessObject.$attrs;
 
         if (importedLinkedProcessMetadata.calledElement) {
           businessObject.calledElement = importedLinkedProcessMetadata.calledElement;
@@ -1627,7 +2511,7 @@ const BpmnEditorModeler = ({
           x: shape.x + offsetX + (shape.width / 2),
           y: shape.y + offsetY + (shape.height / 2),
         },
-        root
+        targetParent
       );
 
       importedShapeMap.set(shape.id, createdShape);
@@ -1645,7 +2529,9 @@ const BpmnEditorModeler = ({
         name: connection.name || undefined,
       });
 
-      modeling.createConnection(source, target, { type: 'bpmn:SequenceFlow', businessObject }, root);
+      const connectionParent = source.parent || target.parent || root;
+      ensureContainerSemantics(connectionParent, 'bpmn:SequenceFlow', moddle);
+      modeling.createConnection(source, target, { type: 'bpmn:SequenceFlow', businessObject }, connectionParent);
     });
 
     const { xml: mergedXml } = await modeler.saveXML({ format: true });
@@ -1693,6 +2579,269 @@ const BpmnEditorModeler = ({
 
   const selectedElementRisks = Array.isArray(properties.risks) ? properties.risks : [];
 
+  const renderElementActionContent = () => (
+    <>
+      <div className="property-field">
+        <label>Type</label>
+        <div className="property-value type">{properties.type}</div>
+      </div>
+      <div className="property-field">
+        <label>ID</label>
+        <input type="text" value={properties.id} disabled />
+      </div>
+      <div className="property-field">
+        <label>Name</label>
+        <input
+          type="text"
+          value={properties.name}
+          onChange={(e) => handlePropertyChange('name', e.target.value)}
+          placeholder="Element name..."
+        />
+      </div>
+      {isActorAssignableElement(selectedElement) ? (
+        <div className="property-field">
+          <label>
+            <UserCheck size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Actor From Org Chart
+          </label>
+          <select
+            value={properties.actorNodeId || ''}
+            disabled={actorLoading || (!!actorError && actorOptions.length === 0)}
+            onChange={(event) => handlePropertyChange('actorNodeId', event.target.value)}
+          >
+            <option value="">
+              {actorLoading ? 'Loading actors...' : actorError && actorOptions.length === 0 ? 'Actors unavailable' : 'No actor assigned'}
+            </option>
+            {actorOptions.map((actor) => (
+              <option key={actor.nodeId} value={actor.nodeId}>
+                {actor.name} {actor.title ? `- ${actor.title}` : ''}
+              </option>
+            ))}
+          </select>
+          {actorError ? (
+            <div className="actor-assignment-empty">{actorError}</div>
+          ) : selectedActor ? (
+            <div className="actor-assignment-card">
+              <div className="actor-assignment-card__title">{selectedActor.name}</div>
+              <div className="actor-assignment-card__meta">{selectedActor.subtitle || selectedActor.nodeType}</div>
+              <div className="actor-assignment-card__path">{selectedActor.path}</div>
+              <button type="button" className="actor-clear-btn" onClick={() => handlePropertyChange('actorNodeId', '')}>
+                <Trash2 size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Clear actor
+              </button>
+            </div>
+          ) : (
+            <div className="actor-assignment-empty">
+              Assign an org chart actor to keep ownership visible in the diagram.
+            </div>
+          )}
+        </div>
+      ) : null}
+      {isLinkedProcessElement(selectedElement) ? (
+        <div className="property-field">
+          <label>
+            <LinkIcon size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Called Process
+          </label>
+          <div style={{ position: 'relative', marginBottom: 8 }}>
+            <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input
+              type="text"
+              style={{ paddingLeft: 30, width: '100%', marginBottom: 0, fontSize: 12, height: 32 }}
+              placeholder="Search processes..."
+              value={callActivitySearch}
+              onChange={(e) => setCallActivitySearch(e.target.value)}
+            />
+          </div>
+          {callActivitySuggestions.length ? (
+            <div className="call-activity-suggestions">
+              {callActivitySuggestions.map((option) => (
+                <button
+                  key={`suggestion-${option.id}`}
+                  type="button"
+                  className="call-activity-suggestion"
+                  onClick={() => applyLinkedProcessSelection(option)}
+                >
+                  <span>{option.name}</span>
+                  <span className="call-activity-suggestion__meta">ID: {option.id}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <select
+            value={properties.linkedProcessId || ''}
+            onChange={(event) => {
+              const option = filteredCallActivityOptions.find((entry) => String(entry.id) === String(event.target.value)) || null;
+              if (option) {
+                applyLinkedProcessSelection(option);
+                return;
+              }
+              handlePropertyChange('linkedProcessId', event.target.value);
+            }}
+          >
+            <option value="">
+              {filteredCallActivityOptions.length ? 'Choose an existing process' : 'No matches found'}
+            </option>
+            {filteredCallActivityOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+          {selectedLinkedProcess ? (
+            <div className="linked-process-card">
+              <div className="linked-process-card__title">{selectedLinkedProcess.name}</div>
+              <div className="linked-process-card__meta">Platform process ID: {selectedLinkedProcess.id}</div>
+              {isDrilldownProcessElement(selectedElement) ? (
+                <button type="button" className="linked-process-card__action" onClick={handleEnterSelectedSubprocess}>
+                  Enter sous process
+                </button>
+              ) : null}
+              {onOpenLinkedProcess && !isDrilldownProcessElement(selectedElement) ? (
+                <button type="button" className="linked-process-card__action" onClick={handleOpenLinkedProcess}>
+                  Open called process
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="actor-assignment-empty">
+              Link this element to a saved process, or enter a custom called element key below.
+            </div>
+          )}
+          <label style={{ marginTop: 12 }}>Called Element Key</label>
+          <input
+            type="text"
+            value={properties.calledElement || ''}
+            onChange={(event) => handlePropertyChange('calledElement', event.target.value)}
+            placeholder="process_123 or external process key..."
+          />
+        </div>
+      ) : null}
+      {isRiskAssignableElement(selectedElement) ? (
+        <div className="property-field">
+          <label>
+            <ShieldAlert size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Risks
+          </label>
+          {selectedElementRisks.length ? (
+            <div className="risk-assignment-list">
+              {selectedElementRisks.map((risk) => (
+                <div key={risk.id} className={`risk-card risk-card--${risk.severity}`}>
+                  <div className="risk-card__header">
+                    <span>{risk.title}</span>
+                    <span className={`risk-pill risk-pill--${risk.severity}`}>{risk.severity}</span>
+                  </div>
+                  <div className="risk-card__meta">
+                    {risk.category} · {risk.status}
+                  </div>
+                  {risk.description ? <div className="risk-card__text">{risk.description}</div> : null}
+                  {risk.mitigation ? (
+                    <div className="risk-card__text">Mitigation: {risk.mitigation}</div>
+                  ) : null}
+                  <div className="risk-card__actions">
+                    <button type="button" className="risk-action-btn" onClick={() => startRiskEdit(risk)}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="risk-action-btn risk-action-btn--danger"
+                      onClick={() => removeRiskFromSelectedElement(risk.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="risk-empty">
+              No risks linked yet. Add one below to keep the diagram’s exposures visible.
+            </div>
+          )}
+          <div className="risk-editor">
+            <input
+              type="text"
+              value={riskDraft.title}
+              onChange={(event) => setRiskDraft((prev) => ({ ...prev, title: event.target.value }))}
+              placeholder="Risk title..."
+            />
+            <div className="risk-editor__grid">
+              <select
+                value={riskDraft.severity}
+                onChange={(event) => setRiskDraft((prev) => ({ ...prev, severity: event.target.value }))}
+              >
+                {RISK_SEVERITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={riskDraft.status}
+                onChange={(event) => setRiskDraft((prev) => ({ ...prev, status: event.target.value }))}
+              >
+                {RISK_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={riskDraft.category}
+                onChange={(event) => setRiskDraft((prev) => ({ ...prev, category: event.target.value }))}
+                className="risk-editor__grid-full"
+              >
+                {RISK_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              value={riskDraft.description}
+              onChange={(event) => setRiskDraft((prev) => ({ ...prev, description: event.target.value }))}
+              placeholder="Describe the risk..."
+              rows={3}
+            />
+            <textarea
+              value={riskDraft.mitigation}
+              onChange={(event) => setRiskDraft((prev) => ({ ...prev, mitigation: event.target.value }))}
+              placeholder="Mitigation or control plan..."
+              rows={3}
+            />
+            <div className="risk-card__actions">
+              <button type="button" className="risk-action-btn risk-action-btn--primary" onClick={saveRiskForSelectedElement}>
+                {editingRiskId ? 'Update risk' : 'Add risk'}
+              </button>
+              {editingRiskId ? (
+                <button type="button" className="risk-action-btn" onClick={resetRiskEditor}>
+                  Cancel
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div className="property-field">
+        <label>Documentation</label>
+        <textarea
+          value={properties.documentation}
+          onChange={(e) => handlePropertyChange('documentation', e.target.value)}
+          placeholder="Add documentation..."
+          rows={4}
+        />
+      </div>
+      {!readOnly ? (
+        <div className="element-danger-zone">
+          <button type="button" className="element-danger-btn" onClick={handleDeleteSelectedElement}>
+            Delete element
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+
   if (error) {
     return (
       <div className="bpmn-modeler-error">
@@ -1708,10 +2857,12 @@ const BpmnEditorModeler = ({
       {/* Header */}
       <header className="bpmn-modeler-header">
         <div className="bpmn-modeler-header-left">
-          <div className="bpmn-modeler-logo">⬡</div>
+          <div className="bpmn-modeler-logo">
+            <img src={logo} alt="v-bpm" width={32} />
+          </div>
           <div className="bpmn-modeler-info">
-            <span className="bpmn-modeler-tag">Process</span>
-            <span className="bpmn-modeler-name">{process?.name || 'Untitled'}</span>
+            <span className="bpmn-modeler-tag">Process Modeler</span>
+            <span className="bpmn-modeler-name">{process?.name || 'Untitled Process'}</span>
           </div>
           <div className="bpmn-modeler-divider" />
           
@@ -1721,11 +2872,11 @@ const BpmnEditorModeler = ({
               onClick={() => navigateToBreadcrumb(0)}
               className={!currentSubprocess ? 'active' : ''}
             >
-              {process?.name || 'Main Process'}
+              Main
             </span>
             {navigationStack.map((level, index) => (
               <React.Fragment key={level.id}>
-                <span className="breadcrumb-separator">›</span>
+                <ChevronRight size={14} className="breadcrumb-separator" />
                 <span 
                   onClick={() => navigateToBreadcrumb(index + 1)}
                   className={currentSubprocess?.id === level.id ? 'active' : ''}
@@ -1735,12 +2886,24 @@ const BpmnEditorModeler = ({
               </React.Fragment>
             ))}
           </div>
+
+          {currentSubprocess && (
+            <button 
+              onClick={() => openDiagramLevel(currentSubprocess.parentId || null)}
+              className="bpmn-modeler-btn-levelup"
+              title="Go to parent level"
+            >
+              <ArrowLeft size={14} />
+              Level Up
+            </button>
+          )}
         </div>
 
         <div className="bpmn-modeler-header-right">
           {canNavigateBack && (
             <button onClick={navigateBack} className="bpmn-modeler-btn-back">
-              ← Back
+              <ArrowLeft size={16} />
+              Back
             </button>
           )}
           {isLinkedProcessView && navigationStack.length > 0 && (
@@ -1749,15 +2912,18 @@ const BpmnEditorModeler = ({
             </button>
           )}
           <button onClick={handleSave} disabled={saving} className="bpmn-modeler-btn-save">
-            {saving ? 'Saving...' : '💾 Save'}
+            <Save size={16} />
+            {saving ? 'Saving...' : 'Save'}
           </button>
           <button onClick={downloadXml} className="bpmn-modeler-btn-export">
-            ⬇ Export
+            <FileDown size={16} />
+            Export
           </button>
           <button onClick={toggleFullscreen} className="bpmn-modeler-btn-fullscreen">
-            {isFullscreen ? '⛶ Exit' : '⛶ Full'}
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            {isFullscreen ? 'Exit' : 'Full'}
           </button>
-          <button onClick={onClose} className="bpmn-modeler-btn-close">✕</button>
+          <button onClick={onClose} className="bpmn-modeler-btn-close"><X size={18} /></button>
         </div>
       </header>
 
@@ -1782,10 +2948,20 @@ const BpmnEditorModeler = ({
 
             <div className="bpmn-import-panel__section">
               <label htmlFor="bpmn-existing-import">Existing platform diagram</label>
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  style={{ paddingLeft: 34, width: '100%', marginBottom: 0 }}
+                  placeholder="Search processes..."
+                  value={importSearch}
+                  onChange={(e) => setImportSearch(e.target.value)}
+                />
+              </div>
               <select id="bpmn-existing-import" value={selectedImportId} onChange={(event) => setSelectedImportId(event.target.value)} disabled={importing}>
-                <option value="">Choose a process</option>
-                {importOptions.map((option) => (
-                  <option key={option.id} value={option.id}>{option.name}</option>
+                <option value="">{filteredImportOptions.length ? 'Choose a process' : 'No matches found'}</option>
+                {filteredImportOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name} (ID: {option.id})</option>
                 ))}
               </select>
               <button type="button" onClick={handleImportExisting} disabled={!selectedImportId || importing}>
@@ -1805,6 +2981,69 @@ const BpmnEditorModeler = ({
         </div>
       ) : null}
 
+      {showPaletteDefaultsDialog ? (
+        <div className="bpmn-import-overlay" onClick={() => setShowPaletteDefaultsDialog(false)}>
+          <div className="bpmn-import-panel bpmn-import-panel--wide" onClick={(event) => event.stopPropagation()}>
+            <div className="bpmn-import-panel__header">
+              <div>
+                <strong>Default palette elements</strong>
+                <div className="bpmn-import-panel__help">
+                  Choose which elements appear in the left sidebar before you search.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="bpmn-import-panel__close"
+                onClick={() => setShowPaletteDefaultsDialog(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="palette-defaults-list">
+              {Object.entries(
+                bpmnElements.reduce((groups, element) => {
+                  if (!groups[element.category]) {
+                    groups[element.category] = [];
+                  }
+                  groups[element.category].push(element);
+                  return groups;
+                }, {})
+              ).map(([category, elements]) => (
+                <div key={`defaults-${category}`} className="palette-defaults-group">
+                  <div className="palette-defaults-group__title">{category}</div>
+                  <div className="palette-defaults-group__items">
+                    {elements.map((element) => {
+                      const checked = defaultPaletteElementIds.includes(element.id);
+                      return (
+                        <label key={`default-option-${element.id}`} className={`palette-defaults-item${checked ? ' is-checked' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleDefaultPaletteElement(element.id)}
+                          />
+                          <span className="palette-defaults-item__icon">{element.icon}</span>
+                          <span className="palette-defaults-item__name">{element.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="palette-defaults-actions">
+              <button type="button" className="palette-defaults-reset" onClick={resetDefaultPaletteElements}>
+                Reset defaults
+              </button>
+              <button type="button" className="bpmn-import-panel__close" onClick={() => setShowPaletteDefaultsDialog(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -1818,45 +3057,100 @@ const BpmnEditorModeler = ({
         {/* Search Palette */}
         <div className="bpmn-modeler-palette">
           <div className="bpmn-modeler-search">
-            <input
-              type="text"
-              placeholder="🔍 Search elements..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+            <div className="palette-toolbar">
+              <button
+                type="button"
+                className="palette-toolbar__button"
+                onClick={() => setShowPaletteDefaultsDialog(true)}
+              >
+                <SlidersHorizontal size={14} />
+                Defaults
+              </button>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                type="text" style={{ paddingLeft: 34 }}
+                placeholder="Search elements..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="palette-search-hint">
+              {searchTerm ? 'Search results from the full BPMN library.' : 'Core elements are shown here. Search to reveal the rest.'}
+            </div>
           </div>
           <div className="bpmn-modeler-palette-content">
-            {Object.entries(groupedElements).map(([category, elements]) => (
-              <div key={category} className="palette-category">
-                <div className="palette-category-header">{category}</div>
-                {elements.map((element, index) => (
-                  <div
-                    key={`${element.id}-${index}`}
-                    onClick={() => addSearchElement(element)}
-                    className="palette-element"
-                  >
-                    <span className="palette-icon">{element.icon}</span>
-                    <span className="palette-name">{element.name}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
+            {Object.entries(groupedElements).length ? (
+              Object.entries(groupedElements).map(([category, elements]) => (
+                <div key={category} className="palette-category">
+                  <div className="palette-category-header">{category}</div>
+                  {elements.map((element, index) => (
+                    <div
+                      key={`${element.id}-${index}`}
+                      onClick={() => addSearchElement(element)}
+                      onDragStart={(event) => handlePaletteDragStart(event, element)}
+                      className="palette-element"
+                      draggable={!readOnly}
+                      title={readOnly ? element.name : 'Drag to the canvas or click to add'}
+                    >
+                      <span className="palette-icon">{element.icon}</span>
+                      <span className="palette-name">{element.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ))
+            ) : (
+              <div className="palette-results-empty">No elements match this search.</div>
+            )}
           </div>
+
+          {currentSubprocess && (
+            <button 
+              onClick={() => openDiagramLevel(currentSubprocess.parentId || null)}
+              className="bpmn-modeler-btn-levelup"
+              title="Go to parent level"
+            >
+              <ArrowLeft size={14} />
+              Level Up
+            </button>
+          )}
         </div>
 
         {/* Canvas */}
-        <div className="bpmn-modeler-canvas">
+        <div
+          className={`bpmn-modeler-canvas${isCanvasDragOver ? ' is-drop-target' : ''}`}
+          onDragOver={handleCanvasDragOver}
+          onDragLeave={handleCanvasDragLeave}
+          onDrop={handleCanvasDrop}
+        >
           {loading && (
             <div className="bpmn-modeler-loading">
               Loading BPMN Editor...
             </div>
           )}
+          {isCanvasDragOver ? (
+            <div className="bpmn-modeler-drop-indicator">
+              Drop the element here
+            </div>
+          ) : null}
           <div ref={containerRef} className="bpmn-canvas-container" />
         </div>
 
         {/* Properties Panel */}
-        <div className="bpmn-modeler-properties">
-          <div className="properties-header">Properties</div>
+        <div className={`bpmn-modeler-properties${isPropertiesCollapsed ? ' is-collapsed' : ''}`}>
+          <div className="properties-header">
+            <span className="properties-header__title">Properties</span>
+            <button
+              type="button"
+              className="properties-toggle"
+              onClick={() => setIsPropertiesCollapsed((current) => !current)}
+              title={isPropertiesCollapsed ? 'Expand properties' : 'Collapse properties'}
+              aria-label={isPropertiesCollapsed ? 'Expand properties' : 'Collapse properties'}
+            >
+              <ChevronRight size={16} className={isPropertiesCollapsed ? '' : 'is-open'} />
+            </button>
+          </div>
           <div className="properties-content">
             {selectedElement ? (
               <div className="properties-form">
@@ -1879,7 +3173,10 @@ const BpmnEditorModeler = ({
                 </div>
                 {isActorAssignableElement(selectedElement) ? (
                   <div className="property-field">
-                    <label>Actor From Org Chart</label>
+                    <label>
+                      <UserCheck size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                      Actor From Org Chart
+                    </label>
                     <select
                       value={properties.actorNodeId || ''}
                       disabled={actorLoading || (!!actorError && actorOptions.length === 0)}
@@ -1902,6 +3199,7 @@ const BpmnEditorModeler = ({
                         <div className="actor-assignment-card__meta">{selectedActor.subtitle || selectedActor.nodeType}</div>
                         <div className="actor-assignment-card__path">{selectedActor.path}</div>
                         <button type="button" className="actor-clear-btn" onClick={() => handlePropertyChange('actorNodeId', '')}>
+                          <Trash2 size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
                           Clear actor
                         </button>
                       </div>
@@ -1912,17 +3210,37 @@ const BpmnEditorModeler = ({
                     )}
                   </div>
                 ) : null}
-                {isCallActivityElement(selectedElement) ? (
+                {isLinkedProcessElement(selectedElement) ? (
                   <div className="property-field">
-                    <label>Called Process</label>
+                    <label>
+                      <LinkIcon size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                      Called Process
+                    </label>
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                      <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        style={{ paddingLeft: 30, width: '100%', marginBottom: 0, fontSize: 12, height: 32 }}
+                        placeholder="Search processes..."
+                        value={callActivitySearch}
+                        onChange={(e) => setCallActivitySearch(e.target.value)}
+                      />
+                    </div>
                     <select
                       value={properties.linkedProcessId || ''}
-                      onChange={(event) => handlePropertyChange('linkedProcessId', event.target.value)}
+                      onChange={(event) => {
+                        const option = filteredCallActivityOptions.find((entry) => String(entry.id) === String(event.target.value)) || null;
+                        if (option) {
+                          applyLinkedProcessSelection(option);
+                          return;
+                        }
+                        handlePropertyChange('linkedProcessId', event.target.value);
+                      }}
                     >
                       <option value="">
-                        {importOptions.length ? 'Choose an existing process' : 'No other process available'}
+                        {filteredCallActivityOptions.length ? 'Choose an existing process' : 'No matches found'}
                       </option>
-                      {importOptions.map((option) => (
+                      {filteredCallActivityOptions.map((option) => (
                         <option key={option.id} value={option.id}>
                           {option.name}
                         </option>
@@ -1932,18 +3250,23 @@ const BpmnEditorModeler = ({
                       <div className="linked-process-card">
                         <div className="linked-process-card__title">{selectedLinkedProcess.name}</div>
                         <div className="linked-process-card__meta">Platform process ID: {selectedLinkedProcess.id}</div>
-                        {onOpenLinkedProcess ? (
-                          <button type="button" className="linked-process-card__action" onClick={handleOpenLinkedProcess}>
-                            Open called process
+                        {isDrilldownProcessElement(selectedElement) ? (
+                          <button type="button" className="linked-process-card__action" onClick={handleEnterSelectedSubprocess}>
+                            Enter sous process
                           </button>
                         ) : null}
+                          {onOpenLinkedProcess && !isDrilldownProcessElement(selectedElement) ? (
+                            <button type="button" className="linked-process-card__action" onClick={handleOpenLinkedProcess}>
+                              Open called process
+                            </button>
+                          ) : null}
                       </div>
                     ) : (
                       <div className="actor-assignment-empty">
-                        Link this call activity to a saved process, or enter a custom called element key below.
+                        Link this element to a saved process, or enter a custom called element key below.
                       </div>
                     )}
-                    <label>Called Element Key</label>
+                    <label style={{ marginTop: 12 }}>Called Element Key</label>
                     <input
                       type="text"
                       value={properties.calledElement || ''}
@@ -1954,7 +3277,10 @@ const BpmnEditorModeler = ({
                 ) : null}
                 {isRiskAssignableElement(selectedElement) ? (
                   <div className="property-field">
-                    <label>Risks</label>
+                    <label>
+                      <ShieldAlert size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                      Risks
+                    </label>
                     {selectedElementRisks.length ? (
                       <div className="risk-assignment-list">
                         {selectedElementRisks.map((risk) => (
@@ -2067,7 +3393,9 @@ const BpmnEditorModeler = ({
               </div>
             ) : (
               <div className="properties-empty">
-                <div className="empty-icon">🎯</div>
+                <div className="empty-icon">
+                  <Target size={48} strokeWidth={1.5} color="#cbd5e1" />
+                </div>
                 <p>Select an element to edit properties</p>
               </div>
             )}
@@ -2118,6 +3446,28 @@ const BpmnEditorModeler = ({
             </div>
           </div>
         </div>
+
+        {showElementActionDialog && selectedElement ? (
+          <div className="bpmn-element-overlay" onClick={clearSelectedElement}>
+            <div className="bpmn-element-panel" onClick={(event) => event.stopPropagation()}>
+              <div className="bpmn-element-panel__header">
+                <div>
+                  <div className="bpmn-element-panel__tag">Element actions</div>
+                  <div className="bpmn-element-panel__title">{properties.name || properties.type || 'Element'}</div>
+                  <div className="bpmn-element-panel__subtitle">
+                    Configure this element here instead of using the properties sidebar.
+                  </div>
+                </div>
+                <button type="button" className="bpmn-element-panel__close" onClick={clearSelectedElement}>
+                  Close
+                </button>
+              </div>
+              <div className="bpmn-element-panel__content">
+                {renderElementActionContent()}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

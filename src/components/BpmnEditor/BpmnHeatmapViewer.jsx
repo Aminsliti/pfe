@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import NavigatedViewer from 'bpmn-js/lib/NavigatedViewer';
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css';
 
@@ -39,26 +38,40 @@ function buildHeatmapEntries(results = {}) {
 
 export default function BpmnHeatmapViewer({ bpmnXml, results }) {
   const containerRef = useRef(null);
-  const viewerRef = useRef(null);
   const [error, setError] = useState('');
   const heatmapEntries = useMemo(() => buildHeatmapEntries(results), [results]);
 
   useEffect(() => {
-    if (!containerRef.current || !bpmnXml) {
-      return undefined;
-    }
+    let cancelled = false;
+    let viewer = null;
+    let renderPromise = Promise.resolve();
 
-    const viewer = new NavigatedViewer({
-      container: containerRef.current,
-    });
-    viewerRef.current = viewer;
-
-    const render = async () => {
-      try {
+    const mountViewer = async () => {
+      if (!containerRef.current || !bpmnXml) {
         setError('');
-        await viewer.importXML(bpmnXml);
+        return;
+      }
+
+      try {
+        const { default: NavigatedViewer } = await import('bpmn-js/lib/NavigatedViewer');
+        if (cancelled || !containerRef.current) {
+          return;
+        }
+
+        containerRef.current.innerHTML = '';
+        viewer = new NavigatedViewer({
+          container: containerRef.current,
+        });
+
+        renderPromise = viewer.importXML(bpmnXml);
+        await renderPromise;
+
+        if (cancelled) {
+          return;
+        }
+
         const canvas = viewer.get('canvas');
-        canvas.zoom('fit-viewport', 'auto');
+        canvas.zoom('fit-viewport');
 
         heatmapEntries.forEach((entry) => {
           if (entry.level === 'normal') {
@@ -67,17 +80,23 @@ export default function BpmnHeatmapViewer({ bpmnXml, results }) {
 
           canvas.addMarker(entry.task_id, `sim-heat-${entry.level}`);
         });
+
+        setError('');
       } catch (importError) {
-        console.error('BPMN heatmap import error:', importError);
-        setError('Impossible d afficher le diagramme BPMN pour cette simulation.');
+        if (!cancelled) {
+          console.error('BPMN heatmap import error:', importError);
+          setError('Impossible d afficher le diagramme BPMN pour cette simulation.');
+        }
       }
     };
 
-    render();
+    mountViewer();
 
     return () => {
-      viewer.destroy();
-      viewerRef.current = null;
+      cancelled = true;
+      Promise.resolve(renderPromise).finally(() => {
+        viewer?.destroy();
+      });
     };
   }, [bpmnXml, heatmapEntries]);
 

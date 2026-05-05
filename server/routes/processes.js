@@ -48,6 +48,15 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+function buildDownloadNameBase(name, fallbackValue = 'process') {
+  const resolved = String(name || fallbackValue || 'process')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return resolved || fallbackValue || 'process';
+}
+
 function normalizeInteger(value, fallbackValue = null) {
   if (value === undefined) return fallbackValue;
   if (value === null || value === '') return null;
@@ -910,6 +919,35 @@ function buildWorkflowNotificationMessage(baseMessage, comment) {
   return comment ? `${baseMessage} Comment: ${comment}` : baseMessage;
 }
 
+async function notifyAssignedProcessManagers({
+  actor,
+  process,
+  userIds = [],
+  type,
+  title,
+  message,
+  severity = 'info',
+}) {
+  if (!process?.id) {
+    return;
+  }
+
+  const recipientIds = [...new Set((userIds || []).map((id) => Number(id)).filter(Number.isInteger))];
+  if (!recipientIds.length) {
+    return;
+  }
+
+  await notifySpecificRecipients({
+    actor,
+    companyId: process.company_id,
+    userIds: recipientIds,
+    type,
+    title,
+    message,
+    entityId: process.id,
+    severity,
+  });
+}
 function cleanupUploadedFile(file) {
   if (file?.path && fs.existsSync(file.path)) {
     fs.unlinkSync(file.path);
@@ -1330,6 +1368,15 @@ router.post('/processes', async (req, res) => {
       },
     });
 
+    await notifyAssignedProcessManagers({
+      actor: req.user,
+      process,
+      userIds: governanceAssignments.assignedValidatorIds,
+      type: 'process_manager_assignment',
+      title: 'New process assigned',
+      message: `${process.name} has been assigned to you in process management.`,
+      severity: 'info',
+    });
     res.status(201).json(serializeProcessRecord(process));
   } catch (error) {
     console.error('Create process error:', error);
@@ -1422,6 +1469,10 @@ router.put('/processes/:id', async (req, res) => {
         ? bpmn_xml
         : (currentProcess.bpmn_xml || buildDefaultBpmnXml(nextName));
     const nextVersion = normalizeInteger(currentProcess.version, 1) || 1;
+    const previousValidatorIds = getAssignedValidatorIds(currentProcess);
+    const nextValidatorIds = governanceAssignments.assignedValidatorIds;
+    const newlyAssignedValidatorIds = nextValidatorIds.filter((id) => !previousValidatorIds.includes(id));
+    const unchangedValidatorIds = nextValidatorIds.filter((id) => previousValidatorIds.includes(id));
 
     const updateResult = await pool.query(
       `
@@ -1493,6 +1544,27 @@ router.put('/processes/:id', async (req, res) => {
       },
     });
 
+    if (newlyAssignedValidatorIds.length) {
+      await notifyAssignedProcessManagers({
+        actor: req.user,
+        process: updatedProcess,
+        userIds: newlyAssignedValidatorIds,
+        type: 'process_manager_assignment',
+        title: 'Process manager assignment updated',
+        message: `${updatedProcess.name} has been assigned to you in process management.`,
+        severity: 'info',
+      });
+    }
+
+    await notifyAssignedProcessManagers({
+      actor: req.user,
+      process: updatedProcess,
+      userIds: newlyAssignedValidatorIds.length ? unchangedValidatorIds : nextValidatorIds,
+      type: 'process_updated',
+      title: 'Process updated',
+      message: buildWorkflowNotificationMessage(`${updatedProcess.name} was updated in process management.`, change_description),
+      severity: 'info',
+    });
     res.json(serializeProcessRecord(updatedProcess));
   } catch (error) {
     console.error('Update process error:', error);
@@ -1686,6 +1758,15 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       },
     });
 
+    await notifyAssignedProcessManagers({
+      actor: req.user,
+      process: importedProcess,
+      userIds: governanceAssignments.assignedValidatorIds,
+      type: 'process_manager_assignment',
+      title: 'Imported process assigned',
+      message: `${importedProcess.name} has been assigned to you in process management.`,
+      severity: 'info',
+    });
     cleanupUploadedFile(req.file);
     res.status(201).json(serializeProcessRecord(importedProcess));
   } catch (error) {
@@ -1723,8 +1804,9 @@ router.get('/processes/:id/export', async (req, res) => {
         return;
       }
 
+      const filenameBase = buildDownloadNameBase(row.name, `process-${req.params.id}`);
       res.setHeader('Content-Type', 'application/xml');
-      res.setHeader('Content-Disposition', `attachment; filename="${row.name}_v${row.version_number}.bpmn"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} v${row.version_number}.bpmn"`);
       return res.send(row.bpmn_xml);
     }
 
@@ -1737,8 +1819,9 @@ router.get('/processes/:id/export', async (req, res) => {
       return;
     }
 
+    const filenameBase = buildDownloadNameBase(process.name, `process-${process.id}`);
     res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${process.name}.bpmn"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.bpmn"`);
     res.send(process.bpmn_xml);
   } catch (error) {
     console.error('Export BPMN error:', error);
@@ -1810,11 +1893,7 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
   };
   const explanation = buildProcessExplanation(reportProcess, workflow);
   const manual = buildProcedureManual(reportProcess, workflow, explanation);
-  const filenameBase =
-    String(process.name || `process-${process.id}`)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || `process-${process.id}`;
+  const filenameBase = buildDownloadNameBase(process.name, `process-${process.id}`);
 
   if (format === 'json') {
     res.json({
@@ -1826,20 +1905,20 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
 
   if (format === 'pdf') {
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} - manuel de procedure.pdf"`);
     res.send(buildProcessReportPdf(reportProcess, explanation, { diagramImageDataUrl, workflow }));
     return;
   }
 
   if (format === 'docx' || format === 'word') {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.docx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} - manuel de procedure.docx"`);
     res.send(await buildProcessReportDocx(reportProcess, explanation, { diagramImageDataUrl, workflow }));
     return;
   }
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-manuel-de-procedure.html"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameBase} - manuel de procedure.html"`);
   res.send(buildProcessReportHtml(reportProcess, explanation, { diagramImageDataUrl, workflow }));
 }
 

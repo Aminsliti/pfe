@@ -424,7 +424,8 @@ describe('process routes', () => {
     const htmlReport = await request(app).get('/api/processes/9/manual?format=html');
     expect(htmlReport.status).toBe(200);
     expect(htmlReport.headers['content-type']).toContain('text/html');
-    expect(htmlReport.text).toContain('3. Matrice what who when why');
+    expect(htmlReport.text).toContain('2. Matrice what who when why');
+    expect(htmlReport.text.indexOf('2. Matrice what who when why')).toBeLessThan(htmlReport.text.indexOf('3. Matrice des activites'));
     expect(htmlReport.text).toContain('Card Dispute Handling est represente par un diagramme BPMN approved');
     expect(htmlReport.text).toContain('4. NIVEAU OBJETS SUPPORTS');
     expect(htmlReport.text).toContain('4.1 Donnees');

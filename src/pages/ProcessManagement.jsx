@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../components/SnackbarProvider';
-import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Modal, Form, Alert, Badge, InputGroup, FormControl, ProgressBar, Dropdown, Accordion } from 'react-bootstrap';
 import { buildBpmnSubprocessTrail, getBpmnSubprocesses } from '../utils/bpmnSubprocesses';
 
 import { API_BASE } from '../utils/api';
@@ -31,6 +31,16 @@ const DEFAULT_MANUAL_DATA = {
   support_documents: [],
   support_data: [],
 };
+const MANUAL_SECTION_CHOICES = [
+  { key: 'identity', label: '1. Identite du processus' },
+  { key: 'whatWhoWhenWhy', label: '2. Matrice what who when why' },
+  { key: 'activities', label: '3. Matrice des activites' },
+  { key: 'workflow', label: 'Workflow notes' },
+  { key: 'raci', label: 'RACI' },
+  { key: 'supportObjects', label: '4. Niveau objets supports' },
+  { key: 'kpis', label: '5.1 Matrice KPI' },
+  { key: 'risks', label: '5.2 Matrice des risques' },
+];
 
 function ModelerFallback() {
   return (
@@ -60,6 +70,15 @@ function parseFilenameFromDisposition(disposition, fallback) {
 function replaceExtension(filename, nextExtension) {
   const safe = filename || 'process.bpmn';
   return safe.replace(/\.[^./\\]+$/i, nextExtension);
+}
+
+function buildProcessDownloadBase(process, fallbackValue = 'process') {
+  const resolved = String(process?.name || fallbackValue || 'process')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return resolved || fallbackValue || 'process';
 }
 
 function blobToDataUrl(blob) {
@@ -225,6 +244,67 @@ function manualListToTextarea(value) {
   return normalizeManualList(value).join('\n');
 }
 
+function formatManualPreviewCellValue(value) {
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  return String(value);
+}
+
+function ManualPreviewTable({ title, columns = [], rows = [], emptyLabel = 'No data available.', renderCell = null }) {
+  const safeColumns = Array.isArray(columns) && columns.length
+    ? columns
+    : [{ key: 'value', label: 'Value' }];
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  return (
+    <div className="border rounded-4 overflow-hidden bg-white">
+      <div className="px-3 py-2 border-bottom bg-light fw-semibold" style={{ fontSize: 13 }}>
+        {title}
+      </div>
+      <div className="table-responsive">
+        <table className="table table-sm table-bordered align-middle mb-0">
+          <thead className="table-light">
+            <tr>
+              {safeColumns.map((column) => (
+                <th key={`${title}-${column.key}`} className="small text-uppercase text-muted">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {safeRows.length === 0 ? (
+              <tr>
+                {safeColumns.map((column, columnIndex) => (
+                  <td key={`${title}-empty-${column.key}`} className="small text-muted" style={{ whiteSpace: 'pre-wrap' }}>
+                    {columnIndex === 0 ? emptyLabel : '-'}
+                  </td>
+                ))}
+              </tr>
+            ) : safeRows.map((row, rowIndex) => (
+              <tr key={`${title}-row-${rowIndex}`}>
+                {safeColumns.map((column) => (
+                  <td key={`${title}-${rowIndex}-${column.key}`} className="small" style={{ whiteSpace: 'pre-wrap' }}>
+                    {typeof renderCell === 'function'
+                      ? renderCell(row, column, rowIndex)
+                      : formatManualPreviewCellValue(row?.[column.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function normalizeCategorySection(value, fallbackValue = DEFAULT_PROCESS_SECTION) {
   const normalized = String(value || '').trim().toLowerCase();
   return PROCESS_SECTION_CONFIG.some((section) => section.key === normalized) ? normalized : fallbackValue;
@@ -292,6 +372,14 @@ function buildWorkflowJourney(workflowInfo, currentStatus) {
   ];
 }
 
+function formatProcessMetaDate(value) {
+  try {
+    return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-';
+  } catch {
+    return '-';
+  }
+}
+
 export function ProcessManagement({ publicView = false }) {
   const { user, hasPermission, hasRole, ROLES } = useAuth();
   const { showSnackbar, confirmAction } = useSnackbar();
@@ -345,6 +433,8 @@ export function ProcessManagement({ publicView = false }) {
   const [governanceOptions, setGovernanceOptions] = useState({ designers: [], validators: [] });
   const [governanceLoading, setGovernanceLoading] = useState(false);
   const [processDetail, setProcessDetail] = useState(null);
+  const [manualPreview, setManualPreview] = useState(null);
+  const [manualPreviewLoading, setManualPreviewLoading] = useState(false);
   const [workflowInfo, setWorkflowInfo] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [workflowComment, setWorkflowComment] = useState('');
@@ -356,6 +446,8 @@ export function ProcessManagement({ publicView = false }) {
   const [templates, setTemplates] = useState([]);
   const [applyingTemplateId, setApplyingTemplateId] = useState(null);
   const [previewRootElementId, setPreviewRootElementId] = useState(null);
+  const [activeProcessDetailPanel, setActiveProcessDetailPanel] = useState('');
+  const [expandedManualSections, setExpandedManualSections] = useState([]);
   const fileInputRef = useRef(null);
   const openingProcessRef = useRef(null);
   const syncedProcessParamRef = useRef(null);
@@ -684,20 +776,26 @@ export function ProcessManagement({ publicView = false }) {
 
   const hydrateProcessDetail = async (processId) => {
     setDetailLoading(true);
+    setManualPreviewLoading(true);
     try {
-      const [detailResponse, workflowResponse] = await Promise.all([
+      const [detailResponse, workflowResponse, manualResponse] = await Promise.all([
         fetch(`${API}/processes/${processId}`),
         fetch(`${API}/processes/${processId}/workflow`),
+        fetch(`${API}/processes/${processId}/manual?format=json`),
       ]);
 
       if (!detailResponse.ok) {
         throw new Error('Failed to load process detail');
       }
 
-      const detail = await detailResponse.json();
-      const workflow = workflowResponse.ok ? await workflowResponse.json() : null;
+      const [detail, workflow, manualPayload] = await Promise.all([
+        detailResponse.json(),
+        workflowResponse.ok ? workflowResponse.json() : Promise.resolve(null),
+        manualResponse.ok ? manualResponse.json() : Promise.resolve(null),
+      ]);
       setProcessDetail(detail);
       setWorkflowInfo(workflow);
+      setManualPreview(manualPayload?.manual || null);
       setVersionSelection((previous) => ({
         fromVersion: previous.fromVersion || String(detail.versions?.[1]?.version_number || detail.versions?.[0]?.version_number || ''),
         toVersion: previous.toVersion || String(detail.versions?.[0]?.version_number || ''),
@@ -705,6 +803,7 @@ export function ProcessManagement({ publicView = false }) {
       return detail;
     } finally {
       setDetailLoading(false);
+      setManualPreviewLoading(false);
     }
   };
 
@@ -746,10 +845,13 @@ export function ProcessManagement({ publicView = false }) {
     const resolvedCategoryId = defaultCategoryId || (categoryOptions.length === 1 ? String(categoryOptions[0].id) : '');
     setEditingProcess(null);
     setProcessDetail(null);
+    setManualPreview(null);
+    setManualPreviewLoading(false);
     setWorkflowInfo(null);
     setWorkflowComment('');
     setVersionDiff(null);
     setVersionSelection({ fromVersion: '', toVersion: '' });
+    setActiveProcessDetailPanel('');
     setFormData({
       name: '',
       description: '',
@@ -804,7 +906,7 @@ export function ProcessManagement({ publicView = false }) {
     }
 
     const activeProcessId = Number(processDetail?.id || editingProcess?.id || 0);
-    if (showModal && activeProcessId === processId) {
+    if (!showModal && activeProcessId === processId) {
       lastOpenedProcessRef.current = { id: processId, at: openAttemptTime };
       return;
     }
@@ -826,7 +928,9 @@ export function ProcessManagement({ publicView = false }) {
     setVersionDiff(null);
     setWorkflowInfo(null);
     setProcessDetail(null);
-    setShowModal(true);
+    setManualPreview(null);
+    setActiveProcessDetailPanel('');
+    setShowModal(false);
     try {
       const detail = await hydrateProcessDetail(processId);
       applyProcessForm(detail);
@@ -915,6 +1019,17 @@ export function ProcessManagement({ publicView = false }) {
       return next;
     });
     loadProcesses();
+
+    // Keep the manual preview in sync with BPMN edits (e.g., risks added/changed in the diagram).
+    // Otherwise users must click "Save metadata" to see the regenerated matrices.
+    try {
+      if (Number(editingProcess?.id || processDetail?.id || bpmnTarget?.id) > 0) {
+        const targetId = Number(editingProcess?.id || processDetail?.id || bpmnTarget?.id);
+        await hydrateProcessDetail(targetId);
+      }
+    } catch {
+      // Non-blocking: the diagram save succeeded; preview refresh failure should not break saving.
+    }
   };
 
   const handleBpmnImportExisting = async (processId) => {
@@ -1221,8 +1336,11 @@ export function ProcessManagement({ publicView = false }) {
     const closingProcessId = Number(processDetail?.id || editingProcess?.id || searchParams.get('processId') || 0);
     closingProcessRef.current = Number.isInteger(closingProcessId) && closingProcessId > 0 ? closingProcessId : null;
     setShowModal(false);
+    setActiveProcessDetailPanel('');
     setEditingProcess(null);
     setProcessDetail(null);
+    setManualPreview(null);
+    setManualPreviewLoading(false);
     setWorkflowInfo(null);
     setWorkflowComment('');
     setVersionDiff(null);
@@ -1489,8 +1607,9 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
-  const handleExport = async (id, version = null) => {
+  const handleExport = async (process, version = null) => {
     try {
+      const id = Number(process?.id || 0);
       const suffix = version ? `?version=${version}` : '';
       const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
       if (!response.ok) {
@@ -1498,17 +1617,20 @@ export function ProcessManagement({ publicView = false }) {
         return;
       }
       const blob = await response.blob();
-      const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), 'process.bpmn');
+      const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
+      const fallbackFilename = version ? `${fallbackBase} v${version}.bpmn` : `${fallbackBase}.bpmn`;
+      const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), fallbackFilename);
       downloadBlob(blob, filename);
     } catch (error) {
       showMsg(error.message || 'Network error', 'danger');
     }
   };
 
-  const renderProcessDiagramImage = async (id, { version = null, mimeType = 'image/png', quality = 0.92 } = {}) => {
+  const renderProcessDiagramImage = async (process, { version = null, mimeType = 'image/png', quality = 0.92 } = {}) => {
     let viewer;
     let mountNode;
     let svgUrl;
+    const id = Number(process?.id || 0);
 
     const suffix = version ? `?version=${version}` : '';
     const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/export${suffix}`);
@@ -1519,7 +1641,11 @@ export function ProcessManagement({ publicView = false }) {
 
     try {
       const xml = await response.text();
-      const sourceFilename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), `process-${id}.bpmn`);
+      const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
+      const sourceFilename = parseFilenameFromDisposition(
+        response.headers.get('Content-Disposition'),
+        version ? `${fallbackBase} v${version}.bpmn` : `${fallbackBase}.bpmn`
+      );
       const { default: NavigatedViewer } = await import('bpmn-js/lib/NavigatedViewer');
 
       mountNode = document.createElement('div');
@@ -1587,9 +1713,9 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
-  const handleImageExport = async (id, version = null) => {
+  const handleImageExport = async (process, version = null) => {
     try {
-      const rendered = await renderProcessDiagramImage(id, { version, mimeType: 'image/png' });
+      const rendered = await renderProcessDiagramImage(process, { version, mimeType: 'image/png' });
       if (!rendered) {
         return;
       }
@@ -1600,13 +1726,14 @@ export function ProcessManagement({ publicView = false }) {
     }
   };
 
-  const handleProcessReportDownload = async (id, format = 'pdf') => {
+  const handleProcessReportDownload = async (process, format = 'pdf') => {
     setProcessReportBusy(format);
     try {
+      const id = Number(process?.id || 0);
       const needsDiagramImage = format === 'pdf' || format === 'docx' || format === 'html';
       let diagramImageDataUrl = null;
       if (needsDiagramImage) {
-        const rendered = await renderProcessDiagramImage(id, { mimeType: 'image/jpeg', quality: 0.9 });
+        const rendered = await renderProcessDiagramImage(process, { mimeType: 'image/jpeg', quality: 0.9 });
         if (!rendered?.blob) {
           throw new Error(`Diagram preview could not be rendered for the ${format.toUpperCase()} export.`);
         }
@@ -1635,9 +1762,10 @@ export function ProcessManagement({ publicView = false }) {
       }
       const blob = await response.blob();
       const extension = format === 'pdf' ? 'pdf' : format === 'docx' ? 'docx' : 'html';
+      const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
       const filename = parseFilenameFromDisposition(
         response.headers.get('Content-Disposition'),
-        `process-${id}-manuel-de-procedure.${extension}`
+        `${fallbackBase} - manuel de procedure.${extension}`
       );
       downloadBlob(blob, filename);
     } catch (error) {
@@ -1693,6 +1821,7 @@ export function ProcessManagement({ publicView = false }) {
     return directProcesses.length + category.children.reduce((total, childCategory) => total + countProcessesInCategoryBranch(childCategory), 0);
   };
   const selectedProcessCount = selectedProcessIds.length;
+  const showExpandedProcessDownloadButton = processes.length <= 1;
   const selectableProcesses = processes.filter((process) => canDeleteProcessDefinition(process));
   const selectableProcessIds = selectableProcesses.map((process) => Number(process.id));
   const areAllSelectableProcessesSelected =
@@ -1736,6 +1865,15 @@ export function ProcessManagement({ publicView = false }) {
   const workflowFlags = getWorkflowFlags(workflowInfo, currentWorkflowStatus);
   const workflowJourney = buildWorkflowJourney(workflowInfo, currentWorkflowStatus);
   const previewBpmnXml = processDetail?.bpmn_xml || editingProcess?.bpmn_xml || formData.bpmn_xml || '';
+  const manualWorkflowRows = Array.isArray(manualPreview?.workflowBullets)
+    ? manualPreview.workflowBullets.map((value, index) => ({ label: `Note ${index + 1}`, value }))
+    : [];
+  const manualRaciRows = [
+    { label: 'Responsible', value: Array.isArray(manualPreview?.raci?.responsible) ? manualPreview.raci.responsible.join(', ') : '-' },
+    { label: 'Accountable', value: Array.isArray(manualPreview?.raci?.accountable) ? manualPreview.raci.accountable.join(', ') : '-' },
+    { label: 'Consulted', value: Array.isArray(manualPreview?.raci?.consulted) ? manualPreview.raci.consulted.join(', ') : '-' },
+    { label: 'Informed', value: Array.isArray(manualPreview?.raci?.informed) ? manualPreview.raci.informed.join(', ') : '-' },
+  ];
   const previewSubprocesses = useMemo(() => getBpmnSubprocesses(previewBpmnXml), [previewBpmnXml]);
   const previewSubprocessTrail = useMemo(
     () => buildBpmnSubprocessTrail(previewSubprocesses, previewRootElementId),
@@ -1745,6 +1883,14 @@ export function ProcessManagement({ publicView = false }) {
     ? previewSubprocessTrail[previewSubprocessTrail.length - 1]
     : null;
   const canEditSelectedProcess = editingProcess ? canEditProcessDefinition(selectedProcessRecord) : canCreateDefinitions;
+  const showProcessDetailsPage = Boolean(selectedProcessRecord?.id) && !showModal;
+  const processDetailsStatus = ({
+    draft: { bg: '#e2e8f0', color: '#334155', label: 'Draft' },
+    review: { bg: '#dbeafe', color: '#1d4ed8', label: 'In review' },
+    approved: { bg: '#dcfce7', color: '#166534', label: 'Approve' },
+    active: { bg: '#dcfce7', color: '#166534', label: 'Approve' },
+    archived: { bg: '#fef3c7', color: '#92400e', label: 'Archive' },
+  }[normalizeUiStatus(selectedProcessRecord?.status)] || { bg: '#e2e8f0', color: '#334155', label: statusLabel(selectedProcessRecord?.status) });
 
   useEffect(() => {
     setPreviewRootElementId(null);
@@ -1872,7 +2018,7 @@ export function ProcessManagement({ publicView = false }) {
         {canDeleteProcessDefinition(process) ? (
           <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} title="Delete" style={{ width: 30, height: 30, background: '#dc2626', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}><i className="bi bi-trash" /></button>
         ) : null}
-        <ExportMenu process={process} compact />
+        <ExportMenu process={process} compact={!showExpandedProcessDownloadButton} />
       </div>
     </div>
   );
@@ -1882,41 +2028,44 @@ export function ProcessManagement({ publicView = false }) {
       return null;
     }
 
+    const toggleStyle = compact ? { padding: '3px 7px' } : { minWidth: 110 };
+
     return (
     <Dropdown align="end" onClick={(event) => event.stopPropagation()}>
       <Dropdown.Toggle
         variant="outline-secondary"
         size="sm"
-        style={compact ? { padding: '3px 7px' } : undefined}
+        style={toggleStyle}
+        title="Download process files"
       >
         <i className="bi bi-download" />
-        {!compact ? <span className="ms-1">Export</span> : null}
+        {!compact ? <span className="ms-1">Download</span> : null}
       </Dropdown.Toggle>
       <Dropdown.Menu>
-        <Dropdown.Item onClick={() => handleExport(process.id, version)}>
+        <Dropdown.Item onClick={() => handleExport(process, version)}>
           <i className="bi bi-filetype-xml me-2" />
           BPMN
         </Dropdown.Item>
         {!version ? (
-          <Dropdown.Item onClick={() => handleImageExport(process.id)}>
+          <Dropdown.Item onClick={() => handleImageExport(process)}>
             <i className="bi bi-image me-2" />
             Image (PNG)
           </Dropdown.Item>
         ) : null}
         {!version ? (
-          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'html')}>
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process, 'html')}>
             <i className="bi bi-file-earmark-text me-2" />
             Manuel HTML
           </Dropdown.Item>
         ) : null}
         {!version ? (
-          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'pdf')}>
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process, 'pdf')}>
             <i className="bi bi-file-earmark-pdf me-2" />
             Manuel PDF
           </Dropdown.Item>
         ) : null}
         {!version ? (
-          <Dropdown.Item onClick={() => handleProcessReportDownload(process.id, 'docx')}>
+          <Dropdown.Item onClick={() => handleProcessReportDownload(process, 'docx')}>
             <i className="bi bi-file-earmark-word me-2" />
             Manuel Word
           </Dropdown.Item>
@@ -1925,6 +2074,1100 @@ export function ProcessManagement({ publicView = false }) {
     </Dropdown>
     );
   };
+
+  const supportObjectSections = Array.isArray(manualPreview?.matrices?.supportObjects?.sections)
+    ? manualPreview.matrices.supportObjects.sections
+    : [];
+  const renderRiskSeverityCell = (row, column) => {
+    if (column.key !== 'severity') {
+      return formatManualPreviewCellValue(row?.[column.key]);
+    }
+
+    const severity = String(row?.severity || '').toLowerCase();
+    const palette = {
+      low: { bg: '#fde68a', fg: '#7c2d12', label: 'Low' },
+      medium: { bg: '#fdba74', fg: '#7c2d12', label: 'Medium' },
+      high: { bg: '#fca5a5', fg: '#7f1d1d', label: 'High' },
+      critical: { bg: '#ef4444', fg: '#ffffff', label: 'Critical' },
+    };
+    const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
+
+    return (
+      <span
+        className="d-inline-flex align-items-center"
+        style={{
+          background: resolved.bg,
+          color: resolved.fg,
+          borderRadius: 999,
+          padding: '2px 8px',
+          fontWeight: 700,
+          fontSize: 11,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+        }}
+      >
+        {resolved.label}
+      </span>
+    );
+  };
+  const renderManualSection = (sectionKey) => {
+    if (sectionKey === 'identity') {
+      return (
+        <ManualPreviewTable
+          title="1. Identite du processus"
+          columns={[
+            { key: 'label', label: 'Champ' },
+            { key: 'value', label: 'Valeur' },
+          ]}
+          rows={manualPreview?.matrices?.identity}
+        />
+      );
+    }
+
+    if (sectionKey === 'whatWhoWhenWhy') {
+      return (
+        <ManualPreviewTable
+          title="2. Matrice what who when why"
+          columns={Array.isArray(manualPreview?.matrices?.whatWhoWhenWhy?.columns) ? manualPreview.matrices.whatWhoWhenWhy.columns : []}
+          rows={manualPreview?.matrices?.whatWhoWhenWhy?.rows}
+        />
+      );
+    }
+
+    if (sectionKey === 'activities') {
+      return (
+        <ManualPreviewTable
+          title="3. Matrice des activites"
+          columns={[
+            { key: 'activity', label: 'Activite' },
+            { key: 'actor', label: 'Acteur' },
+            { key: 'description', label: 'Description' },
+          ]}
+          rows={manualPreview?.matrices?.activities}
+        />
+      );
+    }
+
+    if (sectionKey === 'workflow') {
+      return (
+        <ManualPreviewTable
+          title="Workflow notes"
+          columns={[
+            { key: 'label', label: 'Note' },
+            { key: 'value', label: 'Value' },
+          ]}
+          rows={manualWorkflowRows}
+          emptyLabel="No workflow notes generated."
+        />
+      );
+    }
+
+    if (sectionKey === 'raci') {
+      return (
+        <ManualPreviewTable
+          title="RACI"
+          columns={[
+            { key: 'label', label: 'Role' },
+            { key: 'value', label: 'Value' },
+          ]}
+          rows={manualRaciRows}
+        />
+      );
+    }
+
+    if (sectionKey === 'supportObjects') {
+      return (
+        <div className="border rounded-4 p-3 bg-white">
+          <div className="fw-semibold mb-2">4. Niveau objets supports</div>
+          <div className="text-muted small mb-3">{manualPreview?.matrices?.supportObjects?.intro || 'No support-object introduction available.'}</div>
+          <div className="d-flex flex-column gap-3">
+            {supportObjectSections.length > 0 ? (
+              supportObjectSections.map((section) => (
+                <ManualPreviewTable
+                  key={section.title}
+                  title={section.title}
+                  columns={Array.isArray(section.columns) ? section.columns : []}
+                  rows={section.rows}
+                />
+              ))
+            ) : (
+              <div className="text-muted small">No support-object sections available.</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (sectionKey === 'kpis') {
+      return (
+        <ManualPreviewTable
+          title="5.1 Matrice KPI"
+          columns={[
+            { key: 'name', label: 'KPI' },
+            { key: 'target', label: 'Cible' },
+            { key: 'source', label: 'Source' },
+          ]}
+          rows={manualPreview?.matrices?.kpis}
+        />
+      );
+    }
+
+    if (sectionKey === 'risks') {
+      return (
+        <ManualPreviewTable
+          title="5.2 Matrice des risques"
+          columns={[
+            { key: 'title', label: 'Risque' },
+            { key: 'severity', label: 'Severite' },
+            { key: 'status', label: 'Statut' },
+            { key: 'category', label: 'Categorie' },
+            { key: 'element', label: 'Element BPMN' },
+            { key: 'description', label: 'Description' },
+            { key: 'mitigation', label: 'Mitigation / Controle' },
+          ]}
+          rows={manualPreview?.matrices?.risks}
+          renderCell={renderRiskSeverityCell}
+        />
+      );
+    }
+
+    return null;
+  };
+
+  const renderProcessDetailPanelContent = () => {
+    if (!selectedProcessRecord) {
+      return <div className="text-muted">No process selected.</div>;
+    }
+
+    if (activeProcessDetailPanel === 'info') {
+      return (
+        <div className="d-flex flex-column gap-3">
+          <div className="d-flex justify-content-between gap-3 border-bottom pb-2">
+            <span className="text-muted">Categorie</span>
+            <strong className="text-end">{getCategoryLabel(selectedProcessRecord) || 'Sans categorie'}</strong>
+          </div>
+          <div className="d-flex justify-content-between gap-3 border-bottom pb-2">
+            <span className="text-muted">Responsable</span>
+            <strong className="text-end">{selectedProcessRecord?.created_by_name || 'Equipe BPM'}</strong>
+          </div>
+          <div className="d-flex justify-content-between gap-3 border-bottom pb-2">
+            <span className="text-muted">Creation</span>
+            <strong className="text-end">{formatProcessMetaDate(selectedProcessRecord?.created_at)}</strong>
+          </div>
+          <div className="d-flex justify-content-between gap-3 border-bottom pb-2">
+            <span className="text-muted">Mise a jour</span>
+            <strong className="text-end">{formatProcessMetaDate(selectedProcessRecord?.updated_at)}</strong>
+          </div>
+          <div className="d-flex justify-content-between gap-3">
+            <span className="text-muted">Statut</span>
+            <strong className="text-end">{statusLabel(selectedProcessRecord?.status)}</strong>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeProcessDetailPanel === 'subprocesses') {
+      if (!previewSubprocesses.length) {
+        return <div className="text-muted">This process does not contain embedded subprocesses.</div>;
+      }
+
+      return (
+        <div className="d-flex flex-column gap-3">
+          <div>
+            <h6 className="mb-1">Sous-processus integres</h6>
+            <div className="text-muted small">Open the same internal BPMN level that the BPMN drilldown arrow targets.</div>
+          </div>
+
+          <div className="d-flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={previewRootElementId ? 'outline-secondary' : 'danger'}
+              className="rounded-pill"
+              onClick={() => setPreviewRootElementId(null)}
+            >
+              Diagramme principal
+            </Button>
+            {previewSubprocessTrail.map((subprocess) => (
+              <Button
+                key={subprocess.id}
+                type="button"
+                size="sm"
+                variant={previewRootElementId === subprocess.id ? 'danger' : 'outline-secondary'}
+                className="rounded-pill"
+                onClick={() => setPreviewRootElementId(subprocess.id)}
+              >
+                {subprocess.name}
+              </Button>
+            ))}
+          </div>
+
+          <div className="d-flex flex-column gap-2">
+            {previewSubprocesses.map((subprocess) => (
+              <button
+                key={subprocess.id}
+                type="button"
+                onClick={() => setPreviewRootElementId(subprocess.id)}
+                className="text-start border rounded-4 px-3 py-3 bg-white"
+                style={{
+                  borderColor: previewRootElementId === subprocess.id ? '#ef4444' : '#e2e8f0',
+                  boxShadow: previewRootElementId === subprocess.id ? 'inset 3px 0 0 #ef4444' : 'none',
+                }}
+              >
+                <div className="fw-semibold text-dark">{subprocess.name}</div>
+                <div className="small text-muted mt-1">{subprocess.pathLabel}</div>
+                <div className="small text-muted mt-2">
+                  {subprocess.childCount > 0 ? `${subprocess.childCount} nested view(s)` : 'Final embedded subprocess view'}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeProcessDetailPanel === 'workflow') {
+      return (
+        <div className="d-flex flex-column gap-3">
+          <div className="d-flex flex-wrap gap-2">
+            <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>
+            {workflowInfo?.submitted_at && <Badge bg="light" text="dark">Submitted {new Date(workflowInfo.submitted_at).toLocaleDateString()}</Badge>}
+            {workflowInfo?.approved_by_name && <Badge bg="success-subtle" text="dark">Approved by {workflowInfo.approved_by_name}</Badge>}
+            {workflowInfo?.archived_at && <Badge bg="warning" text="dark">Archived {new Date(workflowInfo.archived_at).toLocaleDateString()}</Badge>}
+          </div>
+
+          <div className="border rounded-3 p-3 bg-light">
+            <div className="small text-uppercase text-muted fw-semibold mb-2">Workflow path</div>
+            <div className="d-flex flex-wrap gap-2">
+              {workflowJourney.map((step) => (
+                <Badge key={step.key} bg={step.current ? 'danger' : step.reached ? 'dark' : 'light'} text={step.reached || step.current ? undefined : 'dark'}>
+                  {step.label}
+                </Badge>
+              ))}
+            </div>
+            <div className="text-muted small mt-2">
+              Current step: {workflowJourney.find((step) => step.current)?.label || statusLabel(currentWorkflowStatus)}
+            </div>
+          </div>
+
+          {!publicView ? (
+            <Form.Group>
+              <Form.Label>Workflow comment</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={3}
+                placeholder="Add the governance note that accompanies this workflow action."
+                value={workflowComment}
+                onChange={(event) => setWorkflowComment(event.target.value)}
+              />
+              <div className="text-muted small mt-1">Required when requesting a reopen or reopening the process to draft.</div>
+            </Form.Group>
+          ) : null}
+
+          {!publicView ? (
+            <div className="d-flex flex-wrap gap-2">
+              {canSubmitForReview(selectedProcessRecord) && (
+                <Button variant="info" onClick={() => handleWorkflowAction('submit_review')} disabled={!!workflowBusy}>
+                  {workflowBusy === 'submit_review' ? 'Submitting...' : 'Submit for review'}
+                </Button>
+              )}
+              {canApproveProcess(selectedProcessRecord) && (
+                <Button variant="success" onClick={() => handleWorkflowAction('approve')} disabled={!!workflowBusy}>
+                  {workflowBusy === 'approve' ? 'Approving...' : 'Approve'}
+                </Button>
+              )}
+              {canReturnToDraft(selectedProcessRecord) && (
+                <Button variant="outline-secondary" onClick={() => handleWorkflowAction('return_draft')} disabled={!!workflowBusy}>
+                  {currentWorkflowStatus === 'approved' ? 'Reopen to draft' : 'Return to draft'}
+                </Button>
+              )}
+              {canArchiveProcess(selectedProcessRecord) && (
+                <Button variant="warning" onClick={() => handleWorkflowAction('archive')} disabled={!!workflowBusy}>
+                  Archive
+                </Button>
+              )}
+              {canRequestChange(selectedProcessRecord, workflowFlags) && (
+                <Button variant="outline-danger" onClick={() => handleWorkflowAction('request_change')} disabled={!!workflowBusy}>
+                  {workflowBusy === 'request_change' ? 'Sending...' : 'Request reopen'}
+                </Button>
+              )}
+              {canRestoreProcess(selectedProcessRecord) && (
+                <Button variant="outline-primary" onClick={() => handleWorkflowAction('restore')} disabled={!!workflowBusy}>
+                  Restore
+                </Button>
+              )}
+            </div>
+          ) : null}
+
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+            {(workflowInfo?.comments || []).length === 0 ? (
+              <div className="text-muted small">No workflow comments yet.</div>
+            ) : (
+              workflowInfo.comments.map((commentEntry) => (
+                <div key={commentEntry.id} className="border rounded-3 p-2 mb-2 bg-light">
+                  <div className="d-flex justify-content-between gap-2">
+                    <strong style={{ fontSize: 13 }}>{commentEntry.created_by_name || 'System'}</strong>
+                    <span className="text-muted small">{new Date(commentEntry.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="text-muted small text-uppercase mt-1">{formatWorkflowActionLabel(commentEntry.action)}</div>
+                  {commentEntry.comment ? <div className="mt-1" style={{ fontSize: 13 }}>{commentEntry.comment}</div> : null}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeProcessDetailPanel === 'metadata') {
+      return (
+        <Form onSubmit={handleSubmit}>
+          <div className="d-flex flex-column gap-3">
+            <div className="d-flex justify-content-between align-items-center">
+              <div>
+                <h6 className="mb-1">Metadata</h6>
+                <div className="text-muted small">Name, category, description, assignments, and manual-generation fields.</div>
+              </div>
+              <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>
+            </div>
+
+            <Form.Group>
+              <Form.Label>Name *</Form.Label>
+              <Form.Control required disabled={!canEditSelectedProcess} value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>Description</Form.Label>
+              <Form.Control as="textarea" rows={3} disabled={!canEditSelectedProcess} value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} />
+            </Form.Group>
+            <Row>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label>Category *</Form.Label>
+                  <Form.Select required disabled={!canEditSelectedProcess} value={formData.category_id} onChange={(event) => handleProcessCategoryChange(event.target.value)}>
+                    <option value="">Select category</option>
+                    {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.pathLabel}</option>)}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label>Status</Form.Label>
+                  <Form.Control value={statusLabel(currentWorkflowStatus)} readOnly />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <div className="border rounded-4 p-3" style={{ background: '#fffdfa' }}>
+              <div className="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                  <h6 className="mb-1">Manuel de procedure</h6>
+                  <div className="text-muted small">Fields used to generate the procedure manual matrices.</div>
+                </div>
+              </div>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Code</Form.Label>
+                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.code || ''} onChange={(event) => updateManualDataField('code', event.target.value)} placeholder="Ex: MP-CRT-001" />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Owner</Form.Label>
+                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.owner || ''} onChange={(event) => updateManualDataField('owner', event.target.value)} placeholder="Responsable du processus" />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <Form.Group className="mb-3">
+                <Form.Label>Objectif</Form.Label>
+                <Form.Control as="textarea" rows={2} disabled={!canEditSelectedProcess} value={formData.manual_data?.objective || ''} onChange={(event) => updateManualDataField('objective', event.target.value)} placeholder="Objectif principal du processus" />
+              </Form.Group>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Perimetre</Form.Label>
+                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.scope || ''} onChange={(event) => updateManualDataField('scope', event.target.value)} placeholder="Perimetre fonctionnel ou organisationnel" />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Frequence</Form.Label>
+                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.frequency || ''} onChange={(event) => updateManualDataField('frequency', event.target.value)} placeholder="Ex: Quotidienne / Hebdomadaire / A la demande" />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Declencheur</Form.Label>
+                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.trigger || ''} onChange={(event) => updateManualDataField('trigger', event.target.value)} placeholder="Evenement de demarrage du processus" />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Resultat attendu</Form.Label>
+                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.expected_result || ''} onChange={(event) => updateManualDataField('expected_result', event.target.value)} placeholder="Livrable ou resultat final" />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <Form.Group className="mb-3">
+                <Form.Label>Contexte</Form.Label>
+                <Form.Control as="textarea" rows={2} disabled={!canEditSelectedProcess} value={formData.manual_data?.context || ''} onChange={(event) => updateManualDataField('context', event.target.value)} placeholder="Contexte, limites ou remarques" />
+              </Form.Group>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>KPI cles</Form.Label>
+                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.kpis)} onChange={(event) => updateManualDataListField('kpis', event.target.value)} placeholder="Une ligne par KPI" />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Controles cles</Form.Label>
+                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.controls)} onChange={(event) => updateManualDataListField('controls', event.target.value)} placeholder="Un controle par ligne" />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <Row>
+                <Col md={4}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Systemes supports</Form.Label>
+                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.support_systems)} onChange={(event) => updateManualDataListField('support_systems', event.target.value)} placeholder="Un systeme par ligne" />
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Documents supports</Form.Label>
+                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.support_documents)} onChange={(event) => updateManualDataListField('support_documents', event.target.value)} placeholder="Un document par ligne" />
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Donnees supports</Form.Label>
+                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.support_data)} onChange={(event) => updateManualDataListField('support_data', event.target.value)} placeholder="Une donnee par ligne" />
+                  </Form.Group>
+                </Col>
+              </Row>
+            </div>
+
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Assigned process designer</Form.Label>
+                  {renderGovernanceChecklist({
+                    options: governanceOptions.designers,
+                    selectedIds: formData.assigned_designer_ids,
+                    disabled: !canManageProcessAssignments,
+                    onToggle: (assigned_designer_ids) => setFormData({ ...formData, assigned_designer_ids }),
+                    emptyLabel: 'No process designers are available yet.',
+                    inputPrefix: 'process-designer-panel',
+                  })}
+                  <div className="text-muted small mt-1">Choose one or more people who can edit the process while it is in draft.</div>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Assigned process manager *</Form.Label>
+                  {renderGovernanceChecklist({
+                    options: governanceOptions.validators,
+                    selectedIds: formData.assigned_validator_ids,
+                    disabled: !canManageProcessAssignments,
+                    onToggle: (assigned_validator_ids) => setFormData({ ...formData, assigned_validator_ids }),
+                    emptyLabel: 'No process managers are available yet.',
+                    inputPrefix: 'process-manager-panel',
+                  })}
+                  <div className="text-muted small mt-1">Choose one or more people who can validate, reopen, archive, and edit the process.</div>
+                </Form.Group>
+              </Col>
+            </Row>
+            {governanceLoading ? <div className="text-muted small">Loading governance options...</div> : null}
+
+            <div className="d-flex justify-content-end gap-2">
+              <Button variant="secondary" type="button" onClick={() => setActiveProcessDetailPanel('')}>Close</Button>
+              {canEditSelectedProcess ? <Button type="submit" variant="primary">Save metadata</Button> : null}
+            </div>
+          </div>
+        </Form>
+      );
+    }
+
+    if (activeProcessDetailPanel === 'manual') {
+      const supportObjectSections = Array.isArray(manualPreview?.matrices?.supportObjects?.sections)
+        ? manualPreview.matrices.supportObjects.sections
+        : [];
+      const renderRiskSeverityCell = (row, column) => {
+        if (column.key !== 'severity') {
+          return formatManualPreviewCellValue(row?.[column.key]);
+        }
+
+        const severity = String(row?.severity || '').toLowerCase();
+        const palette = {
+          low: { bg: '#fde68a', fg: '#7c2d12', label: 'Low' },
+          medium: { bg: '#fdba74', fg: '#7c2d12', label: 'Medium' },
+          high: { bg: '#fca5a5', fg: '#7f1d1d', label: 'High' },
+          critical: { bg: '#ef4444', fg: '#ffffff', label: 'Critical' },
+        };
+        const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
+
+        return (
+          <span
+            className="d-inline-flex align-items-center"
+            style={{
+              background: resolved.bg,
+              color: resolved.fg,
+              borderRadius: 999,
+              padding: '2px 8px',
+              fontWeight: 700,
+              fontSize: 11,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+            }}
+          >
+            {resolved.label}
+          </span>
+        );
+      };
+      const renderManualSection = (sectionKey) => {
+        if (sectionKey === 'identity') {
+          return (
+            <ManualPreviewTable
+              title="1. Identite du processus"
+              columns={[
+                { key: 'label', label: 'Champ' },
+                { key: 'value', label: 'Valeur' },
+              ]}
+              rows={manualPreview?.matrices?.identity}
+            />
+          );
+        }
+
+        if (sectionKey === 'whatWhoWhenWhy') {
+          return (
+            <ManualPreviewTable
+              title="2. Matrice what who when why"
+              columns={Array.isArray(manualPreview?.matrices?.whatWhoWhenWhy?.columns) ? manualPreview.matrices.whatWhoWhenWhy.columns : []}
+              rows={manualPreview?.matrices?.whatWhoWhenWhy?.rows}
+            />
+          );
+        }
+
+        if (sectionKey === 'activities') {
+          return (
+            <ManualPreviewTable
+              title="3. Matrice des activites"
+              columns={[
+                { key: 'activity', label: 'Activite' },
+                { key: 'actor', label: 'Acteur' },
+                { key: 'description', label: 'Description' },
+              ]}
+              rows={manualPreview?.matrices?.activities}
+            />
+          );
+        }
+
+        if (sectionKey === 'workflow') {
+          return (
+            <ManualPreviewTable
+              title="Workflow notes"
+              columns={[
+                { key: 'label', label: 'Note' },
+                { key: 'value', label: 'Value' },
+              ]}
+              rows={manualWorkflowRows}
+              emptyLabel="No workflow notes generated."
+            />
+          );
+        }
+
+        if (sectionKey === 'raci') {
+          return (
+            <ManualPreviewTable
+              title="RACI"
+              columns={[
+                { key: 'label', label: 'Role' },
+                { key: 'value', label: 'Value' },
+              ]}
+              rows={manualRaciRows}
+            />
+          );
+        }
+
+        if (sectionKey === 'supportObjects') {
+          return (
+            <div className="border rounded-4 p-3 bg-white">
+              <div className="fw-semibold mb-2">4. Niveau objets supports</div>
+              <div className="text-muted small mb-3">{manualPreview?.matrices?.supportObjects?.intro || 'No support-object introduction available.'}</div>
+              <div className="d-flex flex-column gap-3">
+                {supportObjectSections.length > 0 ? (
+                  supportObjectSections.map((section) => (
+                    <ManualPreviewTable
+                      key={section.title}
+                      title={section.title}
+                      columns={Array.isArray(section.columns) ? section.columns : []}
+                      rows={section.rows}
+                    />
+                  ))
+                ) : (
+                  <div className="text-muted small">No support-object sections available.</div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        if (sectionKey === 'kpis') {
+          return (
+            <ManualPreviewTable
+              title="5.1 Matrice KPI"
+              columns={[
+                { key: 'name', label: 'KPI' },
+                { key: 'target', label: 'Cible' },
+                { key: 'source', label: 'Source' },
+              ]}
+              rows={manualPreview?.matrices?.kpis}
+            />
+          );
+        }
+
+        if (sectionKey === 'risks') {
+          return (
+            <ManualPreviewTable
+              title="5.2 Matrice des risques"
+              columns={[
+                { key: 'title', label: 'Risque' },
+                { key: 'severity', label: 'Severite' },
+                { key: 'status', label: 'Statut' },
+                { key: 'category', label: 'Categorie' },
+                { key: 'element', label: 'Element BPMN' },
+                { key: 'description', label: 'Description' },
+                { key: 'mitigation', label: 'Mitigation / Controle' },
+              ]}
+              rows={manualPreview?.matrices?.risks}
+              renderCell={renderRiskSeverityCell}
+            />
+          );
+        }
+
+        return null;
+      };
+
+      return (
+        <div className="d-flex flex-column gap-3">
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h6 className="mb-1">Manuel de procedure</h6>
+              <div className="text-muted small">Read the generated procedure manual directly here without downloading it.</div>
+            </div>
+            {manualPreviewLoading ? <div className="spinner-border spinner-border-sm text-danger" role="status" /> : null}
+          </div>
+
+          {canEditSelectedProcess ? (
+            <div className="text-muted small">
+              Save metadata to refresh this preview after editing the manual fields or BPMN diagram.
+            </div>
+          ) : null}
+
+          {!manualPreview ? (
+            <div className="border rounded-4 px-3 py-4 text-muted small bg-light">
+              {manualPreviewLoading ? 'Loading the procedure manual...' : 'The procedure manual is not available for this process yet.'}
+            </div>
+          ) : (
+            <div className="d-flex flex-column gap-3">
+              <div className="border rounded-4 p-3 bg-white">
+                <div className="fw-semibold mb-3">Choose what to read</div>
+                <div className="d-flex flex-wrap gap-2 mb-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={manualPreviewMode === 'full' ? 'danger' : 'outline-secondary'}
+                    onClick={() => setManualPreviewMode('full')}
+                  >
+                    Full manual
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={manualPreviewMode === 'section' ? 'danger' : 'outline-secondary'}
+                    onClick={() => setManualPreviewMode('section')}
+                  >
+                    Specific section
+                  </Button>
+                </div>
+                {manualPreviewMode === 'section' ? (
+                  <Form.Select
+                    size="sm"
+                    value={manualPreviewSection}
+                    onChange={(event) => setManualPreviewSection(event.target.value)}
+                    style={{ maxWidth: 360 }}
+                  >
+                    {MANUAL_SECTION_CHOICES.map((section) => (
+                      <option key={section.key} value={section.key}>
+                        {section.label}
+                      </option>
+                    ))}
+                  </Form.Select>
+                ) : null}
+              </div>
+
+              <div className="border rounded-4 p-3 bg-light">
+                <div className="small text-uppercase fw-bold text-danger mb-2">Manuel de procedure</div>
+                <div className="fw-semibold mb-2">{selectedProcessRecord?.name || 'Process'}</div>
+                <div className="text-muted small">{manualPreview.diagramDescription || selectedProcessRecord?.description || 'No generated narrative is available yet.'}</div>
+              </div>
+
+              {manualPreviewMode === 'full' ? (
+                <div className="d-flex flex-column gap-3">
+                  {MANUAL_SECTION_CHOICES.map((section) => (
+                    <div key={section.key}>
+                      {renderManualSection(section.key)}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                renderManualSection(manualPreviewSection)
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (activeProcessDetailPanel === 'versions') {
+      return (
+        <div className="d-flex flex-column gap-3">
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h6 className="mb-1">Version Diff</h6>
+              <div className="text-muted small">Compare metadata, BPMN structure, and task-level changes between saved versions.</div>
+            </div>
+            <div className="d-flex gap-2 flex-wrap">
+              <Form.Select
+                size="sm"
+                value={versionSelection.fromVersion}
+                onChange={(event) => setVersionSelection((previous) => ({ ...previous, fromVersion: event.target.value }))}
+              >
+                <option value="">From version</option>
+                {availableVersions.map((version) => (
+                  <option key={`from-panel-${version.version_number}`} value={version.version_number}>v{version.version_number}</option>
+                ))}
+              </Form.Select>
+              <Form.Select
+                size="sm"
+                value={versionSelection.toVersion}
+                onChange={(event) => setVersionSelection((previous) => ({ ...previous, toVersion: event.target.value }))}
+              >
+                <option value="">To version</option>
+                {availableVersions.map((version) => (
+                  <option key={`to-panel-${version.version_number}`} value={version.version_number}>v{version.version_number}</option>
+                ))}
+              </Form.Select>
+              <Button size="sm" variant="outline-dark" onClick={loadVersionDiff} disabled={diffLoading || !versionSelection.fromVersion || !versionSelection.toVersion}>
+                {diffLoading ? 'Comparing...' : 'Compare'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="row g-3">
+            <div className="col-xl-4">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="fw-semibold mb-2">Version history</div>
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {availableVersions.map((version) => (
+                    <div key={version.version_number} className="border rounded-3 bg-white p-2 mb-2">
+                      <div className="d-flex justify-content-between gap-2">
+                        <strong>v{version.version_number}</strong>
+                        <ExportMenu process={selectedProcessRecord} version={version.version_number} compact />
+                      </div>
+                      <div className="text-muted small mt-1">{version.change_description || 'Snapshot'}</div>
+                      <div className="small mt-2">{version.created_by_name || 'Unknown author'}</div>
+                      <div className="text-muted small">{version.created_at ? new Date(version.created_at).toLocaleString() : '-'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-8">
+              {!versionDiff ? (
+                <div className="border rounded-3 p-4 h-100 d-flex align-items-center justify-content-center text-muted bg-light">
+                  Choose two versions to see the diff.
+                </div>
+              ) : (
+                <div className="border rounded-3 p-3 h-100">
+                  <div className="d-flex flex-wrap gap-2 mb-3">
+                    <Badge bg="dark">v{versionDiff.from.version_number}</Badge>
+                    <span className="text-muted">to</span>
+                    <Badge bg="danger">v{versionDiff.to.version_number}</Badge>
+                    <Badge bg="secondary">{versionDiff.change_count} change(s)</Badge>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="fw-semibold mb-2">Metadata changes</div>
+                    {versionDiff.metadata_changes.length === 0 ? (
+                      <div className="text-muted small">No metadata changes.</div>
+                    ) : (
+                      versionDiff.metadata_changes.map((change) => (
+                        <div key={change.field} className="small mb-1">
+                          <strong>{change.label}:</strong> <span className="text-muted">{String(change.from || '-')}</span> to <span>{String(change.to || '-')}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="fw-semibold mb-2">Task changes</div>
+                    <div className="small text-muted mb-1">Added: {versionDiff.task_changes.added.length} | Removed: {versionDiff.task_changes.removed.length} | Renamed: {versionDiff.task_changes.renamed.length}</div>
+                    {[...versionDiff.task_changes.added.slice(0, 4).map((task) => `+ ${task.task_name || task.task_id}`), ...versionDiff.task_changes.removed.slice(0, 4).map((task) => `- ${task.task_name || task.task_id}`), ...versionDiff.task_changes.renamed.slice(0, 4).map((task) => `~ ${task.from} to ${task.to}`)].map((line) => (
+                      <div key={line} className="small">{line}</div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <div className="fw-semibold mb-2">BPMN structure</div>
+                    <div className="small text-muted mb-1">XML changed: {versionDiff.bpmn_changes.xml_changed ? 'yes' : 'no'}</div>
+                    {versionDiff.bpmn_changes.changes.length === 0 ? (
+                      <div className="text-muted small">No BPMN structural changes detected.</div>
+                    ) : (
+                      versionDiff.bpmn_changes.changes.map((change) => (
+                        <div key={change.metric} className="small">
+                          <strong>{change.metric}:</strong> {change.from} to {change.to}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  if (showProcessDetailsPage) {
+    return (
+      <Container fluid className="py-4">
+        <Card className="border-0 shadow-sm bg-white" style={{ borderRadius: 28 }}>
+          <Card.Body className="p-4 p-xl-5 d-flex flex-column gap-4">
+            <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+              <div>
+                <div className="small text-uppercase fw-bold text-danger mb-2">
+                  <i className="bi bi-image me-2" />
+                  Diagramme BPMN final
+                </div>
+                <h2 className="mb-2">{selectedProcessRecord?.name || (detailLoading ? 'Loading process...' : 'Process')}</h2>
+                <p className="mb-0 text-muted">
+                  {selectedProcessRecord?.description || 'Open the process diagram and review its current publication details here.'}
+                </p>
+              </div>
+              <Button type="button" variant="outline-secondary" size="sm" className="rounded-pill flex-shrink-0" onClick={closeProcessModal}>
+                <i className="bi bi-arrow-left me-2" />
+                Retour
+              </Button>
+            </div>
+
+            <div className="d-flex flex-wrap align-items-center gap-2">
+              <span className="badge rounded-pill" style={{ background: processDetailsStatus.bg, color: processDetailsStatus.color, fontSize: 14 }}>
+                {processDetailsStatus.label}
+              </span>
+              <span className="badge rounded-pill text-bg-light" style={{ fontSize: 14 }}>
+                v{selectedProcessRecord?.version || 1}
+              </span>
+              {detailLoading ? <div className="spinner-border spinner-border-sm text-danger ms-1" role="status" /> : null}
+            </div>
+
+            {!publicView ? (
+              <div className="d-flex flex-wrap gap-2">
+                {canApproveProcess(selectedProcessRecord) ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="success"
+                    onClick={() => handleWorkflowAction('approve', selectedProcessRecord)}
+                    disabled={workflowBusy === 'approve'}
+                  >
+                    {workflowBusy === 'approve' ? 'Approving...' : 'Approve diagram'}
+                  </Button>
+                ) : null}
+                {canEditSelectedProcess ? (
+                  <Button type="button" size="sm" variant="primary" onClick={() => openBpmnEditor(selectedProcessRecord, previewRootElementId || null)}>
+                    Edit diagram
+                  </Button>
+                ) : null}
+                <Button type="button" size="sm" variant="outline-secondary" onClick={() => handleImageExport(selectedProcessRecord)}>
+                  PNG
+                </Button>
+                <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(selectedProcessRecord)}>
+                  BPMN
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline-dark"
+                  onClick={() => handleProcessReportDownload(selectedProcessRecord, 'html')}
+                  disabled={processReportBusy === 'html'}
+                >
+                  {processReportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline-secondary"
+                  onClick={() => handleProcessReportDownload(selectedProcessRecord, 'pdf')}
+                  disabled={processReportBusy === 'pdf'}
+                >
+                  {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline-primary"
+                  onClick={() => handleProcessReportDownload(selectedProcessRecord, 'docx')}
+                  disabled={processReportBusy === 'docx'}
+                >
+                  {processReportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
+                </Button>
+              </div>
+            ) : null}
+
+            <Row className="g-4">
+              <Col xl={8}>
+                <div className="border rounded-4 bg-white p-3 shadow-sm h-100">
+                  <div className="small text-muted mb-2">
+                    {canEditSelectedProcess ? 'Click the diagram to open it in the BPMN editor.' : 'Diagram preview'}
+                  </div>
+                  <button
+                    type="button"
+                    className="w-100 text-start p-0"
+                    onClick={() => {
+                      if (canEditSelectedProcess) {
+                        openBpmnEditor(selectedProcessRecord, previewRootElementId || null);
+                      }
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: canEditSelectedProcess ? 'pointer' : 'default',
+                    }}
+                  >
+                    {detailLoading && !previewBpmnXml ? (
+                      <div className="text-center py-5 text-muted">
+                        <div className="spinner-border text-danger mb-3" role="status" />
+                        <div>Loading BPMN preview...</div>
+                      </div>
+                    ) : (
+                      <Suspense fallback={<div className="text-center py-5 text-muted">Loading BPMN preview...</div>}>
+                        <BpmnProcessPreview xml={previewBpmnXml} rootElementId={previewRootElementId} />
+                      </Suspense>
+                    )}
+                  </button>
+                </div>
+              </Col>
+              <Col xl={4}>
+                <Card className="border-0 shadow-sm h-100" style={{ background: '#fffdfa', borderRadius: 24 }}>
+                  <Card.Body className="d-flex flex-column gap-3">
+                    <div>
+                      <h3 className="h5 mb-1">Details panels</h3>
+                      <p className="text-muted small mb-0">Open the process detail popups here, and read the procedure manual below.</p>
+                    </div>
+
+                    <div className="d-grid gap-2">
+                      <Button type="button" variant="outline-dark" onClick={() => setActiveProcessDetailPanel('info')}>
+                        Informations
+                      </Button>
+                      <Button type="button" variant="outline-danger" onClick={() => setActiveProcessDetailPanel('subprocesses')} disabled={!previewSubprocesses.length}>
+                        Sous-processus
+                      </Button>
+                      {!publicView ? (
+                        <>
+                          <Button type="button" variant="outline-primary" onClick={() => setActiveProcessDetailPanel('metadata')}>
+                            Metadata
+                          </Button>
+                          <Button type="button" variant="outline-secondary" onClick={() => setActiveProcessDetailPanel('workflow')}>
+                            Workflow
+                          </Button>
+                          <Button type="button" variant="outline-warning" onClick={() => setActiveProcessDetailPanel('versions')}>
+                            Version diff
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+            </Row>
+            <Card className="border-0 shadow-sm" style={{ background: '#fffdfa', borderRadius: 24 }}>
+              <Card.Body className="d-flex flex-column gap-3">
+                <div className="small text-uppercase fw-bold text-danger">Manuel de procedure</div>
+                {manualPreviewLoading ? (
+                  <div className="d-flex justify-content-end">
+                    <div className="spinner-border spinner-border-sm text-danger" role="status" />
+                  </div>
+                ) : null}
+
+                {!manualPreview ? (
+                  <div className="border rounded-4 px-3 py-4 text-muted small bg-light">
+                    {manualPreviewLoading ? 'Loading the procedure manual...' : 'The procedure manual is not available for this process yet.'}
+                  </div>
+                ) : (
+                  <div className="d-flex flex-column gap-2">
+                    <Accordion
+                      activeKey={expandedManualSections}
+                      onSelect={(eventKey) => {
+                        if (Array.isArray(eventKey)) {
+                          setExpandedManualSections(eventKey.filter(Boolean));
+                          return;
+                        }
+
+                        const normalizedKey = String(eventKey || '');
+                        if (!normalizedKey) {
+                          return;
+                        }
+
+                        setExpandedManualSections((current) => (
+                          current.includes(normalizedKey)
+                            ? current.filter((entry) => entry !== normalizedKey)
+                            : [...current, normalizedKey]
+                        ));
+                      }}
+                      alwaysOpen
+                    >
+                      {MANUAL_SECTION_CHOICES.map((section) => (
+                        <Accordion.Item key={section.key} eventKey={section.key} className="border rounded-4 overflow-hidden bg-white mb-2">
+                          <Accordion.Header>{section.label}</Accordion.Header>
+                          <Accordion.Body>
+                            {renderManualSection(section.key)}
+                          </Accordion.Body>
+                        </Accordion.Item>
+                      ))}
+                    </Accordion>
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+            <Modal show={!!activeProcessDetailPanel} onHide={() => setActiveProcessDetailPanel('')} size={['metadata', 'manual', 'versions'].includes(activeProcessDetailPanel) ? 'xl' : 'lg'} centered>
+              <Modal.Header closeButton>
+                <Modal.Title>
+                  {{
+                    info: 'Informations',
+                    subprocesses: 'Sous-processus integres',
+                    workflow: 'Approval Workflow',
+                    metadata: 'Metadata',
+                    manual: 'Manuel de procedure',
+                    versions: 'Version Diff',
+                  }[activeProcessDetailPanel] || 'Details'}
+                </Modal.Title>
+              </Modal.Header>
+              <Modal.Body>
+                {renderProcessDetailPanelContent()}
+              </Modal.Body>
+            </Modal>
+          </Card.Body>
+        </Card>
+      </Container>
+    );
+  }
 
   const CategoryBranch = ({ category, level = 0 }) => {
     const isCollapsed = !!collapsedCategories[category.id];
@@ -2244,7 +3487,7 @@ export function ProcessManagement({ publicView = false }) {
                       <button type="button" onClick={(event) => handleDuplicateProcess(process, event)} className="btn btn-success btn-sm" style={{ padding: '3px 7px' }} title="Duplicate process"><i className="bi bi-copy" /></button>
                     ) : null}
                     <button type="button" onClick={(event) => { event.stopPropagation(); openEditDetails(process); }} className="btn btn-outline-primary btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-info-circle" /></button>
-                    <ExportMenu process={process} compact />
+                    <ExportMenu process={process} compact={!showExpandedProcessDownloadButton} />
                     {canDeleteProcessDefinition(process) ? (
                       <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(process.id); }} className="btn btn-danger btn-sm" style={{ padding: '3px 7px' }}><i className="bi bi-trash" /></button>
                     ) : null}
@@ -2286,17 +3529,17 @@ export function ProcessManagement({ publicView = false }) {
                           ) : null}
                           {!publicView ? (
                             <>
-                              <Button type="button" size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess.id)}>
+                              <Button type="button" size="sm" variant="outline-secondary" onClick={() => handleImageExport(editingProcess)}>
                                 PNG
                               </Button>
-                              <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess.id)}>
+                              <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(editingProcess)}>
                                 BPMN
                               </Button>
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline-dark"
-                                onClick={() => handleProcessReportDownload(editingProcess.id, 'html')}
+                                onClick={() => handleProcessReportDownload(editingProcess, 'html')}
                                 disabled={processReportBusy === 'html'}
                               >
                                 {processReportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
@@ -2305,7 +3548,7 @@ export function ProcessManagement({ publicView = false }) {
                                 type="button"
                                 size="sm"
                                 variant="outline-secondary"
-                                onClick={() => handleProcessReportDownload(editingProcess.id, 'pdf')}
+                                onClick={() => handleProcessReportDownload(editingProcess, 'pdf')}
                                 disabled={processReportBusy === 'pdf'}
                               >
                                 {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
@@ -2314,7 +3557,7 @@ export function ProcessManagement({ publicView = false }) {
                                 type="button"
                                 size="sm"
                                 variant="outline-primary"
-                                onClick={() => handleProcessReportDownload(editingProcess.id, 'docx')}
+                                onClick={() => handleProcessReportDownload(editingProcess, 'docx')}
                                 disabled={processReportBusy === 'docx'}
                               >
                                 {processReportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
@@ -2778,6 +4021,86 @@ export function ProcessManagement({ publicView = false }) {
                 </Col>
               )}
             </Row>
+
+            {editingProcess ? (
+              <Row className="g-4 mt-1">
+                <Col lg={12}>
+                  <Card className="border-0 shadow-sm">
+                    <Card.Body>
+                      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div>
+                          <h6 className="mb-1">Manual preview</h6>
+                          <div className="text-muted small">
+                            The popup now shows every generated manual section for the latest saved process version.
+                          </div>
+                        </div>
+                        {manualPreviewLoading ? <div className="spinner-border spinner-border-sm text-danger" role="status" /> : null}
+                      </div>
+
+                      {canEditSelectedProcess ? (
+                        <div className="text-muted small mb-3">
+                          Save metadata to refresh this preview after editing the manual fields or BPMN diagram.
+                        </div>
+                      ) : null}
+
+                      {!manualPreview ? (
+                        <div className="border rounded-4 px-3 py-4 text-muted small bg-light">
+                          {manualPreviewLoading ? 'Loading manual preview...' : 'Manual preview is not available for this process yet.'}
+                        </div>
+                      ) : (
+                        <div className="d-flex flex-column gap-3">
+                          <ManualPreviewTable
+                            title="5.2 Matrice des risques"
+                            columns={[
+                              { key: 'title', label: 'Risque' },
+                              { key: 'severity', label: 'Severite' },
+                              { key: 'status', label: 'Statut' },
+                              { key: 'category', label: 'Categorie' },
+                              { key: 'element', label: 'Element BPMN' },
+                              { key: 'description', label: 'Description' },
+                              { key: 'mitigation', label: 'Mitigation / Controle' },
+                            ]}
+                            rows={manualPreview?.matrices?.risks}
+                            renderCell={(row, column) => {
+                              if (column.key !== 'severity') {
+                                return formatManualPreviewCellValue(row?.[column.key]);
+                              }
+
+                              const severity = String(row?.severity || '').toLowerCase();
+                              const palette = {
+                                low: { bg: '#fde68a', fg: '#7c2d12', label: 'Low' }, // yellow
+                                medium: { bg: '#fdba74', fg: '#7c2d12', label: 'Medium' }, // orange
+                                high: { bg: '#fca5a5', fg: '#7f1d1d', label: 'High' }, // red
+                                critical: { bg: '#ef4444', fg: '#ffffff', label: 'Critical' }, // strong red
+                              };
+                              const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
+
+                              return (
+                                <span
+                                  className="d-inline-flex align-items-center"
+                                  style={{
+                                    background: resolved.bg,
+                                    color: resolved.fg,
+                                    borderRadius: 999,
+                                    padding: '2px 8px',
+                                    fontWeight: 700,
+                                    fontSize: 11,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.04em',
+                                  }}
+                                >
+                                  {resolved.label}
+                                </span>
+                              );
+                            }}
+                          />
+                        </div>
+                      )}
+                    </Card.Body>
+                  </Card>
+                </Col>
+              </Row>
+            ) : null}
 
             {editingProcess && !publicView && (
               <Row className="g-4 mt-1">

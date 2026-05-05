@@ -31,9 +31,17 @@ function escapeHtml(value = '') {
 function decodeXmlEntities(value = '') {
   return String(value)
     .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&#x22;/gi, '"')
     .replace(/&apos;/g, "'")
     .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
     .replace(/&lt;/g, '<')
+    .replace(/&#60;/g, '<')
+    .replace(/&#x3c;/gi, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#62;/g, '>')
+    .replace(/&#x3e;/gi, '>')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 }
@@ -309,7 +317,16 @@ function extractActorAssignments(bpmnXml = '') {
 function extractRiskRegister(bpmnXml = '') {
   const register = [];
 
-  parseNamedElementsWithAttrs(bpmnXml, PROCEDURE_ELEMENT_NAMES).forEach((element) => {
+  // Risks can be attached to any visible BPMN element in the editor, including
+  // data objects / data stores / annotations. The manual should reflect those too.
+  const riskElementNames = [
+    ...PROCEDURE_ELEMENT_NAMES,
+    ...SUPPORT_ELEMENT_NAMES,
+    'group',
+    'textAnnotation',
+  ];
+
+  parseNamedElementsWithAttrs(bpmnXml, riskElementNames).forEach((element) => {
     const rawRisks = getXmlAttr(element.attrs, 'pfe:risks');
     if (!rawRisks) {
       return;
@@ -1116,7 +1133,11 @@ function buildRows(rows = [], columns = []) {
       (row) => `
         <tr>
           ${columns
-            .map((column) => `<td>${escapeHtml(column.format ? column.format(row[column.key], row) : row[column.key] ?? '')}</td>`)
+            .map((column) => {
+              const rawValue = column.format ? column.format(row[column.key], row) : (row[column.key] ?? '');
+              const safeValue = column.html ? String(rawValue ?? '') : escapeHtml(rawValue ?? '');
+              return `<td>${safeValue}</td>`;
+            })
             .join('')}
         </tr>
       `
@@ -1159,14 +1180,14 @@ function createDocxParagraph(text = '', options = {}) {
 }
 
 function createDocxTableCell(text = '', options = {}) {
-  const { header = false, width = null, size = 18, headerSize = 20 } = options;
+  const { header = false, width = null, size = 18, headerSize = 20, fill = null, color = null } = options;
 
   return new TableCell({
     width: width ? { size: width, type: WidthType.PERCENTAGE } : undefined,
-    shading: header
+    shading: header || fill
       ? {
-          fill: 'e2e8f0',
-          color: 'auto',
+          fill: (fill || (header ? 'e2e8f0' : 'ffffff')).replace('#', ''),
+          color: color || 'auto',
           type: ShadingType.CLEAR,
         }
       : undefined,
@@ -1221,12 +1242,24 @@ function createDocxTableSection(title, columns = [], rows = [], options = {}) {
           })),
         }),
         ...safeRows.map((row) => new TableRow({
-          children: columns.map((column, columnIndex) => createDocxTableCell(
-            columnIndex === 0 && !rows.length
-              ? row[column.key] ?? ''
-              : (column.format ? column.format(row[column.key], row) : row[column.key]) ?? '',
-            { width: column.width, size: options.cellSize, headerSize: options.headerSize }
-          )),
+          children: columns.map((column, columnIndex) => {
+            const isPlaceholderRow = columnIndex === 0 && !rows.length;
+            const rawValue = isPlaceholderRow
+              ? (row[column.key] ?? '')
+              : (column.format ? column.format(row[column.key], row) : row[column.key]) ?? '';
+
+            if (typeof column.cell === 'function') {
+              const resolved = column.cell(rawValue, row) || {};
+              return createDocxTableCell(resolved.text ?? rawValue ?? '', {
+                width: column.width,
+                size: options.cellSize,
+                headerSize: options.headerSize,
+                fill: resolved.fill || null,
+              });
+            }
+
+            return createDocxTableCell(rawValue, { width: column.width, size: options.cellSize, headerSize: options.headerSize });
+          }),
         })),
       ],
     }),
@@ -1318,6 +1351,11 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; min-width: 100%; }
     th, td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: top; }
     th { background: #f8fafc; color: #475569; text-transform: uppercase; font-size: 11px; letter-spacing: 0.08em; }
+    .risk-pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .risk-pill--low { background: #fde68a; color: #7c2d12; }
+    .risk-pill--medium { background: #fdba74; color: #7c2d12; }
+    .risk-pill--high { background: #fca5a5; color: #7f1d1d; }
+    .risk-pill--critical { background: #ef4444; color: #ffffff; }
     @media print { body { margin: 0; background: #fff; } .report-shell { box-shadow: none; border-radius: 0; } }
   </style>
 </head>
@@ -1336,7 +1374,11 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
       { key: 'value', label: 'Valeur' },
     ], manual.matrices.identity)}
 
-    ${renderTable('2. Matrice des activites', [
+    ${renderTable('2. Matrice what who when why', [
+      ...manual.matrices.whatWhoWhenWhy.columns,
+    ], manual.matrices.whatWhoWhenWhy.rows)}
+
+    ${renderTable('3. Matrice des activites', [
       { key: 'activity', label: 'Activite' },
       { key: 'actor', label: 'Acteur' },
       { key: 'description', label: 'Description' },
@@ -1345,7 +1387,6 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
     ${renderTable('3. Matrice what who when why', [
       ...manual.matrices.whatWhoWhenWhy.columns,
     ], manual.matrices.whatWhoWhenWhy.rows)}
-
     ${supportObjectsHtml}
 
     ${renderTable('5.1 Matrice KPI', [
@@ -1356,7 +1397,17 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
 
     ${renderTable('5.2 Matrice des risques', [
       { key: 'title', label: 'Risque' },
-      { key: 'severity', label: 'Severite' },
+      {
+        key: 'severity',
+        label: 'Severite',
+        html: true,
+        format: (value) => {
+          const severity = String(value || '').toLowerCase();
+          const label = escapeHtml(String(value || '-'));
+          const klass = ['low', 'medium', 'high', 'critical'].includes(severity) ? severity : 'medium';
+          return `<span class="risk-pill risk-pill--${klass}">${label}</span>`;
+        },
+      },
       { key: 'status', label: 'Statut' },
       { key: 'category', label: 'Categorie' },
       { key: 'element', label: 'Element BPMN' },
@@ -1370,6 +1421,14 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
 
 export function buildProcessReportPdf(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const severityFill = (value) => {
+    const severity = String(value || '').toLowerCase();
+    if (severity === 'low') return [0.992, 0.906, 0.541]; // yellow (#fde68a)
+    if (severity === 'medium') return [0.992, 0.729, 0.455]; // orange (#fdba74)
+    if (severity === 'high') return [0.988, 0.647, 0.647]; // red-ish (#fca5a5)
+    if (severity === 'critical') return [0.937, 0.267, 0.267]; // strong red (#ef4444)
+    return null;
+  };
 
   return buildPdfDocument({
     title: `Manuel de procedure - ${process.name || `Process #${process.id}`}`,
@@ -1390,7 +1449,16 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         },
       },
       {
-        title: '2. Matrice des activites',
+        title: '2. Matrice what who when why',
+        table: {
+          columns: manual.matrices.whatWhoWhenWhy.columns,
+          rows: manual.matrices.whatWhoWhenWhy.rows,
+          fontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.2 : 8,
+          headerFontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.6 : 8.4,
+        },
+      },
+      {
+        title: '3. Matrice des activites',
         table: {
           columns: [
             { key: 'activity', label: 'Activite', width: 20 },
@@ -1434,7 +1502,12 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         table: {
           columns: [
             { key: 'title', label: 'Risque', width: 14 },
-            { key: 'severity', label: 'Severite', width: 8 },
+            {
+              key: 'severity',
+              label: 'Severite',
+              width: 8,
+              cellFill: (row) => severityFill(row?.severity),
+            },
             { key: 'status', label: 'Statut', width: 8 },
             { key: 'category', label: 'Categorie', width: 10 },
             { key: 'element', label: 'Element BPMN', width: 16 },
@@ -1452,6 +1525,14 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
 
 export async function buildProcessReportDocx(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const severityDocxFill = (value) => {
+    const severity = String(value || '').toLowerCase();
+    if (severity === 'low') return 'fde68a';
+    if (severity === 'medium') return 'fdba74';
+    if (severity === 'high') return 'fca5a5';
+    if (severity === 'critical') return 'ef4444';
+    return null;
+  };
   const docChildren = [
     createDocxParagraph('Manuel de procedure', {
       heading: HeadingLevel.TITLE,
@@ -1497,7 +1578,13 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
   );
 
   docChildren.push(
-    ...createDocxTableSection('2. Matrice des activites', [
+    ...createDocxTableSection(
+      '2. Matrice what who when why',
+      manual.matrices.whatWhoWhenWhy.columns,
+      manual.matrices.whatWhoWhenWhy.rows,
+      { cellSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 13 : 15, headerSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 14 : 16 }
+    ),
+    ...createDocxTableSection('3. Matrice des activites', [
       { key: 'activity', label: 'Activite', width: 28 },
       { key: 'actor', label: 'Acteur', width: 22 },
       { key: 'description', label: 'Description', width: 50 },
@@ -1525,7 +1612,15 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
     ], manual.matrices.kpis),
     ...createDocxTableSection('5.2 Matrice des risques', [
       { key: 'title', label: 'Risque', width: 16 },
-      { key: 'severity', label: 'Severite', width: 10 },
+      {
+        key: 'severity',
+        label: 'Severite',
+        width: 10,
+        cell: (value, row) => ({
+          text: String(value ?? ''),
+          fill: severityDocxFill(row?.severity),
+        }),
+      },
       { key: 'status', label: 'Statut', width: 10 },
       { key: 'category', label: 'Categorie', width: 12 },
       { key: 'element', label: 'Element BPMN', width: 16 },

@@ -249,7 +249,7 @@ function addTable(context, table = {}) {
   const bodyLineHeight = lineHeightFor(fontSize);
   const headerLineHeight = lineHeightFor(headerFontSize);
 
-  const drawRow = (lineSets, rowHeight, isHeader = false) => {
+  const drawRow = (lineSets, rowHeight, isHeader = false, row = null) => {
     if (context.state.y - rowHeight < context.bottom) {
       context.state.page = context.startNewPage().page;
       context.state.y = context.top;
@@ -263,6 +263,13 @@ function addTable(context, table = {}) {
       const width = widths[index];
       if (isHeader) {
         context.state.page.commands.push(`0.97 0.98 0.99 rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
+      } else {
+        const column = columns[index];
+        const fill = typeof column?.cellFill === 'function' ? column.cellFill(row, column) : null;
+        if (fill && Array.isArray(fill) && fill.length === 3) {
+          const [r, g, b] = fill.map((value) => Math.max(0, Math.min(1, Number(value) || 0)));
+          context.state.page.commands.push(`${r} ${g} ${b} rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
+        }
       }
       context.state.page.commands.push(`0.80 0.84 0.89 RG ${x} ${rowBottom} ${width} ${rowHeight} re S`);
 
@@ -293,8 +300,8 @@ function addTable(context, table = {}) {
   const headerHeight = Math.max(...headerLines.map((lines) => lines.length)) * headerLineHeight + padding * 2 + 2;
 
   const renderHeader = () => {
-    if (!drawRow(headerLines, headerHeight, true)) {
-      drawRow(headerLines, headerHeight, true);
+    if (!drawRow(headerLines, headerHeight, true, null)) {
+      drawRow(headerLines, headerHeight, true, null);
     }
   };
 
@@ -303,9 +310,9 @@ function addTable(context, table = {}) {
   rows.forEach((row) => {
     const lineSets = buildLineSets(row, false);
     const rowHeight = Math.max(...lineSets.map((lines) => lines.length)) * bodyLineHeight + padding * 2 + 2;
-    if (!drawRow(lineSets, rowHeight, false)) {
+    if (!drawRow(lineSets, rowHeight, false, row)) {
       renderHeader();
-      drawRow(lineSets, rowHeight, false);
+      drawRow(lineSets, rowHeight, false, row);
     }
   });
 

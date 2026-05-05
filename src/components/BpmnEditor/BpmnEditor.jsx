@@ -1,4 +1,23 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { 
+  MousePointer2, 
+  ArrowRightLeft, 
+  Hand, 
+  Undo2, 
+  Redo2, 
+  Plus, 
+  Minus, 
+  Maximize, 
+  RotateCcw, 
+  Download, 
+  Save, 
+  X,
+  Search,
+  Trash2,
+  ChevronRight,
+  Info
+} from 'lucide-react';
+import logo from '../../assets/logo.png';
 import './BpmnEditor.css';
 
 // ─── Element definitions ──────────────────────────────────────────────────────
@@ -391,15 +410,15 @@ function PropsPanel({ selId, elements, connections, onUpdate, onDelete }) {
 
   if (!el) return (
     <div className="bpmn-props-empty">
-      <div style={{ fontSize: 28, marginBottom: 8 }}>🎯</div>
-      <p>Select a shape or arrow<br />to edit its properties</p>
+      <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.6 }}>🎯</div>
+      <p>Select a shape or flow<br />to edit its properties</p>
     </div>
   );
 
   return (
     <div className="bpmn-props-body">
       {/* badge */}
-      <div className="bpmn-badge" style={{ '--bc': def?.color || '#3b5bdb' }}>
+      <div className="bpmn-badge" style={{ '--bc': def?.color || '#dc2626' }}>
         <span className="bpmn-badge-ico">{isConn ? '→' : def?.icon}</span>
         <div>
           <div className="bpmn-badge-type">{isConn ? 'Sequence Flow' : def?.label}</div>
@@ -459,7 +478,10 @@ function PropsPanel({ selId, elements, connections, onUpdate, onDelete }) {
         </div>
       </>}
 
-      <button className="bpmn-pf-del" onClick={() => onDelete(el.id)}>🗑 Delete</button>
+      <button className="bpmn-pf-del" onClick={() => onDelete(el.id)}>
+        <Trash2 size={14} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+        Delete Element
+      </button>
     </div>
   );
 }
@@ -785,7 +807,7 @@ export default function BpmnEditor({ process, onClose, onSave }) {
       .map(([type, def]) => ({ type, def })),
   })).filter(g => g.items.length);
 
-  const saveLbl = { idle: '💾 Save', saving: '⏳ Saving…', saved: '✓ Saved!', error: '✗ Error' }[saveStatus];
+  const saveLbl = { idle: 'Save', saving: 'Saving…', saved: 'Saved!', error: 'Error' }[saveStatus];
 
   return (
     <div className="bpmn-editor">
@@ -793,23 +815,25 @@ export default function BpmnEditor({ process, onClose, onSave }) {
       {/* ── Header ── */}
       <header className="bpmn-hdr">
         <div className="bpmn-hdr-l">
-          <div className="bpmn-logo">⬡</div>
+          <div className="bpmn-logo">
+            <img src={logo} alt="v-bpm" width={28} />
+          </div>
           <div className="bpmn-pinfo">
-            <span className="bpmn-ptag">Process</span>
-            <span className="bpmn-pname">{process?.name || 'Untitled'}</span>
+            <span className="bpmn-ptag">Process Modeler</span>
+            <span className="bpmn-pname">{process?.name || 'Untitled Process'}</span>
           </div>
           <div className="bpmn-vline" />
           {/* Tool buttons */}
           <div className="bpmn-tools">
             {[
-              ['select',  '↖', 'Select & Move (V)'],
-              ['connect', '↔', 'Connect Elements (C) — click anchor dots'],
-              ['pan',     '✥', 'Pan canvas'],
-            ].map(([t, ico, tip]) => (
-              <button key={t} title={tip}
-                className={`bpmn-tool${tool===t?' active':''}`}
-                onClick={() => { setTool(t); setConnSrc(null); setSelected(null); }}>
-                {ico}
+              { id: 'select',  icon: MousePointer2, tip: 'Select & Move (V)' },
+              { id: 'connect', icon: ArrowRightLeft,  tip: 'Connect Elements (C)' },
+              { id: 'pan',     icon: Hand,           tip: 'Pan Canvas' },
+            ].map((t) => (
+              <button key={t.id} title={t.tip}
+                className={`bpmn-tool${tool===t.id?' active':''}`}
+                onClick={() => { setTool(t.id); setConnSrc(null); setSelected(null); }}>
+                <t.icon size={18} />
               </button>
             ))}
           </div>
@@ -817,22 +841,26 @@ export default function BpmnEditor({ process, onClose, onSave }) {
 
         <div className="bpmn-hdr-r">
           <div className="bpmn-cluster">
-            <button className="bpmn-hb" onClick={undo} disabled={!history.length} title="Undo (Ctrl+Z)">↩</button>
-            <button className="bpmn-hb" onClick={redo} disabled={!future.length}  title="Redo (Ctrl+Y)">↪</button>
+            <button className="bpmn-hb" onClick={undo} disabled={!history.length} title="Undo (Ctrl+Z)"><Undo2 size={16} /></button>
+            <button className="bpmn-hb" onClick={redo} disabled={!future.length}  title="Redo (Ctrl+Y)"><Redo2 size={16} /></button>
           </div>
           <div className="bpmn-cluster">
-            <button className="bpmn-hb" onClick={() => setZoom(z => Math.max(0.1, z-0.15))}>−</button>
+            <button className="bpmn-hb" onClick={() => setZoom(z => Math.max(0.1, z-0.15))}><Minus size={16} /></button>
             <span className="bpmn-zpct">{Math.round(zoom*100)}%</span>
-            <button className="bpmn-hb" onClick={() => setZoom(z => Math.min(6,   z+0.15))}>+</button>
-            <button className="bpmn-hb" onClick={fitView} title="Fit view">⊡</button>
-            <button className="bpmn-hb" onClick={() => { setZoom(1); setPan({x:40,y:20}); }} title="Reset view">↺</button>
+            <button className="bpmn-hb" onClick={() => setZoom(z => Math.min(6,   z+0.15))}><Plus size={16} /></button>
+            <button className="bpmn-hb" onClick={fitView} title="Fit view"><Maximize size={16} /></button>
+            <button className="bpmn-hb" onClick={() => { setZoom(1); setPan({x:40,y:20}); }} title="Reset view"><RotateCcw size={16} /></button>
           </div>
-          <button className="bpmn-hb-sec" onClick={exportXML}>⬇ BPMN</button>
+          <button className="bpmn-hb-sec" onClick={exportXML}>
+            <Download size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            BPMN
+          </button>
           <button className={`bpmn-hb-pri${saveStatus!=='idle'?` st-${saveStatus}`:''}`}
             onClick={doSave} disabled={saveStatus==='saving'}>
+            <Save size={14} style={{ marginRight: 8, verticalAlign: 'middle' }} />
             {saveLbl}
           </button>
-          <button className="bpmn-hb-cls" onClick={onClose} title="Close editor">✕</button>
+          <button className="bpmn-hb-cls" onClick={onClose} title="Close editor"><X size={18} /></button>
         </div>
       </header>
 
@@ -842,8 +870,11 @@ export default function BpmnEditor({ process, onClose, onSave }) {
         {/* Palette */}
         <aside className="bpmn-pal">
           <div className="bpmn-pal-top">
-            <input className="bpmn-pal-srch" value={search}
-              onChange={e => setSearch(e.target.value)} placeholder="🔍 Search…" />
+            <div style={{ position: 'relative' }}>
+              <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input className="bpmn-pal-srch" value={search} style={{ paddingLeft: 34 }}
+                onChange={e => setSearch(e.target.value)} placeholder="Search shapes…" />
+            </div>
           </div>
           <div className="bpmn-pal-list">
             {paletteGroups.map(({ g, items }) => (
@@ -855,10 +886,11 @@ export default function BpmnEditor({ process, onClose, onSave }) {
                     onClick={() => addEl(type)}
                     title={`Add ${def.label} — or drag onto canvas`}>
                     <span className="bpmn-pal-ico"
-                      style={{ background: def.color+'18', color: def.color }}>
+                      style={{ background: def.color+'12', color: def.color }}>
                       {def.icon}
                     </span>
                     <span className="bpmn-pal-lbl">{def.label}</span>
+                    <Plus size={12} className="ms-auto" style={{ opacity: 0.3 }} />
                   </div>
                 ))}
               </div>
@@ -868,10 +900,12 @@ export default function BpmnEditor({ process, onClose, onSave }) {
           {/* Connect hint */}
           {tool === 'connect' && (
             <div className={`bpmn-conn-banner${connSrc ? ' has-src' : ''}`}>
+              <Info size={14} />
               {connSrc
-                ? <><span>✔ Source selected — click a target anchor</span><button onClick={() => setConnSrc(null)}>✕</button></>
-                : <span>↔ Click an anchor dot on any shape to start a connection</span>
+                ? <span>Source selected. Click target anchor.</span>
+                : <span>Click an anchor dot to start.</span>
               }
+              {connSrc && <button onClick={() => setConnSrc(null)}>Cancel</button>}
             </div>
           )}
         </aside>
@@ -886,11 +920,11 @@ export default function BpmnEditor({ process, onClose, onSave }) {
             <defs>
               <pattern id="dg-sm" x={pan.x%(20*zoom)} y={pan.y%(20*zoom)}
                 width={20*zoom} height={20*zoom} patternUnits="userSpaceOnUse">
-                <circle cx="1" cy="1" r="0.9" fill="#cbd5e1" opacity="0.55" />
+                <circle cx="1" cy="1" r="0.8" fill="#e2e8f0" opacity="0.6" />
               </pattern>
               <pattern id="dg-lg" x={pan.x%(100*zoom)} y={pan.y%(100*zoom)}
                 width={100*zoom} height={100*zoom} patternUnits="userSpaceOnUse">
-                <circle cx="1" cy="1" r="1.5" fill="#94a3b8" opacity="0.45" />
+                <circle cx="1" cy="1" r="1.2" fill="#cbd5e1" opacity="0.5" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#dg-sm)" />
@@ -903,13 +937,13 @@ export default function BpmnEditor({ process, onClose, onSave }) {
             onPointerDown={onBgDown}>
             <defs>
               <marker id="ah" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
-                <polygon points="0 0, 9 4, 0 8" fill="#94a3b8" />
+                <polygon points="0 0, 9 4, 0 8" fill="#cbd5e1" />
               </marker>
               <marker id="ah-sel" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
-                <polygon points="0 0, 9 4, 0 8" fill="#3b5bdb" />
+                <polygon points="0 0, 9 4, 0 8" fill="#dc2626" />
               </marker>
               <marker id="ah-draw" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
-                <polygon points="0 0, 9 4, 0 8" fill="#3b5bdb" opacity="0.7" />
+                <polygon points="0 0, 9 4, 0 8" fill="#dc2626" opacity="0.7" />
               </marker>
             </defs>
 
@@ -941,12 +975,14 @@ export default function BpmnEditor({ process, onClose, onSave }) {
 
           {/* Status bar */}
           <div className="bpmn-statusbar">
-            <span>{elements.length} shapes</span>
-            <span className="bpmn-sb-sep">·</span>
-            <span>{connections.length} flows</span>
-            <span className="bpmn-sb-sep">·</span>
-            <span>{Math.round(zoom*100)}%</span>
-            {connSrc && <><span className="bpmn-sb-sep">·</span><span className="bpmn-sb-conn">Connecting…</span></>}
+            <span style={{ fontWeight: 700, color: '#475569' }}>{elements.length}</span>
+            <span>objects</span>
+            <span className="bpmn-sb-sep">|</span>
+            <span style={{ fontWeight: 700, color: '#475569' }}>{connections.length}</span>
+            <span>flows</span>
+            <span className="bpmn-sb-sep">|</span>
+            <span>{Math.round(zoom*100)}% zoom</span>
+            {connSrc && <><span className="bpmn-sb-sep">|</span><span className="bpmn-sb-conn">Connecting…</span></>}
           </div>
         </div>
 

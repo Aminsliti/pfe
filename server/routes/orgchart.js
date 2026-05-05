@@ -703,15 +703,22 @@ router.post('/orgchart/nodes', async (req, res) => {
     );
 
     // Enforce "sticky" inside/outside behavior:
-    // when creating children under a parent, all *direct children* of that parent follow the chosen placement_mode.
-    // This avoids unexpectedly flipping nested visibility deeper in other branches.
+    // when creating children under a parent, all descendants of that parent follow the chosen placement_mode.
+    // (We exclude the parent itself so it can remain visible depending on its own mode.)
     if (parentId !== null) {
       await client.query(
         `
+          WITH RECURSIVE descendants AS (
+            SELECT id FROM org_chart_nodes WHERE id = $1
+            UNION ALL
+            SELECT n.id
+            FROM org_chart_nodes n
+            INNER JOIN descendants d ON n.parent_id = d.id
+          )
           UPDATE org_chart_nodes
           SET placement_mode = $2,
               updated_at = CURRENT_TIMESTAMP
-          WHERE parent_id = $1
+          WHERE id IN (SELECT id FROM descendants WHERE id <> $1)
         `,
         [parentId, placementMode]
       );
@@ -988,44 +995,6 @@ router.patch('/orgchart/nodes/:id/position', async (req, res) => {
   }
 });
 
-router.post('/orgchart/positions/clear', async (req, res) => {
-  await ensureOrgChartSchema();
-  const client = await pool.connect();
-
-  try {
-    if (!canEditOrgChart(req.user)) {
-      return res.status(403).json({ error: 'Only admins can edit the organigram.' });
-    }
-
-    await client.query('BEGIN');
-    await client.query(`
-      UPDATE org_chart_nodes
-      SET pos_x = NULL,
-          pos_y = NULL,
-          updated_at = CURRENT_TIMESTAMP
-    `);
-    await client.query('COMMIT');
-
-    await logAuditEvent({
-      actor: req.user,
-      entityType: 'orgchart_node',
-      entityId: null,
-      companyId: null,
-      action: 'auto_layout',
-      summary: 'Cleared organigram manual positions.',
-      details: {},
-    });
-
-    res.json({ message: 'Organigram positions cleared.' });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('orgchart clear positions error:', error);
-    res.status(500).json({ error: 'Failed to clear organigram positions.' });
-  } finally {
-    client.release();
-  }
-});
-
 router.delete('/orgchart/nodes/:id', async (req, res) => {
   await ensureOrgChartSchema();
   const client = await pool.connect();
@@ -1078,6 +1047,51 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('orgchart delete error:', error);
     res.status(500).json({ error: 'Failed to delete organigram node.' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/orgchart/positions/clear', async (req, res) => {
+  await ensureOrgChartSchema();
+  const client = await pool.connect();
+
+  try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only admins can reset organigram positions.' });
+    }
+
+    await client.query('BEGIN');
+    const result = await client.query(
+      `
+        UPDATE org_chart_nodes
+        SET pos_x = NULL,
+            pos_y = NULL,
+            updated_at = CURRENT_TIMESTAMP
+      `
+    );
+    await client.query('COMMIT');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: null,
+      companyId: null,
+      action: 'clear_positions',
+      summary: 'Cleared organigram node positions.',
+      details: {
+        updatedCount: result.rowCount || 0,
+      },
+    });
+
+    res.json({
+      message: 'Organigram positions reset successfully.',
+      updatedCount: result.rowCount || 0,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('orgchart clear positions error:', error);
+    res.status(500).json({ error: 'Failed to reset organigram positions.' });
   } finally {
     client.release();
   }
