@@ -454,9 +454,12 @@ export function OrgChart({ publicView = false }) {
   const [isPanning, setIsPanning] = useState(false);
   const [boardFullscreen, setBoardFullscreen] = useState(false);
   const [layoutMode, setLayoutMode] = useState('auto'); // 'auto' | 'manual'
+  const [manualNodePositions, setManualNodePositions] = useState({});
   const boardRef = useRef(null);
   const canvasRef = useRef(null);
   const autoFitEnabledRef = useRef(true);
+  const fitCanvasToViewportRef = useRef(null);
+  const layoutPositionsRef = useRef(new Map());
   const zoomRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
   const panSessionRef = useRef(null);
@@ -531,7 +534,38 @@ export function OrgChart({ publicView = false }) {
   const visibleIds = useMemo(() => buildVisibleIds(scopedNodes, deferredSearch), [scopedNodes, deferredSearch]);
   const visibleNodes = scopedNodes.filter((node) => visibleIds.has(node.id));
   const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
-  const layout = buildLayout(visibleNodes, { applyManualPositions: layoutMode === 'manual' });
+  const positionedVisibleNodes = useMemo(
+    () => visibleNodes.map((node) => {
+      if (layoutMode !== 'manual') {
+        return node;
+      }
+
+      const manualPosition = manualNodePositions[node.id];
+      if (!manualPosition) {
+        return node;
+      }
+
+      return {
+        ...node,
+        posX: manualPosition.x,
+        posY: manualPosition.y,
+      };
+    }),
+    [layoutMode, manualNodePositions, visibleNodes]
+  );
+  const layout = buildLayout(positionedVisibleNodes, { applyManualPositions: layoutMode === 'manual' });
+
+  useEffect(() => {
+    layoutPositionsRef.current = new Map(
+      layout.nodes.map((node) => [
+        Number(node.id),
+        {
+          left: Number(node.left) || 0,
+          top: Number(node.top) || 0,
+        },
+      ])
+    );
+  }, [layout]);
 
   const constrainPan = useCallback((nextX, nextY, nextZoom = zoomRef.current) => {
     const canvas = canvasRef.current;
@@ -585,6 +619,10 @@ export function OrgChart({ publicView = false }) {
     setPan(centeredPan);
   }, [boardFullscreen, constrainPan, focusedNodeId, layout.height, layout.width]);
 
+  useEffect(() => {
+    fitCanvasToViewportRef.current = fitCanvasToViewport;
+  }, [fitCanvasToViewport]);
+
   const updateZoomAtPoint = useCallback((nextZoom, clientX, clientY) => {
     const canvas = canvasRef.current;
     if (!canvas) {
@@ -609,17 +647,19 @@ export function OrgChart({ publicView = false }) {
       return undefined;
     }
 
-    autoFitEnabledRef.current = true;
+    if (layoutMode === 'manual' && !autoFitEnabledRef.current) {
+      return undefined;
+    }
 
     const runFit = () => {
-      if (autoFitEnabledRef.current) {
-        fitCanvasToViewport();
+      if (autoFitEnabledRef.current && !nodeDragSessionRef.current?.moved) {
+        fitCanvasToViewportRef.current?.();
       }
     };
 
     const rafId = window.requestAnimationFrame(runFit);
     const resizeObserver = new ResizeObserver(() => {
-      if (autoFitEnabledRef.current) {
+      if (autoFitEnabledRef.current && !nodeDragSessionRef.current?.moved) {
         window.requestAnimationFrame(runFit);
       }
     });
@@ -630,7 +670,7 @@ export function OrgChart({ publicView = false }) {
       window.cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
     };
-  }, [fitCanvasToViewport, focusedNodeId, loading, visibleNodes.length]);
+  }, [boardFullscreen, focusedNodeId, layoutMode, loading, visibleNodes.length]);
 
   const parentOptions = selectedNode
     ? nodes.filter((node) => node.id !== selectedNode.id && !wouldCycle(nodes, selectedNode.id, node.id))
@@ -917,13 +957,22 @@ export function OrgChart({ publicView = false }) {
 
     setSaving(true);
     try {
-      await persistNode(`${API}/orgchart/nodes/${nodeId}/position`, 'PATCH', { posX: safePosX, posY: safePosY });
+      const updatedNode = await persistNode(`${API}/orgchart/nodes/${nodeId}/position`, 'PATCH', { posX: safePosX, posY: safePosY });
+      setNodes((current) => current.map((entry) => (
+        entry.id === nodeId
+          ? { ...entry, ...updatedNode }
+          : entry
+      )));
+      setManualNodePositions((current) => ({
+        ...current,
+        [nodeId]: { x: safePosX, y: safePosY },
+      }));
       showMessage('Organigram updated.');
-      await loadOrgChart(true);
       setSelectedId(nodeId);
     } catch (requestError) {
       console.error(requestError);
       showMessage(requestError.message || 'Failed to move acteur.', 'danger');
+      await loadOrgChart(true);
     } finally {
       setSaving(false);
     }
@@ -935,18 +984,6 @@ export function OrgChart({ publicView = false }) {
     const nextZoom = zoomRef.current + direction * 0.08;
     updateZoomAtPoint(nextZoom, event.clientX, event.clientY);
   }, [updateZoomAtPoint]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return undefined;
-    }
-
-    canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
-    return () => {
-      canvas.removeEventListener('wheel', handleCanvasWheel);
-    };
-  }, [handleCanvasWheel]);
 
   const handleCanvasPointerDown = useCallback((event) => {
     if (event.button !== 0) {
@@ -1003,17 +1040,18 @@ export function OrgChart({ publicView = false }) {
 
     event.preventDefault();
     event.stopPropagation();
+    const manualPosition = manualNodePositions[node.id];
     nodeDragSessionRef.current = {
       id: node.id,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      originX: Number.isFinite(Number(node.posX)) ? Number(node.posX) : node.left,
-      originY: Number.isFinite(Number(node.posY)) ? Number(node.posY) : node.top,
+      originX: manualPosition?.x ?? (Number.isFinite(Number(node.posX)) ? Number(node.posX) : node.left),
+      originY: manualPosition?.y ?? (Number.isFinite(Number(node.posY)) ? Number(node.posY) : node.top),
       moved: false,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
-  }, [canEdit]);
+  }, [canEdit, manualNodePositions]);
 
   const handleNodePointerMove = useCallback((event) => {
     const session = nodeDragSessionRef.current;
@@ -1023,6 +1061,7 @@ export function OrgChart({ publicView = false }) {
 
     const deltaX = event.clientX - session.startX;
     const deltaY = event.clientY - session.startY;
+
     if (!session.moved) {
       if (Math.abs(deltaX) < NODE_DRAG_THRESHOLD && Math.abs(deltaY) < NODE_DRAG_THRESHOLD) {
         return;
@@ -1036,13 +1075,29 @@ export function OrgChart({ publicView = false }) {
 
     const nextX = normalizeNodePosition(session.originX + (deltaX / zoomRef.current)) ?? 0;
     const nextY = normalizeNodePosition(session.originY + (deltaY / zoomRef.current)) ?? 0;
+    const layoutPositions = layoutPositionsRef.current;
 
-    setNodes((current) => current.map((currentNode) => (
-      currentNode.id === session.id
-        ? { ...currentNode, posX: nextX, posY: nextY }
-        : currentNode
-    )));
-  }, []);
+    setManualNodePositions((current) => {
+      const nextPositions = { ...current };
+
+      if (session.moved) {
+        visibleNodeIds.forEach((nodeId) => {
+          if (!nextPositions[nodeId]) {
+            const frozenPosition = layoutPositions.get(Number(nodeId));
+            if (frozenPosition) {
+              nextPositions[nodeId] = {
+                x: frozenPosition.left,
+                y: frozenPosition.top,
+              };
+            }
+          }
+        });
+      }
+
+      nextPositions[session.id] = { x: nextX, y: nextY };
+      return nextPositions;
+    });
+  }, [visibleNodeIds]);
 
   const handleNodePointerUp = useCallback(async (event) => {
     const session = nodeDragSessionRef.current;
@@ -1100,6 +1155,7 @@ export function OrgChart({ publicView = false }) {
     setSaving(true);
     try {
       await persistNode(`${API}/orgchart/positions/clear`, 'POST', {});
+      setManualNodePositions({});
       setLayoutMode('auto');
       await loadOrgChart(true);
       showMessage('Auto layout applied.');
@@ -1227,6 +1283,7 @@ export function OrgChart({ publicView = false }) {
               <div
                 className={`org-canvas${boardFullscreen ? ' is-fullscreen-fit' : ''}${isPanning ? ' is-panning' : ''}`}
                 ref={canvasRef}
+                onWheel={handleCanvasWheel}
                 onPointerDown={handleCanvasPointerDown}
                 onPointerMove={handleCanvasPointerMove}
                 onPointerUp={handleCanvasPointerUp}

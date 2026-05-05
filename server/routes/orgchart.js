@@ -1052,6 +1052,51 @@ router.delete('/orgchart/nodes/:id', async (req, res) => {
   }
 });
 
+router.post('/orgchart/positions/clear', async (req, res) => {
+  await ensureOrgChartSchema();
+  const client = await pool.connect();
+
+  try {
+    if (!canEditOrgChart(req.user)) {
+      return res.status(403).json({ error: 'Only admins can reset organigram positions.' });
+    }
+
+    await client.query('BEGIN');
+    const result = await client.query(
+      `
+        UPDATE org_chart_nodes
+        SET pos_x = NULL,
+            pos_y = NULL,
+            updated_at = CURRENT_TIMESTAMP
+      `
+    );
+    await client.query('COMMIT');
+
+    await logAuditEvent({
+      actor: req.user,
+      entityType: 'orgchart_node',
+      entityId: null,
+      companyId: null,
+      action: 'clear_positions',
+      summary: 'Cleared organigram node positions.',
+      details: {
+        updatedCount: result.rowCount || 0,
+      },
+    });
+
+    res.json({
+      message: 'Organigram positions reset successfully.',
+      updatedCount: result.rowCount || 0,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('orgchart clear positions error:', error);
+    res.status(500).json({ error: 'Failed to reset organigram positions.' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/orgchart/clear', async (req, res) => {
   await ensureOrgChartSchema();
   const client = await pool.connect();
