@@ -1,0 +1,231 @@
+% =============================================
+% CHAPTER 2: SPECIFICATION OF NEEDS
+% =============================================
+\chapter{Specification of Needs}
+
+\section{Introduction}
+
+This chapter presents a complete analysis of the functional and non-functional needs of the project, identifies the different actors involved, and proposes a modeling of use cases through a global diagram. It concludes with a product backlog listing the main expected functionalities, as well as a description of the software environment used.
+
+\section{Identification of Functional Needs}
+
+To meet user expectations and optimize business process management, the integrated system includes several key functionalities for our project. The functional needs define the interactions between the different actors who are: Administrator, Process Designer, Process Manager, and V-GRC System.
+
+\begin{itemize}[leftmargin=1cm]
+    \item \textbf{Authenticate:} Allows a user to connect to the system via an identifier and password to access their dedicated space according to their role. When a user forgets their password, they can click on ``Forgot Password'', enter their email address, and receive a reset link. This link leads to an interface where they can confirm a new password. After validation, they are redirected to the login page to authenticate with their new credentials.
+    
+    \item \textbf{Manage Users:} Functionality allowing an administrator to create, modify, archive, and view user information in the system.
+    
+    \item \textbf{Manage Categories:} Allows the administrator or process manager to add, modify, or archive the categories to which processes are associated.
+    
+    \item \textbf{Manage Processes:} Allows the process manager to manage the services linked to categories, necessary for classifying processes.
+    
+    \item \textbf{Manage Organizational Chart:} Allows the administrator to manage the organizational structure with departments, roles, and hierarchy.
+    
+    \item \textbf{Manage Simulations:} Allows the process manager to configure, run, and view simulation results.
+    
+    \item \textbf{Model Processes:} Allows the process designer to create and edit BPMN process models.
+    
+    \item \textbf{Consult Audit Log:} Allows the administrator to view all actions performed in the system for traceability.
+    
+    \item \textbf{Integrate V-GRC:} Allows the system to exchange risk data and compliance indicators with the V-GRC platform.
+\end{itemize}
+
+\section{Identification of Non-Functional Needs}
+
+Non-functional needs define the quality and performance criteria of a system, such as security, reliability, and speed. They ensure that the system functions efficiently and meets user expectations in terms of quality. Here are the non-functional needs of our system:
+
+\begin{itemize}[leftmargin=1cm]
+    \item \textbf{Performance:} The system must be able to handle simultaneous requests without performance degradation.
+    
+    \item \textbf{Availability:} The V-BPM Platform must be accessible 24/7.
+    
+    \item \textbf{Security:} User authentication must be done using a secure mechanism based on an email/password pair. User information must be stored in an encrypted manner to ensure data confidentiality. Furthermore, access to different system functionalities must be strictly controlled according to the roles and permissions assigned to each user.
+    
+    \item \textbf{Scalability:} The system must be able to evolve according to the increase in the number of users and requests, allowing the addition of new servers if necessary.
+    
+    \item \textbf{Portability:} The application must be compatible with modern web browsers (Google Chrome, Mozilla Firefox, Microsoft Edge) as well as mobile devices.
+    
+    \item \textbf{Ease of Use:} The user interface must be intuitive and ergonomic to minimize user training needs.
+    
+    \item \textbf{Maintainability:} The source code must be well documented to facilitate bug correction and system evolution.
+    
+    \item \textbf{Integration:} The system must be able to integrate with other management tools, such as V-GRC for risk and compliance management.
+    
+    \item \textbf{Response Time:} The average response time of the system must not exceed 2 seconds for common operations.
+\end{itemize}
+
+\section{Actors Identification}
+
+The system involves several types of actors, each having specific roles and permissions:
+
+\textbf{Process Designer} The Process Designer is the user of the system who models business processes in BPMN format. They can create, edit, and view process diagrams, as well as submit processes for validation. Once the model is complete, they receive confirmation or validation feedback.
+
+\textbf{Process Manager} The Process Manager plays a key role in managing business processes. They configure and execute simulations, manage process categories, and monitor process performance. If a process needs optimization, they redirect it to the designer for modifications. This approach helps optimize processing time and improve user experience.
+
+\textbf{Administrator} The administrator is responsible for the global management of the system. They administer users (designers, managers), roles, categories, processes, organizational charts, services, and archives. They consult all requests, can archive and restore them if necessary. They parameterize the system, and supervise system activity.
+
+\textbf{V-GRC System} The V-GRC System has consultation-only access for risk data exchange. It visualizes statistics related to risks and compliance indicators to monitor service activity. It cannot make any modifications to the system and does not intervene in data management.
+
+\section{Work Environment}
+
+\subsection{Hardware Environment}
+
+In this section dedicated to the work environment, two essential elements are highlighted: the hardware environment and the software environment used, emphasizing their importance and impact on our project.
+
+In this paragraph, we present the hardware environment we used to carry out our project.
+
+\textbf{A. Primary Development Computer:}
+
+\begin{itemize}[leftmargin=1cm, label=]
+    \item \textbf{Brand:} ASUS
+    \item \textbf{Processor:} AMD Ryzen 5 4000 series
+    \item \textbf{Memory:} 16 GB
+    \item \textbf{Storage:} 512 GB SSD (NVME)
+    \item \textbf{Graphics Card:} Nvidia GeForce GTX 1650
+    \item \textbf{OS:} Microsoft Windows 11 Professional
+\end{itemize}
+
+\textbf{B. Secondary Development Computer:}
+
+\begin{itemize}[leftmargin=1cm, label=]
+    \item \textbf{Brand:} HP
+    \item \textbf{Processor:} Intel Core i5-1035G1 @ 1.19Ghz
+    \item \textbf{Memory:} 8.0 GB
+    \item \textbf{Storage:} 256 GB (SSD)
+    \item \textbf{Graphics Card:} NVIDIA GeForce MX330
+    \item \textbf{OS:} Microsoft Windows 11 Professional
+\end{itemize}
+
+\subsection{Software Environment}
+
+The chosen software environment for this project includes the tools and technologies necessary for the development, testing, and deployment of the application. It includes the code editor, frontend and backend frameworks, as well as version control and database systems, ensuring a coherent and effective chain of tools.
+
+\begin{table}[H]
+\centering
+\caption{Tools Used for Project Development}
+\label{tab:tools}
+\begin{tabular}{|p{3cm}|p{10cm}|}
+\hline
+\textbf{Tool} & \textbf{Description} \\
+\hline
+Visual Studio Code & Visual Studio Code is a modern text editor developed by Microsoft. It is distinguished by its lightness, its multi-platform compatibility (Windows, macOS, Linux), and its vast ecosystem of extensions. It allows writing, testing, and debugging code in different languages, notably for web development. \\
+\hline
+React & React is a JavaScript library for building user interfaces. Maintained by Meta (Facebook), it promotes a modular architecture and integrates advanced features such as hooks, components, and routing management. \\
+\hline
+
+Node.js & Node.js is a JavaScript runtime built on Chrome's V8 JavaScript engine. It allows developers to execute JavaScript code outside a web browser, making it ideal for backend development. \\
+\hline
+
+GitHub & GitHub is a collaborative development platform based on Git. It facilitates version tracking, project management, and collaboration between developers through tools like pull requests and issues. \\
+\hline
+PostgreSQL & PostgreSQL is a powerful, open-source relational database management system known for its reliability, feature robustness, and performance. It supports advanced SQL features and is ideal for production applications requiring complex data management and ACID compliance. \\
+\hline
+Power AMC & Power AMC (PowerAMC) is a comprehensive data modeling tool from SAP that supports conceptual, logical, and physical data modeling. It provides features for database design, reverse engineering, and generation of database schemas, making it essential for enterprise-level database architecture planning. \\
+\hline
+
+
+
+
+BPMN.js & BPMN.js is a JavaScript toolkit for creating, embedding, and extending BPMN 2.0 diagrams. It provides a powerful rendering engine and modeling toolkit for business process management applications. \\
+\hline
+
+
+Jest & Jest is a JavaScript testing framework developed by Facebook. It provides a complete testing solution with zero configuration, snapshot testing, mocking capabilities, and excellent performance for testing React applications. \\
+\hline
+
+
+
+\end{tabular}
+\end{table}
+
+\section{Work Methodology}
+
+The Agile method is based on a development cycle that brings the client to the center. The client is involved from the beginning to the end of the project. Thanks to the agile method, the requester obtains better visibility into work management than with a classic method. It allows delivering results quickly while remaining flexible in the face of changes.
+
+\textbf{Scrum}, an Agile method, helps organize work through well-defined roles and regular meetings, which facilitates communication and continuous improvement.
+
+\textbf{Why the choice of Scrum?}
+
+Scrum is a project management method from agile approaches. It relies on short cycles called sprints, and aims to improve collaboration between team members while delivering concrete and regular results. Thanks to well-defined roles, structured meetings, and a continuous improvement dynamic, Scrum favors a flexible organization centered on added value.
+
+\begin{itemize}[leftmargin=1cm]
+    \item \textbf{Incremental and iterative delivery:} Development is done through short iterations called sprints, allowing regular delivery of functional versions of the product.
+    \item \textbf{Continuous improvement:} Thanks to retrospective meetings, the team can analyze its functioning and make adjustments.
+    \item \textbf{Transparency and communication:} Daily meetings (Daily Stand-Up) ensure good team coordination.
+    \item \textbf{Adaptability:} Ideal for projects whose needs may evolve during development.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{scrum.jpg}
+\caption{The Scrum Process}
+\label{fig:scrum-process}
+\end{figure}
+
+
+
+Figure~\ref{fig:scrum-process} illustrates the Scrum methodology, a flexible framework for managing product development. The process begins with defining the overall \textbf{Scope} and creating a \textbf{Product Backlog}. This leads into the \textbf{Design} phase, culminating in \textbf{Usable Software}.
+
+The core of Scrum revolves around iterative sprints, each starting with a \textbf{Sprint Planning meeting} where tasks are selected from the Product Backlog to form the \textbf{Sprint Backlog}. During the sprint, the team engages in \textbf{Sprint Automation} and \textbf{Sprint Execution}, with daily progress tracked in the \textbf{Daily Scrum}. At the end of each sprint, a \textbf{Sprint Review Meeting} is held to inspect the increment and adapt the Product Backlog if needed, followed by a \textbf{Sprint Retrospective} to reflect on the sprint and identify improvements for future sprints.
+
+This process is facilitated by three key roles:
+\begin{itemize}[leftmargin=1cm]
+    \item \textbf{Product Owner (PO):} Responsible for maximizing the value of the product resulting from the work of the Development Team. They manage the Product Backlog, ensuring its clarity, transparency, and alignment with stakeholder needs.
+    
+    \item \textbf{Scrum Master:} A servant-leader who helps the Scrum Team understand Scrum theory, practices, rules, and values. They facilitate Scrum events, remove impediments, and coach the team in self-organization and cross-functionality.
+    
+    \item \textbf{Scrum Team:} A self-organizing and cross-functional group of professionals who do the work of delivering a potentially releasable Increment of "Done" product at the end of each Sprint.
+\end{itemize}
+
+
+\section{Global Use Case Diagram}
+
+In this section, we present the global use case diagram illustrated in Figure~\ref{fig:use-case-global} which shows all interactions between actors and the system.
+
+% TODO: ADD GLOBAL USE CASE DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{use case (1).png}
+\caption{Global Use Case Diagram}
+\label{fig:use-case-global}
+\end{figure}
+
+\section{Product Backlog}
+
+Table~\ref{tab:backlog-global} presents the product backlog for application development. Each functionality is classified according to its priority and is associated with a time estimate for its realization as well as its priorities.
+
+\begin{table}[H]
+\centering
+\caption{Product Backlog -- V-BPM Platform}
+\label{tab:backlog-global}
+\begin{tabular}{|p{8cm}|c|c|c|}
+\hline
+\textbf{User Story} & \textbf{Priority} & \textbf{Estimation} & \textbf{Planning} \\
+\hline
+As a process designer, I can authenticate to access my workspace & 1 & Very High & Sprint 0 \\
+\hline
+As an admin, I can manage users & 1 & Very High & Sprint 0 \\
+\hline
+As a process manager, I can manage categories & 1 & Very High & Sprint 0 \\
+\hline
+As a process manager, I can manage processes (create, edit, delete, archive, restore) & 1 & Very High & Sprint 0 \\
+\hline
+As an admin, I can manage the organigram & 2 & High & Sprint 1 \\
+\hline
+As a process manager, I can manage simulations & 2 & High & Sprint 1 \\
+\hline
+As a process designer, I can model a process & 2 & High & Sprint 1 \\
+\hline
+As an admin, I can consult the audit log & 2 & Medium & Sprint 1 \\
+\hline
+V-GRC System can receive risk and process data from V-BPM & 3 & Medium & Sprint 2 \\
+\hline
+V-GRC System can provide internal controls and compliance indicators to V-BPM & 3 & Medium & Sprint 2 \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+
+This chapter has served to analyze in detail the functional and non-functional requirements of the project, while identifying the different actors involved and the nature of their interactions with the system. The modeling through the use case diagram has provided an overview of the main expected functionalities. The following chapter will present Sprint 0 with the detail of refinement, design, and implementation of the first use cases.

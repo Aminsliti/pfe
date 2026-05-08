@@ -1,0 +1,155 @@
+% =============================================
+% CHAPTER 5: SPRINT 2
+% =============================================
+\chapter{Sprint 2: Compliance and V-GRC Integration}
+
+\section{Introduction}
+
+This chapter presents Sprint 2, focused on integration with the V-GRC system for unified management of risks, processes, and regulatory compliance.
+
+\section{Sprint 2 Backlog Identification}
+
+This section presents the user stories for Sprint 2, focusing on the integration between V-BPM and the V-GRC system for unified risk and compliance management.
+
+\begin{table}[H]
+\centering
+\caption{Sprint 2 Backlog}
+\label{tab:backlog-sprint2}
+\begin{tabular}{|p{8cm}|c|c|}
+\hline
+\textbf{User Story} & \textbf{Estimation} & \textbf{Priority} \\
+\hline
+V-GRC System can receive risk and process data from V-BPM & Medium & 3 \\
+\hline
+V-GRC System can provide internal controls and compliance indicators to V-BPM & Medium & 3 \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Sprint 2 Refinement}
+
+This section details the refinement of the V-GRC integration use case, describing the bidirectional data exchange process.
+
+\subsection{Use Case Refinement -- Integrate V-GRC}
+
+The use case diagram shown in Figure~\ref{fig:usecase-vgrc} illustrates the V-GRC integration process with bidirectional data exchange between V-BPM and V-GRC systems. The textual description is presented in Table~\ref{tab:raffinement-vgrc}.
+
+% TODO: ADD USE CASE DIAGRAM -- INTEGRATE V-GRC
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.75\textwidth}{\centering\vspace{2cm}
+\textbf{\large [USE CASE DIAGRAM -- INTEGRATE V-GRC]}\\[0.3cm]
+Showing: V-GRC System <-> (Send Risk Data, Receive Controls, OAuth Auth)
+\vspace{2cm}}}
+\caption{Use Case Diagram -- Integrate V-GRC}
+\label{fig:usecase-vgrc}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Refinement -- Integrate V-GRC}
+\label{tab:raffinement-vgrc}
+\begin{tabular}{|p{3cm}|p{10.5cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Integrate V-GRC System \\
+\hline
+Actor & V-GRC System, Administrator \\
+\hline
+Pre-condition & 
+- System is running<br>
+- V-GRC API connection is established<br>
+- OAuth authentication is valid<br>
+- Administrator is authenticated<br>
+- Integration module is installed \\
+\hline
+Post-condition & 
+- Data is exchanged bidirectionally between V-BPM and V-GRC successfully<br>
+- Synchronization is configured and operational<br>
+- Integration status is monitored and logged \\
+\hline
+Main Scenario Description & 
+1. The system displays the V-GRC Integration Configuration page.<br>
+2. The administrator views the current integration status and connection details.<br>
+3. The administrator configures the V-GRC server URL and OAuth credentials.<br>
+4. The administrator tests the connection and validates OAuth authentication.<br>
+5. The system establishes secure connection with V-GRC using OAuth 2.0.<br>
+6. The administrator configures synchronization frequency and data mapping rules.<br>
+7. The system synchronizes risk data from V-BPM to V-GRC.<br>
+8. The system receives internal controls and compliance indicators from V-GRC.<br>
+9. The data is mapped and integrated into V-BPM with validation.<br>
+10. A synchronization log is generated with success status and detailed metrics.<br>
+11. The administrator can view connection status and recent synchronization logs. \\
+\hline
+Exceptions & 
+- If connection fails, the system displays "Connection error to V-GRC API. Reconnection attempt in 5 minutes".<br>
+- If OAuth authentication fails, an alert "Invalid OAuth credentials. Please verify configuration" is shown.<br>
+- If synchronization fails, a message "Data synchronization failed. Check data format" is displayed.<br>
+- If connection timeout occurs, the system shows "Timeout exceeded. V-GRC server is not responding".<br>
+- If data mapping errors occur, an alert "Data mapping validation failed. Please check mapping rules" is shown.<br>
+- If system/server error occurs, an error notification is displayed. \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Sprint 2 Design}
+
+This section presents the design models for the V-GRC integration, showing the components involved in the system interconnection.
+
+\subsection{Use Case Design -- Integrate V-GRC}
+
+The following diagrams illustrate the architecture of the V-GRC integration module.
+
+\subsubsection{Class Diagram}
+
+The class diagram below shows the integration client classes and OAuth authentication components.
+
+% TODO: ADD V-GRC CLASS DIAGRAM
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
+\textbf{\large [CLASS DIAGRAM -- V-GRC INTEGRATION]}\\[0.3cm]
+Classes: VGRCClient, VGRCService, OAuthManager, AuditLog
+\vspace{3cm}}}
+\caption{Class Diagram -- Integrate V-GRC}
+\label{fig:class-vgrc}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+The sequence diagram below illustrates the bidirectional data flow between V-BPM and the V-GRC system.
+
+% TODO: ADD V-GRC SEQUENCE DIAGRAM
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
+\textbf{\large [SEQUENCE DIAGRAM -- V-GRC INTEGRATION]}\\[0.3cm]
+Bidirectional flow: V-BPM <-> VGRCClient <-> V-GRC System
+\vspace{3cm}}}
+\caption{Sequence Diagram -- Integrate V-GRC}
+\label{fig:seq-vgrc}
+\end{figure}
+
+\section{Sprint 2 Implementation}
+
+This section presents the implemented V-GRC integration interface, demonstrating the configuration and monitoring capabilities.
+
+\subsection{Use Case Implementation -- Integrate V-GRC}
+
+The figure below shows the V-GRC integration interface for managing the connection and data synchronization.
+
+% TODO: ADD V-GRC INTEGRATION SCREENSHOT
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\vspace{2.5cm}
+\textbf{\large [SCREENSHOT -- V-GRC INTEGRATION]}\\[0.3cm]
+V-GRC integration interface
+\vspace{2.5cm}}}
+\caption{Implementation -- Integrate V-GRC}
+\label{fig:ui-vgrc}
+\end{figure}
+
+\section{Conclusion}
+
+Sprint 2 completed the platform with V-GRC integration, enabling unified management of processes, risks, and compliance.

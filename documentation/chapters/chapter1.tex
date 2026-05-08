@@ -1,0 +1,237 @@
+\chapter{Project Context and Problem Statement}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Introduction}
+
+The chapter discusses the general context of the project that was carried out in Vitalis Tunisia. It provides an overview of the host organization and the system currently being used to manage the business processes and governance activities. 
+
+The chapter will also discuss the key challenges associated with the BPM system currently being used. It will highlight the need for a more flexible and sustainable system. It will then discuss the proposed solution, which involves the development of a BPM platform called V-BPM.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Presentation of the Host Company}
+
+Vitalis (logo shown in Figure \ref{fig:placeholder}) is a Tunisian IT services and consulting company specializing in governance, risk management, and solutions dedicated to financial institutions. The company supports its clients in their digital transformation and the optimization of their business processes. 
+
+As an Official Bizzdesign Partner, Vitalis deploys enterprise architecture and advanced modeling approaches that enable organizations to strengthen their strategic management, performance, and compliance.\newline
+The mission of Vitalis is to support organizations, particularly financial institutions, in their digital transformation by strengthening their governance, risk management, and process efficiency. Through innovative solutions and the expertise of its teams, the company helps clients modernize their information systems, improve performance, and create lasting value.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{vitalis.png}
+    \caption{Logo of Vitalis}
+    \label{fig:placeholder}
+\end{figure}
+
+Figure \ref{fig:org} illustrates the organizational structure of Vitalis.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{organigramme.png}
+    \caption{Organizational chart of Vitalis}
+    \label{fig:org}
+\end{figure}
+
+The project was carried out within the \textbf{[Department Name]} department, where the focus is on developing and integrating enterprise solutions related to BPM and GRC systems.
+
+\subsection{Project Context within the Company}
+
+Vitalis already provides a Governance, Risk, and Compliance (GRC) platform dedicated to risk management, internal control, and regulatory monitoring.
+
+In parallel, the company relies on an existing proprietary BPM solution to manage business processes. Although functional, this solution presents several strategic drawbacks. Its licensing model involves significant acquisition costs, recurring subscription fees, and additional expenses for advanced features or scalability options. Furthermore, maintenance and upgrades often require vendor intervention, generating additional service costs.
+
+Over time, these financial constraints, combined with technical rigidity, have limited the company's capacity to rapidly adapt to new business requirements.
+
+The objective of this project is therefore to modernize the BPM layer by implementing a more flexible, open-source, and cost-effective platform that integrates seamlessly with the existing GRC ecosystem.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Analysis of the Existing System}
+
+This section presents an analysis of the current system used by Vitalis, highlighting its main components and identifying its limitations.
+
+\subsection{Presentation of the Existing GRC Platform}
+
+The Governance, Risk, and Compliance (GRC) platform developed by Vitalis provides several functionalities that support governance and management within the organization. These functionalities enable users to identify and assess operational risks, manage internal control mechanisms, and generate compliance reports.
+
+By centralizing governance information, the GRC platform acts as a decision-support system, helping organizations ensure regulatory compliance and maintain better control over operational activities. 
+
+However, despite its capabilities, the platform is not directly integrated with a Business Process Management (BPM) system. As a result, business processes are managed separately from risk and compliance mechanisms, making it difficult to trace and monitor operational activities in real time.
+
+\subsection{Current Management of Business Processes}
+
+Currently, business processes are managed using a proprietary BPM solution developed by MEGA International, known as HOPEX. This solution allows the modeling and documentation of business processes, as well as enterprise architecture management.
+
+However, this BPM solution operates independently from the GRC platform developed by Vitalis. This lack of integration prevents effective alignment between business processes, risk management, and compliance monitoring.
+
+In addition, HOPEX is based on a proprietary licensing model, which leads to high acquisition and maintenance costs. This represents a significant limitation for scalability and long-term flexibility.
+
+\section{Critical Review of the Existing System}
+
+This section presents a critical analysis of the current BPM solution used within the organization. It focuses on identifying its main organizational, technical, and economic limitations and their impact on flexibility, cost, and system evolution.
+
+\subsection{Organizational Limitations}
+
+The reliance on a proprietary BPM platform such as HOPEX introduces several organizational constraints. These limitations affect the flexibility and autonomy of the organization in managing and evolving its business processes.
+
+In particular, the current system leads to:
+
+\begin{itemize}
+\item Reduced autonomy in the evolution and adaptation of business processes
+\item Slower response to regulatory or organizational changes
+\item Limited internal control over system configuration and customization
+\item Increased operational costs due to licensing and maintenance fees
+\end{itemize}
+
+Over time, these financial and operational constraints represent a significant burden, especially in a competitive environment where cost efficiency and technological agility are essential.
+
+\subsection{Technical and Economic Impact}
+
+From both technical and economic perspectives, the current BPM solution presents several limitations. The proprietary nature of the platform restricts extensibility and reduces the organization's ability to adapt the system to evolving requirements.
+
+More specifically, the platform:
+
+\begin{itemize}
+\item Limits system extensibility and customization
+\item Requires paid upgrades to access additional features
+\item Creates long-term vendor dependency (vendor lock-in)
+\item Increases operational risks related to external dependency
+\end{itemize}
+
+These limitations highlight the need for a more flexible, modular, and cost-effective BPM solution capable of integrating seamlessly with the existing GRC ecosystem.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Comparison of Existing BPM Platforms}
+
+Several BPM platforms are currently available on the market, offering different levels of functionality, flexibility, and cost structures. Some of the most widely used enterprise BPM solutions include HOPEX, IBM BPM, Oracle BPM, Appian, and Pega. The following table presents a comparative study of these platforms, highlighting the advantages and limitations of each solution in order to justify the technology choice made for this project.
+
+\begin{table}[h!]
+\centering
+\caption{Comparison of Existing BPM Platforms}
+\label{tab:comparaison}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{|p{2cm}|p{3cm}|p{5cm}|p{5cm}|}
+\hline
+\textbf{BPM Platform} & \textbf{Vendor} & \textbf{Advantages} & \textbf{Limitations} \\
+\hline
+
+HOPEX & MEGA International &
+Strong enterprise architecture integration, centralized repository for processes, risks, applications and organizational data, advanced governance and analytics capabilities. &
+Very high licensing costs, complex deployment, customization often requires vendor support, strong vendor dependency. \\
+\hline
+
+IBM BPM & IBM &
+Mature enterprise platform, advanced workflow automation, powerful monitoring dashboards, strong technical support and documentation. &
+Expensive licensing model, heavy infrastructure requirements, complex configuration and maintenance. \\
+\hline
+
+Oracle BPM Suite & Oracle &
+Deep integration with the Oracle ecosystem, strong orchestration capabilities, advanced analytics and reporting tools. &
+High total cost of ownership, complex system administration, strong dependency on Oracle technologies. \\
+\hline
+
+Appian & Appian Corporation &
+Low-code development environment, rapid process application development, strong process monitoring features. &
+Licensing costs increase significantly for large deployments, limited flexibility for deep customization. \\
+\hline
+
+Pega BPM & Pegasystems &
+Advanced case management, powerful decision management features, AI-driven process automation capabilities. &
+High implementation costs, requires specialized expertise, complex integration in heterogeneous environments. \\
+\hline
+
+\end{tabular}
+\end{table}
+
+Most of these platforms described in Table~\ref{tab:comparaison} provide advanced features for process automation and enterprise workflow management. However, they are often associated with high licensing costs, limited customization flexibility, and strong vendor dependency.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Proposed Solution}
+
+Based on the comparative analysis presented in Table~\ref{tab:comparaison}, and given the significant limitations identified in proprietary solutions in terms of cost, flexibility, and vendor dependency, this project proposes an open-source alternative. Open-source platforms eliminate recurring licensing fees, reduce long-term operational expenditure, and offer greater freedom for customization and integration with existing systems. It is precisely within this context that the \textbf{V-BPM} was designed and developed.
+
+To address the limitations identified in the existing system, this project proposes the development of a new Business Process Management platform called \textbf{V-BPM  }. The goal of this platform is to provide a flexible and integrated environment for managing business processes while ensuring better interaction with the existing Governance, Risk, and Compliance (GRC) system developed by Vitalis.
+
+\subsection{Technology Choice}
+
+Following a comparative study of the main open-source BPM engines available 
+on the market, Table~\ref{tab:tech_choice} presents a comparison of the most 
+widely used solutions, evaluated according to criteria including BPMN 2.0 
+compliance, community support, ease of integration, and cost-effectiveness.
+
+\begin{table}[h!]
+\centering
+\caption{Comparison of open-source BPM engines}
+\label{tab:tech_choice}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{|p{2.5cm}|p{4cm}|p{4cm}|p{3cm}|}
+\hline
+\textbf{BPM Engine} & \textbf{Advantages} & \textbf{Limitations} 
+& \textbf{License} \\
+\hline
+
+Camunda 7 &
+Full BPMN 2.0 compliance, powerful REST API, embedded or standalone 
+deployment, active community, strong documentation, easy integration 
+with modern web frameworks. &
+Community edition lacks some enterprise features such as advanced 
+clustering and enhanced monitoring. &
+Apache 2.0 (open-source) \\
+\hline
+
+Activiti &
+Lightweight engine, simple API, good BPMN 2.0 support, 
+easy to embed in Java applications. &
+Less active community than Camunda, limited tooling for 
+process monitoring and management. &
+Apache 2.0 (open-source) \\
+\hline
+
+Flowable &
+Fork of Activiti with additional features, supports BPMN 2.0, 
+CMMN, and DMN standards, good REST API. &
+Smaller community, documentation less comprehensive than Camunda, 
+commercial features require a paid license. &
+Apache 2.0 (open-source) \\
+\hline
+
+jBPM &
+Mature project backed by Red Hat, supports BPMN 2.0, 
+strong integration with the Java/Drools ecosystem. &
+Heavy and complex setup, tightly coupled to the Red Hat 
+ecosystem, steeper learning curve. &
+Apache 2.0 (open-source) \\
+\hline
+
+\end{tabular}
+\end{table}
+
+Based on this comparative analysis, \textbf{Camunda BPM 7} was selected as 
+the process execution engine for the V-BPM platform. Its full support for the 
+\textbf{BPMN 2.0 standard}, its robust REST API, its ease of integration with 
+Node.js and modern web architectures, and its active open-source community 
+make it the most suitable choice for the objectives of this project. By 
+relying on Camunda, the proposed solution provides greater flexibility and 
+scalability while eliminating vendor dependency and licensing costs.
+
+\subsection{Objectives of the Solution}
+
+The main objective of the V-BPM platform is to improve the management and automation of business processes within the organization. The system aims to provide greater flexibility in process modeling, better traceability of operational activities, and improved integration between process execution and governance mechanisms.
+
+In addition, the platform seeks to reduce dependency on proprietary BPM solutions and to provide a more cost-effective and sustainable alternative for process management.
+
+\subsection{Integration with the GRC Platform}
+
+One of the key aspects of the proposed solution is the integration between the BPM platform and the existing GRC system. By connecting business processes with governance, risk, and compliance mechanisms, the organization will be able to monitor risks and compliance requirements directly within operational workflows.
+
+This integration improves traceability, enhances risk visibility, and supports more informed decision-making.
+
+\subsection{Expected Benefits}
+
+The implementation of the V-BPM platform is expected to provide several benefits for the organization. These include improved process automation, better integration between operational workflows and governance mechanisms, reduced licensing costs, and greater flexibility in adapting processes to evolving business requirements.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion}
+
+This chapter presented the organizational and technical context of the project carried out at Vitalis Tunisia. The analysis revealed that the existing proprietary BPM solution, although functional, generates high licensing and maintenance costs and presents significant limitations in terms of flexibility and scalability.
+
+To address these financial and technical challenges, a modern open-source BPM platform based on Camunda is proposed. This solution aims to reduce long-term operational expenses, eliminate vendor lock-in, and improve system sustainability while strengthening integration with the GRC platform.
+
+The next chapter will focus on the detailed specification and modeling of system requirements.
