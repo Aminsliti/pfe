@@ -142,6 +142,14 @@ async function ensureDefaultTemplates() {
         buildTemplateXml('Purchase Request Control Demo', ['Prepare Request', 'Manager Review', 'Control Check', 'Create Purchase Order'])
       ),
       simulation_defaults: {
+        process_instances: 18,
+        warmup_percent: 5,
+        cooldown_percent: 10,
+        infinite_resources: false,
+        simulate_all_levels: false,
+        monte_carlo_runs: 1,
+        notifications_enabled: true,
+        import_csv_arrivals: false,
         calendar_settings: {
           business_hours: { start: '08:30', end: '17:30' },
           weekend_days: [0, 6],
@@ -152,10 +160,26 @@ async function ensureDefaultTemplates() {
           ],
         },
         resources: [
-          { name: 'Requester', resource_type: 'human', quantity: 3, cost_per_hour: 20, availability: 100 },
-          { name: 'Department Manager', resource_type: 'human', quantity: 1, cost_per_hour: 42, availability: 95 },
-          { name: 'Buyer', resource_type: 'human', quantity: 2, cost_per_hour: 35, availability: 100 },
-          { name: 'Control Officer', resource_type: 'human', quantity: 1, cost_per_hour: 38, availability: 100 },
+          { key: 'requester', name: 'Requester', resource_type: 'human', quantity: 5, cost_per_hour: 20, availability: 100 },
+          { key: 'department_manager', name: 'Department Manager', resource_type: 'human', quantity: 2, cost_per_hour: 42, availability: 100 },
+          { key: 'buyer', name: 'Buyer', resource_type: 'human', quantity: 3, cost_per_hour: 35, availability: 100 },
+          { key: 'control_officer', name: 'Control Officer', resource_type: 'human', quantity: 2, cost_per_hour: 38, availability: 100 },
+        ],
+        task_data: [
+          { task_id: 'Task_PrepareRequest', duration_min: 18, duration_type: 'normal', duration_std: 4, resource_key: 'requester', cost: 0, sla_target_min: null },
+          { task_id: 'Task_ManagerReview', duration_min: 8, duration_type: 'normal', duration_std: 2, resource_key: 'department_manager', cost: 0, sla_target_min: null },
+          { task_id: 'Task_SendApprovedRequest', duration_min: 3, duration_type: 'fixed', duration_std: 0, resource_key: 'requester', cost: 0, sla_target_min: null },
+          { task_id: 'Task_ReceiveApprovedRequest', duration_min: 5, duration_type: 'fixed', duration_std: 0, resource_key: 'buyer', cost: 0, sla_target_min: null },
+          { task_id: 'Task_ComplianceCheck', duration_min: 16, duration_type: 'normal', duration_std: 4, resource_key: 'control_officer', cost: 0, sla_target_min: null },
+          { task_id: 'Task_EscalateControlDelay', duration_min: 0, duration_type: 'fixed', duration_std: 0, resource_key: null, cost: 0, sla_target_min: null },
+          { task_id: 'Task_CreatePurchaseOrder', duration_min: 12, duration_type: 'normal', duration_std: 3, resource_key: 'buyer', cost: 0, sla_target_min: null },
+          { task_id: 'Task_RequestClarification', duration_min: 0, duration_type: 'fixed', duration_std: 0, resource_key: null, cost: 0, sla_target_min: null },
+        ],
+        flow_probabilities: [
+          { flow_id: 'Flow_Request_3', flow_name: 'No', from_element: 'Gateway_ManagerApprovalRequired', to_element: 'Task_SendApprovedRequest', probability: 30 },
+          { flow_id: 'Flow_Request_4', flow_name: 'Yes', from_element: 'Gateway_ManagerApprovalRequired', to_element: 'Task_ManagerReview', probability: 70 },
+          { flow_id: 'Flow_Proc_4', flow_name: 'Yes', from_element: 'Gateway_ControlsPassed', to_element: 'Task_CreatePurchaseOrder', probability: 85 },
+          { flow_id: 'Flow_Proc_6', flow_name: 'No', from_element: 'Gateway_ControlsPassed', to_element: 'Task_RequestClarification', probability: 15 },
         ],
       },
     },
@@ -755,9 +779,11 @@ router.post('/process-templates/:id/apply', async (req, res) => {
       );
 
       scenario = scenarioResult.rows[0];
+      const resourceIdsByKey = new Map();
+      const resourceIdsByName = new Map();
 
       for (const resource of simulationDefaults.resources || []) {
-        await pool.query(
+        const resourceResult = await pool.query(
           `
             INSERT INTO simulation_resources (
               scenario_id,
@@ -769,6 +795,7 @@ router.post('/process-templates/:id/apply', async (req, res) => {
               availability_windows
             )
             VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+            RETURNING *
           `,
           [
             scenario.id,
@@ -780,6 +807,14 @@ router.post('/process-templates/:id/apply', async (req, res) => {
             JSON.stringify(resource.availability_windows || []),
           ]
         );
+
+        const insertedResource = resourceResult.rows[0];
+        if (resource.key) {
+          resourceIdsByKey.set(String(resource.key), insertedResource.id);
+        }
+        if (resource.name) {
+          resourceIdsByName.set(String(resource.name), insertedResource.id);
+        }
       }
 
       const templateTasks = extractTasksFromDiagram(template.bpmn_xml);
@@ -788,6 +823,14 @@ router.post('/process-templates/:id/apply', async (req, res) => {
           (simulationDefaults.task_data || []).find(
             (entry) => entry.task_id === task.task_id || entry.task_name === task.task_name
           ) || {};
+        const taskResourceId =
+          taskDefaults.resource_id !== undefined && taskDefaults.resource_id !== null
+            ? Number(taskDefaults.resource_id) || null
+            : taskDefaults.resource_key && resourceIdsByKey.has(String(taskDefaults.resource_key))
+              ? resourceIdsByKey.get(String(taskDefaults.resource_key))
+              : taskDefaults.resource_name && resourceIdsByName.has(String(taskDefaults.resource_name))
+                ? resourceIdsByName.get(String(taskDefaults.resource_name))
+                : null;
 
         await pool.query(
           `
@@ -798,10 +841,11 @@ router.post('/process-templates/:id/apply', async (req, res) => {
               duration_min,
               duration_type,
               duration_std,
+              resource_id,
               cost,
               sla_target_min
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
           `,
           [
             scenario.id,
@@ -810,8 +854,35 @@ router.post('/process-templates/:id/apply', async (req, res) => {
             Number(taskDefaults.duration_min ?? task.duration_min ?? 30) || 30,
             taskDefaults.duration_type || task.duration_type || 'fixed',
             Number(taskDefaults.duration_std ?? task.duration_std ?? 0) || 0,
+            taskResourceId,
             Number(taskDefaults.cost ?? task.cost ?? 0) || 0,
-            taskDefaults.sla_target_min ? Number(taskDefaults.sla_target_min) : null,
+            taskDefaults.sla_target_min !== undefined && taskDefaults.sla_target_min !== null && taskDefaults.sla_target_min !== ''
+              ? Number(taskDefaults.sla_target_min)
+              : null,
+          ]
+        );
+      }
+
+      for (const flow of simulationDefaults.flow_probabilities || []) {
+        await pool.query(
+          `
+            INSERT INTO simulation_flow_probabilities (
+              scenario_id,
+              flow_id,
+              flow_name,
+              from_element,
+              to_element,
+              probability
+            )
+            VALUES ($1,$2,$3,$4,$5,$6)
+          `,
+          [
+            scenario.id,
+            flow.flow_id,
+            flow.flow_name || '',
+            flow.from_element || '',
+            flow.to_element || '',
+            Number(flow.probability) || 100,
           ]
         );
       }
