@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Container, Row, Col, Card, Button, Modal, Form,
   Alert, Badge, Table, ProgressBar,
@@ -1322,7 +1322,7 @@ function SimulationResultsPanel({ scenario, scenarios, onRun }) {
                         <div className="sim-kpi-label">{bottleneck.type === 'resource' ? 'Ressource' : 'Tache'}</div>
                         <h6 className="mb-0">{bottleneck.name}</h6>
                       </div>
-                      <Badge bg={bottleneck.severity === 'high' ? 'danger' : bottleneck.severity === 'medium' ? 'warning' : 'secondary'}>
+                      <Badge className={`badge-risk-${bottleneck.severity || 'low'}`}>
                         {bottleneck.severity}
                       </Badge>
                     </div>

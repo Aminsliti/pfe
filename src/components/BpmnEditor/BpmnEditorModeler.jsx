@@ -787,7 +787,7 @@ const RISK_SEVERITY_OPTIONS = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
+  { value: 'critical', label: 'Very High' },
 ];
 const RISK_CATEGORY_OPTIONS = [
   { value: 'operational', label: 'Operational' },

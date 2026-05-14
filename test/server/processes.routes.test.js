@@ -346,6 +346,47 @@ describe('process routes', () => {
         trigger: 'Start',
         objective: 'Resolve the customer dispute',
         expected_result: 'Dispute closed',
+        workflow_notes: ['Escalate unresolved disputes after 48 hours.'],
+        raci_responsible: ['Front Office Agent'],
+        raci_accountable: ['Claims Manager'],
+        raci_consulted: ['Back Office Analyst'],
+        raci_informed: ['Customer Service'],
+        kpi_details: [
+          { name: 'Claim resolution SLA', target: '48 hours', source: 'Dispute dashboard' },
+        ],
+        support_data_details: [
+          {
+            name: 'Claim amount',
+            description: 'Amount contested by the customer',
+            format: 'Decimal',
+            source: 'Claim form',
+            destination: 'Dispute portal',
+            criticality: 'High',
+          },
+        ],
+        support_document_details: [
+          {
+            name: 'Claim form',
+            type: 'Formulaire',
+            generated_by: 'Client',
+            output_of: 'Receive claim',
+            version: 'V2',
+          },
+        ],
+        support_system_details: [
+          { name: 'Card dispute portal', role: 'Tracks dispute cases and evidence' },
+        ],
+        risk_details: [
+          {
+            title: 'Missing evidence',
+            severity: 'high',
+            status: 'open',
+            category: 'compliance',
+            element: 'Receive claim',
+            description: 'Evidence may be missing from the file.',
+            mitigation: 'Block processing until evidence is attached.',
+          },
+        ],
       },
       bpmn_xml: `
         <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
@@ -399,8 +440,9 @@ describe('process routes', () => {
       'supportObjects',
       'whatWhoWhenWhy',
     ]);
-    expect(manualJson.body.manual.diagramDescription).toContain('Card Dispute Handling est represente par un diagramme BPMN approved');
+    expect(manualJson.body.manual.diagramDescription).toBe('');
     expect(manualJson.body.manual.matrices.activities[1].description).toContain('Sous-processus inclus dans le manuel');
+    expect(manualJson.body.manual.matrices.activities[0].actor).toBe('Front Office Agent');
     expect(manualJson.body.manual.matrices.whatWhoWhenWhy.columns.map((column) => column.label)).toEqual([
       'Activite',
       'What',
@@ -412,10 +454,24 @@ describe('process routes', () => {
     expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[0].when).toContain('Start');
     expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[1].when).toContain('Apres Receive claim');
     expect(manualJson.body.manual.matrices.whatWhoWhenWhy.rows[0].why).toContain('Resolve the customer dispute');
+    expect(manualJson.body.manual.raci.responsible).toEqual(['Front Office Agent']);
+    expect(manualJson.body.manual.raci.accountable).toEqual(['Claims Manager']);
+    expect(manualJson.body.manual.workflowBullets).toContain('Escalate unresolved disputes after 48 hours.');
     expect(manualJson.body.manual.matrices.supportObjects.sections[0].title).toBe('4.1 Donnees');
     expect(manualJson.body.manual.matrices.supportObjects.sections[0].rows[0].name).toBe('Claim amount');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[0].rows[0].format).toBe('Decimal');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[0].rows[0].source).toBe('Claim form');
     expect(manualJson.body.manual.matrices.supportObjects.sections[1].rows[0].name).toBe('Claim form');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[1].rows[0].version).toBe('V2');
     expect(manualJson.body.manual.matrices.supportObjects.sections[2].rows[0].name).toBe('Card dispute portal');
+    expect(manualJson.body.manual.matrices.supportObjects.sections[2].rows[0].role).toBe('Tracks dispute cases and evidence');
+    expect(manualJson.body.manual.matrices.kpis[0]).toEqual({
+      name: 'Claim resolution SLA',
+      target: '48 hours',
+      source: 'Dispute dashboard',
+    });
+    expect(manualJson.body.manual.matrices.risks[0].title).toBe('Missing evidence');
+    expect(manualJson.body.manual.matrices.risks[0].mitigation).toBe('Block processing until evidence is attached.');
 
     pool.query
       .mockResolvedValueOnce(makeResult([processRow]))
@@ -426,7 +482,13 @@ describe('process routes', () => {
     expect(htmlReport.headers['content-type']).toContain('text/html');
     expect(htmlReport.text).toContain('2. Matrice what who when why');
     expect(htmlReport.text.indexOf('2. Matrice what who when why')).toBeLessThan(htmlReport.text.indexOf('3. Matrice des activites'));
-    expect(htmlReport.text).toContain('Card Dispute Handling est represente par un diagramme BPMN approved');
+    expect((htmlReport.text.match(/2\. Matrice what who when why/g) || [])).toHaveLength(1);
+    expect(htmlReport.text).not.toContain('Card Dispute Handling est represente par un diagramme BPMN approved.');
+    expect(htmlReport.text.indexOf('3. Matrice des activites')).toBeLessThan(htmlReport.text.indexOf('Workflow notes'));
+    expect(htmlReport.text.indexOf('Workflow notes')).toBeLessThan(htmlReport.text.indexOf('RACI'));
+    expect(htmlReport.text).toContain('RACI');
+    expect(htmlReport.text).toContain('Front Office Agent');
+    expect(htmlReport.text).toContain('Escalate unresolved disputes after 48 hours.');
     expect(htmlReport.text).toContain('4. NIVEAU OBJETS SUPPORTS');
     expect(htmlReport.text).toContain('4.1 Donnees');
     expect(htmlReport.text).toContain('Claim amount');
@@ -438,7 +500,7 @@ describe('process routes', () => {
     const report = await request(app).get('/api/processes/9/report?format=pdf');
     expect(report.status).toBe(200);
     expect(report.headers['content-type']).toContain('application/pdf');
-    expect(report.headers['content-disposition']).toContain('card-dispute-handling-manuel-de-procedure.pdf');
+    expect(report.headers['content-disposition']).toContain('Card Dispute Handling - manuel de procedure.pdf');
     expect(report.body.subarray(0, 4).toString()).toBe('%PDF');
     expect(report.body.toString('binary')).toContain('Card Dispute Handling');
 
@@ -449,7 +511,7 @@ describe('process routes', () => {
     const wordReport = await request(app).get('/api/processes/9/manual?format=docx');
     expect(wordReport.status).toBe(200);
     expect(wordReport.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    expect(wordReport.headers['content-disposition']).toContain('card-dispute-handling-manuel-de-procedure.docx');
+    expect(wordReport.headers['content-disposition']).toContain('Card Dispute Handling - manuel de procedure.docx');
   });
 
   it('returns workflow history, applies workflow actions, and compares versions', async () => {

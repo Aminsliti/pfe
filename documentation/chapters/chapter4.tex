@@ -48,27 +48,14 @@ The authentication process with password reset extension is illustrated through 
 \label{fig:usecase-auth}
 \end{figure}
 
-\begin{longtable}{|p{4cm}|p{11cm}|}
+\begin{table}[H]
+\centering
 \caption{Refinement -- Authenticate}
-\label{tab:refinement-auth} \\
+\label{tab:refinement-auth}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
-\endfirsthead
-
-\multicolumn{2}{c}%
-{{\bfseries \tablename\ \thetable{} -- continued from previous page}} \\
-\hline
-\textbf{Field} & \textbf{Description} \\
-\hline
-\endhead
-
-\hline
-\endfoot
-
-\hline
-\endlastfoot
-
 Use Case & Authenticate \\
 \hline
 Actor & Process Designer, Admin, Process Manager \\
@@ -98,7 +85,9 @@ Exceptions &
 - If the account is deactivated, the system shows "Account deactivated. Please contact administrator". \newline
 - If the email for password reset is not found, the system shows "Email not registered". \\
 \hline
-\end{longtable}
+\end{tabular}
+\end{table}
+
 \subsection{Use Case Refinement -- Manage Users}
 User management operations with comprehensive CRUD functionality are presented in Figure~\ref{fig:usecase-users}, complemented by the detailed textual specification in Table~\ref{tab:refinement-users}.
 % TODO: ADD USE CASE DIAGRAM -- MANAGE USERS
@@ -113,7 +102,7 @@ User management operations with comprehensive CRUD functionality are presented i
 \centering
 \caption{Refinement -- Manage Users}
 \label{tab:refinement-users}
-\begin{tabular}{|p{4cm}|p{11cm}|}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
@@ -165,7 +154,7 @@ Category management processes are depicted in Figure~\ref{fig:usecase-categories
 \centering
 \caption{Refinement -- Manage Categories}
 \label{tab:refinement-categories}
-\begin{tabular}{|p{4cm}|p{11cm}|}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
@@ -213,7 +202,7 @@ Figure~\ref{fig:usecase-process} encompasses the entire process management lifec
 \begin{figure}[H]
 \centering
 %\fbox{\parbox{0.75\textwidth}{\centering\vspace{2cm}
-\includegraphics[scale=0.35]{manageprocusecase.png}
+\includegraphics[scale=1]{manageprocusecase.png}
 %\vspace{2cm}}}
 \caption{Use Case Diagram -- Manage Processes}
 \label{fig:usecase-process}
@@ -223,7 +212,7 @@ Figure~\ref{fig:usecase-process} encompasses the entire process management lifec
 \centering
 \caption{Refinement -- Manage Processes}
 \label{tab:refinement-process}
-\begin{tabular}{|p{4cm}|p{11cm}|}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
@@ -278,135 +267,112 @@ The design phase of Sprint 0 focuses on comprehensive modeling of static and dyn
 
 \subsection{Use Case Design -- Authenticate}
 
-For the authentication use case, the subsequent diagrams showcase system design by displaying participating classes and detailing their mutual interactions.
+The authentication system design is illustrated through the following diagrams, which showcase the participating classes and their dynamic interactions during the authentication process.
 
 \subsubsection{Class Diagram}
 
-The class diagram below represents the static structure of the authentication module, showing the main classes and their relationships.
+Figure~\ref{fig:class-auth} presents the static structure of the authentication module, displaying the main classes and their relationships within the system architecture.
 
+% TODO: ADD AUTHENTICATION CLASS DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [CLASS DIAGRAM -- AUTHENTICATION]}\\[0.3cm]
-Classes: User, AuthService, AuthController, Session
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{S'authetifier.png}
 \caption{Class Diagram -- Authenticate}
 \label{fig:class-auth}
 \end{figure}
 
 \subsubsection{Sequence Diagram}
 
-The sequence diagram below illustrates the dynamic interactions between objects during the authentication process.
+Figure~\ref{fig:seq-auth} demonstrates the dynamic interactions between objects during the authentication workflow, showing the sequence of operations from user input through database storage.
 
 % TODO: ADD AUTHENTICATION SEQUENCE DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [SEQUENCE DIAGRAM -- AUTHENTICATION]}\\[0.3cm]
-Interactions: User -> AuthController -> AuthService -> Database
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{auth.png}
 \caption{Sequence Diagram -- Authenticate}
 \label{fig:seq-auth}
 \end{figure}
 
 \subsection{Use Case Design -- Manage Users}
 
-User management design is presented through the following diagrams, highlighting the classes responsible for handling user CRUD operations.
+The user management functionality is demonstrated through the following diagrams, which highlight the classes responsible for handling user CRUD operations and their interactions within the system.
 
 \subsubsection{Class Diagram}
 
-The class diagram below shows the static structure of the user management module, including the User entity and associated services.
+Figure~\ref{fig:class-users} illustrates the static architecture of the user management module, showcasing the User entity and its associated services for comprehensive user administration.
 
 % TODO: ADD USER MANAGEMENT CLASS DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [CLASS DIAGRAM -- USER MANAGEMENT]}\\[0.3cm]
-Classes: User, UserService, UserController, EmailService, AuditLog
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{gereruserclass.png}
 \caption{Class Diagram -- Manage Users}
 \label{fig:class-users}
 \end{figure}
 
 \subsubsection{Sequence Diagram}
 
-The sequence diagram below shows the interactions during user management operations such as creation, modification, and deletion.
+Figure~\ref{fig:seq-users} depicts the dynamic interactions during user management operations, including the creation, modification, and deletion processes within the system.
 
 % TODO: ADD USER MANAGEMENT SEQUENCE DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [SEQUENCE DIAGRAM -- USER MANAGEMENT]}\\[0.3cm]
-Interactions: Admin -> UserController -> UserService -> Database
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{manage_users.png}
 \caption{Sequence Diagram -- Manage Users}
 \label{fig:seq-users}
 \end{figure}
 
 \subsection{Use Case Design -- Manage Categories}
 
-Category management design, focusing on hierarchical organization, is demonstrated through the subsequent diagrams.
+The category management system is presented through the following diagrams, emphasizing the hierarchical organization and the relationships between different organizational entities.
 
 \subsubsection{Class Diagram}
 
-The class diagram below represents the category management structure, showing the Category entity and its relationships.
+Figure~\ref{fig:class-categories} represents the static structure of the category management module, displaying the Category entity and its relationships with other system components.
 
 % TODO: ADD CATEGORY MANAGEMENT CLASS DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [CLASS DIAGRAM -- CATEGORY MANAGEMENT]}\\[0.3cm]
-Classes: Category, CategoryService, CategoryController, ProcessReassigner
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{gerercatclass.png}
 \caption{Class Diagram -- Manage Categories}
 \label{fig:class-categories}
 \end{figure}
 
 \subsubsection{Sequence Diagram}
 
-The sequence diagram below illustrates the flow of category management operations, including creation, editing, and deletion with reassignment.
+Figure~\ref{fig:seq-categories} demonstrates the sequential flow of category management operations, including creation, editing, deletion, and hierarchical reassignment processes.
 
 % TODO: ADD CATEGORY MANAGEMENT SEQUENCE DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [SEQUENCE DIAGRAM -- CATEGORY MANAGEMENT]}\\[0.3cm]
-Interactions: Manager -> CategoryController -> CategoryService -> Database
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{manage_categories.png}
 \caption{Sequence Diagram -- Manage Categories}
 \label{fig:seq-categories}
 \end{figure}
 
 \subsection{Use Case Design -- Manage Processes}
 
-Process management design, encompassing the complete business process lifecycle, is illustrated in the following diagrams.
+The process management system design is showcased through the following diagrams, which encompass the complete business process lifecycle from creation through archiving.
 
 \subsubsection{Class Diagram}
 
-The class diagram below shows the process management structure, including BPMN validation, version management, and archiving capabilities.
+Figure~\ref{fig:class-process} displays the comprehensive structure of the process management module, including BPMN validation, version control, and archiving functionalities.
 
 % TODO: ADD PROCESS MANAGEMENT CLASS DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [CLASS DIAGRAM -- PROCESS MANAGEMENT]}\\[0.3cm]
-Classes: Process, ProcessService, ProcessController, BPMNValidator, VersionManager, ArchiveService
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{gererprocclass.png}
 \caption{Class Diagram -- Manage Processes}
 \label{fig:class-process}
 \end{figure}
 
 \subsubsection{Sequence Diagram}
 
-The sequence diagram below illustrates the interactions during process management operations, including validation and archiving.
+Figure~\ref{fig:seq-process} illustrates the dynamic interactions during process management operations, including validation workflows and archiving processes within the system.
 
 % TODO: ADD PROCESS MANAGEMENT SEQUENCE DIAGRAM
 \begin{figure}[H]
 \centering
-\fbox{\parbox{0.85\textwidth}{\centering\vspace{3cm}
-\textbf{\large [SEQUENCE DIAGRAM -- PROCESS MANAGEMENT]}\\[0.3cm]
-Interactions: Manager -> ProcessController -> ProcessService -> BPMNValidator -> Database
-\vspace{3cm}}}
+\includegraphics[width=1\linewidth]{manage_process.png}
 \caption{Sequence Diagram -- Manage Processes}
 \label{fig:seq-process}
 \end{figure}
@@ -540,7 +506,7 @@ The process actions interface shown in figure \ref{fig:ui-process-actions} enabl
 \label{fig:ui-process-actions}
 \end{figure}
 
-The process view interface of figures \ref{fig:ui-process-view}, \ref{fig:ui-process-bpmn} and \ref{fig:ui-process-properties}, displays the complete process information including BPMN diagram visualization. Process managers can review the process workflow, examine individual steps, and understand the flow of activities. The interface provides tools for zooming, panning, and navigating complex process diagrams. It enables managers to configure detailed process metadata including names, descriptions, categories, and assigned roles. Also it provides access to version control settings and workflow configuration options. All changes are validated before saving to maintain data integrity.
+The process view interface of figures \ref{fig:ui-process-view} and \ref{fig:ui-process-bpmn} , displays the complete process information including BPMN diagram visualization. Process managers can review the process workflow, examine individual steps, and understand the flow of activities. The interface provides tools for zooming, panning, and navigating complex process diagrams. It enables managers to configure detailed process metadata including names, descriptions, categories, and assigned roles. Also it provides access to version control settings and workflow configuration options. All changes are validated before saving to maintain data integrity.
 
 
 \begin{figure}[H]
@@ -559,12 +525,6 @@ The process view interface of figures \ref{fig:ui-process-view}, \ref{fig:ui-pro
 \label{fig:ui-process-bpmn}
 \end{figure}
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=1\linewidth]{process2.png}
-\caption{Process view interface-Part3}
-\label{fig:ui-process-properties}
-\end{figure}
 The add process interface of figures \ref{fig:ui-process-add}, \ref{fig:ui-process-add-details} guides process managers through the process creation workflow. The step-by-step wizard ensures all required information is collected including basic metadata, category assignment, role assignments, and initial BPMN diagram creation. This interface validates each step before proceeding to the next.
 
 \begin{figure}[H]

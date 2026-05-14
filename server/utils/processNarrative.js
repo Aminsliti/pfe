@@ -6,6 +6,8 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  Footer,
+  Header,
   HeadingLevel,
   ImageRun,
   Packer,
@@ -186,6 +188,30 @@ function normalizeTextList(value) {
   return [];
 }
 
+function normalizeManualRowList(value, fields = []) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const source = entry && typeof entry === 'object' ? entry : {};
+      const normalized = {};
+      let hasValue = false;
+
+      fields.forEach((field) => {
+        const resolved = normalizeText(source[field]);
+        normalized[field] = resolved;
+        if (resolved) {
+          hasValue = true;
+        }
+      });
+
+      return hasValue ? normalized : null;
+    })
+    .filter(Boolean);
+}
+
 function normalizeManualData(value = {}) {
   const source = value && typeof value === 'object' ? value : {};
 
@@ -203,6 +229,16 @@ function normalizeManualData(value = {}) {
     support_systems: normalizeTextList(source.support_systems || source.supportSystems),
     support_documents: normalizeTextList(source.support_documents || source.supportDocuments),
     support_data: normalizeTextList(source.support_data || source.supportData),
+    workflow_notes: normalizeTextList(source.workflow_notes || source.workflowNotes),
+    raci_responsible: normalizeTextList(source.raci_responsible || source.raciResponsible),
+    raci_accountable: normalizeTextList(source.raci_accountable || source.raciAccountable),
+    raci_consulted: normalizeTextList(source.raci_consulted || source.raciConsulted),
+    raci_informed: normalizeTextList(source.raci_informed || source.raciInformed),
+    kpi_details: normalizeManualRowList(source.kpi_details || source.kpiDetails, ['name', 'target', 'source']),
+    support_data_details: normalizeManualRowList(source.support_data_details || source.supportDataDetails, ['name', 'description', 'format', 'source', 'destination', 'criticality']),
+    support_document_details: normalizeManualRowList(source.support_document_details || source.supportDocumentDetails, ['name', 'type', 'generated_by', 'output_of', 'version']),
+    support_system_details: normalizeManualRowList(source.support_system_details || source.supportSystemDetails, ['name', 'role']),
+    risk_details: normalizeManualRowList(source.risk_details || source.riskDetails, ['title', 'severity', 'status', 'category', 'element', 'description', 'mitigation']),
   };
 }
 
@@ -501,13 +537,15 @@ function buildActivityDescription({
   return joinMatrixCellValues(details);
 }
 
-function buildActivityRows(process = {}, documentationById = new Map(), actorAssignments = []) {
+function buildActivityRows(process = {}, documentationById = new Map(), actorAssignments = [], manualData = {}) {
   const actorByElementId = new Map();
   actorAssignments.forEach((actor) => {
     actor.elements.forEach((element) => {
       actorByElementId.set(String(element.id || ''), actor);
     });
   });
+
+  const fallbackActor = normalizeText(manualData.raci_responsible?.[0] || manualData.owner || '');
 
   return parseNamedElementsWithAttrs(process.bpmn_xml || '', ACTIVITY_ELEMENT_NAMES).map((element, index) => {
     const actor = actorByElementId.get(String(element.id || ''));
@@ -521,7 +559,7 @@ function buildActivityRows(process = {}, documentationById = new Map(), actorAss
       element_id: element.id || '',
       type: element.type,
       type_label: formatActivityTypeLabel(element.type),
-      actor: actor?.actorName || 'Non assigne',
+      actor: actor?.actorName || fallbackActor || 'Non assigne',
       documentation,
       description: buildActivityDescription({
         documentation,
@@ -534,24 +572,7 @@ function buildActivityRows(process = {}, documentationById = new Map(), actorAss
 }
 
 function buildDiagramDescription(process = {}, narrative = {}) {
-  const metrics = narrative.metrics || {};
-  const parts = [
-    `${process.name || 'Ce processus'} est represente par un diagramme BPMN ${normalizeProcessStatus(process.status, 'draft')}.`,
-    `Il contient ${Number(metrics.activities || 0)} activite(s), ${Number(metrics.gateways || 0)} passerelle(s), ${Number(metrics.events || 0)} evenement(s) et ${Number(metrics.sequence_flows || 0)} flux de sequence.`,
-  ];
-
-  if (
-    metrics.participants !== undefined ||
-    metrics.lanes !== undefined ||
-    metrics.subprocesses !== undefined ||
-    metrics.message_flows !== undefined
-  ) {
-    parts.push(
-      `Le diagramme mobilise ${Number(metrics.participants || 0)} participant(s), ${Number(metrics.lanes || 0)} lane(s), ${Number(metrics.subprocesses || 0)} sous-processus et ${Number(metrics.message_flows || 0)} flux de message.`
-    );
-  }
-
-  return parts.join(' ');
+  return '';
 }
 
 function buildTaskWhenValue(activityRows = [], index = 0, manualData = {}, startEnd = {}) {
@@ -693,6 +714,61 @@ function buildActivityIndex(activityRows = []) {
   return new Map(activityRows.map((activity) => [String(activity.element_id || ''), activity]));
 }
 
+function buildRowKey(row = {}, keyFields = []) {
+  const parts = keyFields
+    .map((field) => normalizeText(row?.[field]))
+    .filter(Boolean);
+  return parts.length ? parts.join('||').toLowerCase() : '';
+}
+
+function mergeRowsByKey(baseRows = [], manualRows = [], keyFields = []) {
+  const resolvedKeyFields = Array.isArray(keyFields) ? keyFields : [keyFields];
+  const manualMap = new Map();
+
+  manualRows.forEach((row) => {
+    const key = buildRowKey(row, resolvedKeyFields);
+    if (key) {
+      manualMap.set(key, row);
+    }
+  });
+
+  const consumed = new Set();
+  const merged = baseRows.map((row) => {
+    const key = buildRowKey(row, resolvedKeyFields);
+    if (key && manualMap.has(key)) {
+      consumed.add(key);
+      return {
+        ...row,
+        ...manualMap.get(key),
+      };
+    }
+    return row;
+  });
+
+  manualRows.forEach((row) => {
+    const key = buildRowKey(row, resolvedKeyFields);
+    if (!key || consumed.has(key)) {
+      return;
+    }
+    merged.push(row);
+  });
+
+  return merged;
+}
+
+function dropPlaceholderRows(rows = [], keyField = 'name') {
+  const hasMeaningfulRow = rows.some((row) => {
+    const value = normalizeText(row?.[keyField]);
+    return value && value.toLowerCase() !== 'non renseigne';
+  });
+
+  if (!hasMeaningfulRow) {
+    return rows;
+  }
+
+  return rows.filter((row) => normalizeText(row?.[keyField]).toLowerCase() !== 'non renseigne');
+}
+
 function extractSupportEdges(bpmnXml = '') {
   const edges = [];
   const addEdge = (sourceRef, targetRef) => {
@@ -782,10 +858,10 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     return {
       name: label || 'Non renseigne',
       description: normalizeText(entry.description || supportDocumentationById.get(String(entry.id || '')) || `Donnee de support utilisee dans ${process.name || 'le processus'}`) || 'Non renseigne',
-      format: inferDataFormat(label),
-      source: joinMatrixCellValues(relations.sources, ', ', 'Non renseigne'),
-      destination: joinMatrixCellValues(relations.destinations, ', ', 'Non renseigne'),
-      criticality: inferCriticality(label),
+      format: normalizeText(entry.format) || inferDataFormat(label),
+      source: normalizeText(entry.source) || joinMatrixCellValues(relations.sources, ', ', 'Non renseigne'),
+      destination: normalizeText(entry.destination) || joinMatrixCellValues(relations.destinations, ', ', 'Non renseigne'),
+      criticality: normalizeText(entry.criticality) || inferCriticality(label),
     };
   };
 
@@ -794,9 +870,9 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     const relations = relationMap.get(String(entry.id || '')) || { sources: [], destinations: [] };
     return {
       name: label || 'Non renseigne',
-      type: inferDocumentType(label),
-      generated_by: joinMatrixCellValues(relations.sources, ', ', 'Non renseigne'),
-      output_of: joinMatrixCellValues(relations.destinations, ', ', 'Non renseigne'),
+      type: normalizeText(entry.type) || inferDocumentType(label),
+      generated_by: normalizeText(entry.generated_by || entry.generatedBy) || joinMatrixCellValues(relations.sources, ', ', 'Non renseigne'),
+      output_of: normalizeText(entry.output_of || entry.outputOf) || joinMatrixCellValues(relations.destinations, ', ', 'Non renseigne'),
       version: normalizeText(entry.version || 'Non renseignee') || 'Non renseignee',
     };
   };
@@ -821,6 +897,14 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
 
   normalizeTextList(manualData.support_documents).forEach((label) => {
     sectionByKey.documents.push(createDocumentRow({ label }));
+  });
+
+  manualData.support_data_details.forEach((entry) => {
+    sectionByKey.data.push(createDataRow(entry));
+  });
+
+  manualData.support_document_details.forEach((entry) => {
+    sectionByKey.documents.push(createDocumentRow(entry));
   });
 
   const systemsFromActivities = {};
@@ -854,9 +938,31 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
     );
   });
 
-  const dataRows = dedupeRows(sectionByKey.data, (row) => row.name.toLowerCase());
-  const documentRows = dedupeRows(sectionByKey.documents, (row) => row.name.toLowerCase());
-  const systemRows = dedupeRows(sectionByKey.systems, (row) => row.name.toLowerCase());
+  manualData.support_system_details.forEach((entry) => {
+    sectionByKey.systems.push(createSystemRow(entry.name, entry.role));
+  });
+
+  const dataRows = dropPlaceholderRows(
+    dedupeRows(
+      mergeRowsByKey(sectionByKey.data, manualData.support_data_details.map((entry) => createDataRow(entry)), ['name']),
+      (row) => row.name.toLowerCase()
+    ),
+    'name'
+  );
+  const documentRows = dropPlaceholderRows(
+    dedupeRows(
+      mergeRowsByKey(sectionByKey.documents, manualData.support_document_details.map((entry) => createDocumentRow(entry)), ['name']),
+      (row) => row.name.toLowerCase()
+    ),
+    'name'
+  );
+  const systemRows = dropPlaceholderRows(
+    dedupeRows(
+      mergeRowsByKey(sectionByKey.systems, manualData.support_system_details.map((entry) => createSystemRow(entry.name, entry.role)), ['name']),
+      (row) => row.name.toLowerCase()
+    ),
+    'name'
+  );
 
   return {
     intro: 'Ces objets viennent du referentiel BPM/GRC.',
@@ -913,11 +1019,17 @@ function buildSupportObjectMatrix(process = {}, manualData = {}, activityRows = 
 }
 
 function buildKpiRows(manualData = {}) {
-  const rows = normalizeTextList(manualData.kpis).map((label) => ({
+  const baseRows = normalizeTextList(manualData.kpis).map((label) => ({
     name: label,
     target: 'A definir',
     source: 'Saisie manuelle',
   }));
+  const detailRows = manualData.kpi_details.map((entry) => ({
+    name: entry.name,
+    target: entry.target || 'Non renseigne',
+    source: entry.source || 'Saisie manuelle',
+  }));
+  const rows = mergeRowsByKey(baseRows, detailRows, ['name']);
 
   return rows.length
     ? rows
@@ -929,7 +1041,7 @@ function buildKpiRows(manualData = {}) {
 }
 
 function buildRiskRows(risks = []) {
-  return risks.length
+  const baseRows = risks.length
     ? risks.map((risk) => ({
         title: risk.title,
         severity: risk.severity,
@@ -939,6 +1051,10 @@ function buildRiskRows(risks = []) {
         description: risk.description || 'Non renseigne',
         mitigation: risk.mitigation || 'Non renseigne',
       }))
+    : [];
+
+  return baseRows.length
+    ? baseRows
     : [{
         title: 'Aucun risque rattache',
         severity: '-',
@@ -958,17 +1074,47 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
   const manualData = normalizeManualData(process.manual_data);
   const startEnd = extractStartEndSummary(process.bpmn_xml || '');
   const documentationById = extractDocumentationByElementId(process.bpmn_xml || '');
-  const activityRows = buildActivityRows(process, documentationById, actors);
+  const activityRows = buildActivityRows(process, documentationById, actors, manualData);
   const supportObjectMatrix = buildSupportObjectMatrix(process, manualData, activityRows);
   const kpiRows = buildKpiRows(manualData);
-  const riskRows = buildRiskRows(risks);
-  const responsible = uniqueValues(actors.map((actor) => actor.actorName));
-  const accountable = normalizeNameList(
-    manualData.owner ? [manualData.owner] : process.assigned_validator_names,
+  const riskRows = (() => {
+    const generatedRiskRows = buildRiskRows(risks);
+    const manualRiskRows = manualData.risk_details.map((entry) => ({
+      title: entry.title || 'Risque manuel',
+      severity: entry.severity || 'medium',
+      status: entry.status || 'open',
+      category: entry.category || 'operational',
+      element: entry.element || '-',
+      description: entry.description || 'Non renseigne',
+      mitigation: entry.mitigation || 'Non renseigne',
+    }));
+
+    if (!manualRiskRows.length) {
+      return generatedRiskRows;
+    }
+
+    const hasGeneratedRiskEntries = risks.length > 0;
+    if (!hasGeneratedRiskEntries) {
+      return manualRiskRows;
+    }
+
+    return mergeRowsByKey(generatedRiskRows, manualRiskRows, ['title']);
+  })();
+  const responsible = manualData.raci_responsible.length
+    ? manualData.raci_responsible
+    : uniqueValues(actors.map((actor) => actor.actorName));
+  const accountable = manualData.raci_accountable.length
+    ? manualData.raci_accountable
+    : normalizeNameList(
+      manualData.owner ? [manualData.owner] : process.assigned_validator_names,
     manualData.owner || process.assigned_validator_name || process.created_by_name
-  );
-  const consulted = normalizeNameList(process.assigned_designer_names, process.assigned_designer_name);
-  const informed = uniqueValues([process.created_by_name, workflow?.approved_by_name, process.approved_by_name]);
+    );
+  const consulted = manualData.raci_consulted.length
+    ? manualData.raci_consulted
+    : normalizeNameList(process.assigned_designer_names, process.assigned_designer_name);
+  const informed = manualData.raci_informed.length
+    ? manualData.raci_informed
+    : uniqueValues([process.created_by_name, workflow?.approved_by_name, process.approved_by_name]);
   const identityRows = [
     { label: 'Code', value: displayValue(manualData.code, `PROC-${process.id || '-'}`) },
     { label: 'Nom du processus', value: displayValue(process.name) },
@@ -1003,7 +1149,8 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
       consulted: buildDisplayList(consulted),
       informed: buildDisplayList(informed),
     },
-    workflowBullets: [
+    workflowBullets: uniqueValues([
+      ...manualData.workflow_notes,
       `Status: ${normalizeProcessStatus(process.status, 'draft')}`,
       process.version ? `Version: v${process.version}` : null,
       process.company_name ? `Company: ${process.company_name}` : null,
@@ -1012,8 +1159,26 @@ export function buildProcedureManual(process = {}, workflow = null, explanation 
       workflow?.submitted_at ? `Submitted on ${formatDisplayDate(workflow.submitted_at)}` : null,
       workflow?.approved_at ? `Approved on ${formatDisplayDate(workflow.approved_at)}` : null,
       workflow?.approved_by_name ? `Approved by ${workflow.approved_by_name}` : null,
-    ].filter(Boolean),
+    ].filter(Boolean)),
   };
+}
+
+function buildWorkflowRowsForManual(manual = {}) {
+  const bullets = Array.isArray(manual.workflowBullets) ? manual.workflowBullets.filter(Boolean) : [];
+  return bullets.length
+    ? bullets.map((value, index) => ({ label: `Note ${index + 1}`, value }))
+    : [{ label: 'Note 1', value: 'No workflow notes generated.' }];
+}
+
+function buildRaciRowsForManual(manual = {}) {
+  const joinValues = (values) => (Array.isArray(values) && values.length ? values.join(', ') : '-');
+
+  return [
+    { label: 'Responsible', value: joinValues(manual.raci?.responsible) },
+    { label: 'Accountable', value: joinValues(manual.raci?.accountable) },
+    { label: 'Consulted', value: joinValues(manual.raci?.consulted) },
+    { label: 'Informed', value: joinValues(manual.raci?.informed) },
+  ];
 }
 
 export function buildProcessExplanation(process = {}, workflow = null) {
@@ -1281,6 +1446,8 @@ function parseDocxImageDataUrl(value = '') {
 
 export function buildProcessReportHtml(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const workflowRows = buildWorkflowRowsForManual(manual);
+  const raciRows = buildRaciRowsForManual(manual);
   const renderTable = (title, columns, rows) => `
     <div class="section">
       <h2>${escapeHtml(title)}</h2>
@@ -1334,37 +1501,57 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
   <meta charset="utf-8" />
   <title>${escapeHtml(process.name || 'Process')} - Manuel de procedure</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 28px; color: #111827; background: #f8fafc; }
-    .report-shell { background: #ffffff; border-radius: 18px; padding: 28px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08); }
-    .hero { margin-bottom: 24px; }
-    .hero h1 { margin: 0; font-size: 30px; }
-    .eyebrow { display: inline-block; color: #b91c1c; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 10px; }
-    .section { margin-top: 30px; }
-    .section h2 { margin: 0 0 12px; font-size: 20px; }
-    .subsection { margin-top: 20px; }
-    .subsection h3 { margin: 0 0 10px; font-size: 16px; color: #1f2937; }
-    .section p { margin: 0 0 12px; color: #475569; font-size: 14px; line-height: 1.6; }
-    .diagram-description { margin-top: 14px; color: #334155; font-size: 15px; line-height: 1.7; }
-    .diagram-card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 16px; background: #ffffff; }
-    .diagram-card img { width: 100%; height: auto; display: block; border-radius: 12px; }
-    .table-wrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; min-width: 100%; }
-    th, td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: top; }
-    th { background: #f8fafc; color: #475569; text-transform: uppercase; font-size: 11px; letter-spacing: 0.08em; }
-    .risk-pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .risk-pill--low { background: #fde68a; color: #7c2d12; }
-    .risk-pill--medium { background: #fdba74; color: #7c2d12; }
-    .risk-pill--high { background: #fca5a5; color: #7f1d1d; }
-    .risk-pill--critical { background: #ef4444; color: #ffffff; }
-    @media print { body { margin: 0; background: #fff; } .report-shell { box-shadow: none; border-radius: 0; } }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; padding: 40px 20px; color: #1e293b; background: #f1f5f9; line-height: 1.5; }
+    .report-shell { max-width: 1100px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 48px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0; }
+    
+    .header-meta { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #f1f5f9; padding-bottom: 24px; }
+    .hero h1 { margin: 8px 0 0; font-size: 32px; font-weight: 800; color: #0f172a; letter-spacing: -0.025em; }
+    .eyebrow { display: inline-block; color: #2563eb; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+    
+    .section { margin-top: 48px; }
+    .section h2 { margin: 0 0 16px; font-size: 22px; font-weight: 700; color: #334155; border-left: 4px solid #2563eb; padding-left: 16px; }
+    .subsection { margin-top: 24px; }
+    .subsection h3 { margin: 0 0 12px; font-size: 18px; font-weight: 600; color: #475569; }
+    
+    .section p { margin: 0 0 16px; color: #64748b; font-size: 15px; }
+    .diagram-description { margin-top: 8px; color: #475569; font-size: 16px; }
+    
+    .diagram-card { margin-top: 24px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; background: #f8fafc; text-align: center; }
+    .diagram-card img { max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
+    
+    .table-wrap { overflow-x: auto; margin-top: 16px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { background: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; padding: 12px 16px; border-bottom: 2px solid #e2e8f0; text-align: left; }
+    td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #334155; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) { background-color: #fcfdfe; }
+
+    .risk-pill { display: inline-block; border-radius: 6px; padding: 4px 10px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .risk-pill--low { background: #16a34a; color: #ffffff; }
+    .risk-pill--medium { background: #eab308; color: #ffffff; }
+    .risk-pill--high { background: #ea580c; color: #ffffff; }
+    .risk-pill--critical { background: #dc2626; color: #ffffff; }
+
+    .report-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; color: #94a3b8; font-size: 12px; font-weight: 500; }
+
+    @media print { 
+      body { padding: 0; background: #fff; } 
+      .report-shell { box-shadow: none; border: none; padding: 0; max-width: none; }
+      .header-meta { margin-bottom: 24px; }
+    }
   </style>
 </head>
 <body>
   <div class="report-shell">
-    <div class="hero">
-      <span class="eyebrow">Manuel de procedure</span>
-      <h1>${escapeHtml(process.name || `Process #${process.id || ''}`)}</h1>
-      <p class="diagram-description">${escapeHtml(manual.diagramDescription || '')}</p>
+    <div class="header-meta">
+      <div class="hero">
+        <span class="eyebrow">Manuel de procedure</span>
+        <h1>${escapeHtml(process.name || `Process #${process.id || ''}`)}</h1>
+      </div>
+      <div style="text-align: right; color: #94a3b8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+        ${process.category_name || 'Non classe'}
+      </div>
     </div>
 
     ${diagramHtml}
@@ -1384,9 +1571,16 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
       { key: 'description', label: 'Description' },
     ], manual.matrices.activities)}
 
-    ${renderTable('3. Matrice what who when why', [
-      ...manual.matrices.whatWhoWhenWhy.columns,
-    ], manual.matrices.whatWhoWhenWhy.rows)}
+    ${renderTable('Workflow notes', [
+      { key: 'label', label: 'Note' },
+      { key: 'value', label: 'Value' },
+    ], workflowRows)}
+
+    ${renderTable('RACI', [
+      { key: 'label', label: 'Role' },
+      { key: 'value', label: 'Value' },
+    ], raciRows)}
+
     ${supportObjectsHtml}
 
     ${renderTable('5.1 Matrice KPI', [
@@ -1414,6 +1608,15 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
       { key: 'description', label: 'Description' },
       { key: 'mitigation', label: 'Mitigation / Controle' },
     ], manual.matrices.risks)}
+
+    <div class="report-footer">
+      <div>${escapeHtml(process.name || 'Process')}</div>
+      <div>
+        ${process.category_name ? `Catégorie: ${escapeHtml(process.category_name)}` : ''}
+        ${process.version ? ` | Version: v${escapeHtml(process.version)}` : ''}
+        | Généré le ${new Date().toLocaleDateString('fr-FR')}
+      </div>
+    </div>
   </div>
 </body>
 </html>`;
@@ -1421,14 +1624,22 @@ export function buildProcessReportHtml(process = {}, explanation = null, options
 
 export function buildProcessReportPdf(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const workflowRows = buildWorkflowRowsForManual(manual);
+  const raciRows = buildRaciRowsForManual(manual);
   const severityFill = (value) => {
     const severity = String(value || '').toLowerCase();
-    if (severity === 'low') return [0.992, 0.906, 0.541]; // yellow (#fde68a)
-    if (severity === 'medium') return [0.992, 0.729, 0.455]; // orange (#fdba74)
-    if (severity === 'high') return [0.988, 0.647, 0.647]; // red-ish (#fca5a5)
-    if (severity === 'critical') return [0.937, 0.267, 0.267]; // strong red (#ef4444)
+    if (severity === 'low') return [0.086, 0.639, 0.290]; // strong green (#16a34a)
+    if (severity === 'medium') return [0.918, 0.702, 0.031]; // strong yellow (#eab308)
+    if (severity === 'high') return [0.918, 0.345, 0.047]; // strong orange (#ea580c)
+    if (severity === 'critical') return [0.863, 0.149, 0.149]; // strong red (#dc2626)
     return null;
   };
+
+  const metadataLine = [
+    process.category_name ? `Categorie: ${process.category_name}` : null,
+    process.version ? `Version: v${process.version}` : null,
+    `Genere le ${new Date().toLocaleDateString()}`,
+  ].filter(Boolean).join(' | ');
 
   return buildPdfDocument({
     title: `Manuel de procedure - ${process.name || `Process #${process.id}`}`,
@@ -1469,12 +1680,23 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         },
       },
       {
-        title: '3. Matrice what who when why',
+        title: 'Workflow notes',
         table: {
-          columns: manual.matrices.whatWhoWhenWhy.columns,
-          rows: manual.matrices.whatWhoWhenWhy.rows,
-          fontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.2 : 8,
-          headerFontSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 7.6 : 8.4,
+          columns: [
+            { key: 'label', label: 'Note', width: 18 },
+            { key: 'value', label: 'Value', width: 82 },
+          ],
+          rows: workflowRows,
+        },
+      },
+      {
+        title: 'RACI',
+        table: {
+          columns: [
+            { key: 'label', label: 'Role', width: 18 },
+            { key: 'value', label: 'Value', width: 82 },
+          ],
+          rows: raciRows,
         },
       },
       {
@@ -1520,17 +1742,22 @@ export function buildProcessReportPdf(process = {}, explanation = null, options 
         },
       },
     ],
+  }, {
+    header: process.name || 'Manuel de procedure',
+    footer: metadataLine,
   });
 }
 
 export async function buildProcessReportDocx(process = {}, explanation = null, options = {}) {
   const manual = buildProcedureManual(process, options.workflow || null, explanation);
+  const workflowRows = buildWorkflowRowsForManual(manual);
+  const raciRows = buildRaciRowsForManual(manual);
   const severityDocxFill = (value) => {
     const severity = String(value || '').toLowerCase();
-    if (severity === 'low') return 'fde68a';
-    if (severity === 'medium') return 'fdba74';
-    if (severity === 'high') return 'fca5a5';
-    if (severity === 'critical') return 'ef4444';
+    if (severity === 'low') return '16a34a'; // strong green
+    if (severity === 'medium') return 'eab308'; // strong yellow
+    if (severity === 'high') return 'ea580c'; // strong orange
+    if (severity === 'critical') return 'dc2626'; // strong red
     return null;
   };
   const docChildren = [
@@ -1561,8 +1788,8 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
           new ImageRun({
             data: diagramImageBuffer,
             transformation: {
-              width: 620,
-              height: 340,
+              width: 760,
+              height: 420,
             },
           }),
         ],
@@ -1590,10 +1817,20 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
       { key: 'description', label: 'Description', width: 50 },
     ], manual.matrices.activities),
     ...createDocxTableSection(
-      '3. Matrice what who when why',
-      manual.matrices.whatWhoWhenWhy.columns,
-      manual.matrices.whatWhoWhenWhy.rows,
-      { cellSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 13 : 15, headerSize: manual.matrices.whatWhoWhenWhy.columns.length > 6 ? 14 : 16 }
+      'Workflow notes',
+      [
+        { key: 'label', label: 'Note', width: 18 },
+        { key: 'value', label: 'Value', width: 82 },
+      ],
+      workflowRows
+    ),
+    ...createDocxTableSection(
+      'RACI',
+      [
+        { key: 'label', label: 'Role', width: 18 },
+        { key: 'value', label: 'Value', width: 82 },
+      ],
+      raciRows
     ),
     createDocxParagraph('4. NIVEAU OBJETS SUPPORTS', {
       heading: HeadingLevel.HEADING_2,
@@ -1629,6 +1866,12 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
     ], manual.matrices.risks)
   );
 
+  const metadataLine = [
+    process.category_name ? `Categorie: ${process.category_name}` : null,
+    process.version ? `Version: v${process.version}` : null,
+    `Genere le ${new Date().toLocaleDateString()}`,
+  ].filter(Boolean).join(' | ');
+
   const document = new Document({
     sections: [
       {
@@ -1638,6 +1881,28 @@ export async function buildProcessReportDocx(process = {}, explanation = null, o
               orientation: PageOrientation.LANDSCAPE,
             },
           },
+        },
+        headers: {
+          default: new Header({
+            children: [
+              createDocxParagraph(process.name || 'Manuel de procedure', {
+                alignment: AlignmentType.RIGHT,
+                size: 18,
+                color: '94a3b8',
+              }),
+            ],
+          }),
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              createDocxParagraph(metadataLine, {
+                alignment: AlignmentType.CENTER,
+                size: 16,
+                color: '64748b',
+              }),
+            ],
+          }),
         },
         children: docChildren,
       },

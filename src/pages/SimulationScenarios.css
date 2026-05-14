@@ -196,20 +196,30 @@
   gap: 16px;
 }
 
+.badge-risk-low { background-color: #22c55e !important; color: white; }
+.badge-risk-medium { background-color: #eab308 !important; color: white; }
+.badge-risk-high { background-color: #f97316 !important; color: white; }
+.badge-risk-very-high, .badge-risk-critical { background-color: #ef4444 !important; color: white; }
+
 .sim-bottleneck-card {
   border-top: 4px solid transparent !important;
 }
 
 .sim-bottleneck-card.severity-high {
-  border-top-color: #dc3545 !important;
+  border-top-color: #f97316 !important;
 }
 
 .sim-bottleneck-card.severity-medium {
-  border-top-color: #fd7e14 !important;
+  border-top-color: #eab308 !important;
 }
 
 .sim-bottleneck-card.severity-low {
-  border-top-color: #6c757d !important;
+  border-top-color: #22c55e !important;
+}
+
+.sim-bottleneck-card.severity-critical,
+.sim-bottleneck-card.severity-very-high {
+  border-top-color: #ef4444 !important;
 }
 
 .sim-bottleneck-metric {
@@ -249,17 +259,23 @@
 }
 
 .sim-heatmap-chip.level-low {
-  background: #fef3c7;
-  color: #92400e;
+  background: #dcfce7;
+  color: #166534;
 }
 
 .sim-heatmap-chip.level-medium {
-  background: #fed7aa;
-  color: #9a3412;
+  background: #fef9c3;
+  color: #854d0e;
 }
 
 .sim-heatmap-chip.level-high {
-  background: #fecaca;
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.sim-heatmap-chip.level-critical,
+.sim-heatmap-chip.level-very-high {
+  background: #fee2e2;
   color: #991b1b;
 }
 
@@ -291,15 +307,19 @@
 }
 
 .sim-heatmap-rank.level-low {
-  background: #fff7ed;
+  background: #f0fdf4;
 }
 
 .sim-heatmap-rank.level-medium {
-  background: #fef2f2;
+  background: #fefce8;
 }
 
 .sim-heatmap-rank.level-high {
-  background: #fee2e2;
+  background: #fff7ed;
+}
+
+.sim-heatmap-rank.level-very-high {
+  background: #fef2f2;
 }
 
 .sim-heatmap-rank span {
@@ -310,20 +330,26 @@
 }
 
 .sim-heat-low .djs-visual > :nth-child(1) {
-  fill: #fde68a !important;
-  stroke: #d97706 !important;
+  fill: #dcfce7 !important;
+  stroke: #166534 !important;
   stroke-width: 2.5px !important;
 }
 
 .sim-heat-medium .djs-visual > :nth-child(1) {
-  fill: #fdba74 !important;
-  stroke: #c2410c !important;
+  fill: #fef9c3 !important;
+  stroke: #854d0e !important;
   stroke-width: 2.5px !important;
 }
 
 .sim-heat-high .djs-visual > :nth-child(1) {
-  fill: #fca5a5 !important;
-  stroke: #b91c1c !important;
+  fill: #ffedd5 !important;
+  stroke: #9a3412 !important;
+  stroke-width: 3px !important;
+}
+
+.sim-heat-very-high .djs-visual > :nth-child(1) {
+  fill: #fee2e2 !important;
+  stroke: #991b1b !important;
   stroke-width: 3px !important;
   filter: drop-shadow(0 0 8px rgba(220, 38, 38, 0.35));
 }

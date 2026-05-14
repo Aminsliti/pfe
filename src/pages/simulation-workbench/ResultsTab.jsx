@@ -429,7 +429,7 @@ export default function ResultsTab({ scenario, scenarios, onScenarioChange, onSc
                           <Badge bg="light" text="dark">
                             {item.type}
                           </Badge>
-                          <Badge bg={item.severity === 'high' ? 'danger' : item.severity === 'medium' ? 'warning' : 'secondary'}>
+                          <Badge className={`badge-risk-${item.severity || 'low'}`}>
                             {item.severity || 'low'}
                           </Badge>
                         </div>

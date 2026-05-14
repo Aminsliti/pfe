@@ -736,8 +736,8 @@
 }
 
 .risk-card--critical { border-left-color: #dc2626; background: #fff1f2; }
-.risk-card--high { border-left-color: #ea580c; background: #fff7ed; }
-.risk-card--medium { border-left-color: #d97706; background: #fffbeb; }
+.risk-card--high { border-left-color: #f97316; background: #fff7ed; }
+.risk-card--medium { border-left-color: #eab308; background: #fefce8; }
 .risk-card--low { border-left-color: #16a34a; background: #f0fdf4; }
 
 .risk-card__header {
@@ -758,8 +758,8 @@
 }
 
 .risk-pill--critical { background: #dc2626; color: white; }
-.risk-pill--high { background: #ea580c; color: white; }
-.risk-pill--medium { background: #d97706; color: white; }
+.risk-pill--high { background: #f97316; color: white; }
+.risk-pill--medium { background: #eab308; color: white; }
 .risk-pill--low { background: #16a34a; color: white; }
 
 .risk-card__meta {
@@ -910,8 +910,8 @@
 }
 
 .diagram-risk-item--critical { border-left: 3px solid #dc2626; }
-.diagram-risk-item--high { border-left: 3px solid #ea580c; }
-.diagram-risk-item--medium { border-left: 3px solid #d97706; }
+.diagram-risk-item--high { border-left: 3px solid #f97316; }
+.diagram-risk-item--medium { border-left: 3px solid #eab308; }
 .diagram-risk-item--low { border-left: 3px solid #16a34a; }
 
 .diagram-risk-item__body {

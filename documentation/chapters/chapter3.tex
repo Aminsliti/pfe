@@ -9,26 +9,27 @@ This chapter presents a complete analysis of the functional and non-functional n
 
 \section{Identification of Functional Needs}
 
-To meet user expectations and optimize business process management, the integrated system includes several key functionalities for our project. The functional needs define the interactions between the different actors who are: Administrator, Process Designer, Process Manager, and V-GRC System.
+This section presents a comprehensive analysis of the functional requirements of the V-BPM platform, defining the core functionalities and interactions between system actors. The system is designed to meet user expectations while optimizing business process management through integrated features and seamless workflows.
+
 
 \begin{itemize}[leftmargin=1cm]
-    \item \textbf{Authenticate:} Allows a user to connect to the system via an identifier and password to access their dedicated space according to their role. When a user forgets their password, they can click on ``Forgot Password'', enter their email address, and receive a reset link. This link leads to an interface where they can confirm a new password. After validation, they are redirected to the login page to authenticate with their new credentials.
+    \item \textbf{Authentication System:} Provides secure user access control through credential-based authentication. Users can connect using identifiers and passwords, with password recovery functionality via email verification. The system supports role-based access control and session management for enhanced security.
     
-    \item \textbf{Manage Users:} Functionality allowing an administrator to create, modify, archive, and view user information in the system.
+    \item \textbf{User Management:} Enables administrators to perform comprehensive user administration including creation, modification, archiving, and viewing of user accounts. This functionality ensures proper user lifecycle management and access control.
     
-    \item \textbf{Manage Categories:} Allows the administrator or process manager to add, modify, or archive the categories to which processes are associated.
+    \item \textbf{Category Management:} Allows administrators and process managers to organize processes through hierarchical categorization. Users can create, modify, and archive categories to maintain organized process structures.
     
-    \item \textbf{Manage Processes:} Allows the process manager to manage the services linked to categories, necessary for classifying processes.
+    \item \textbf{Process Management:} Enables process managers to oversee the complete process lifecycle, including creation, modification, validation, and archiving of business processes with proper categorization.
     
-    \item \textbf{Manage Organizational Chart:} Allows the administrator to manage the organizational structure with departments, roles, and hierarchy.
+    \item \textbf{Organizational Chart Management:} Provides administrators with tools to manage company hierarchy, including departments, roles, and reporting relationships. The system supports dynamic organizational structure updates.
     
-    \item \textbf{Manage Simulations:} Allows the process manager to configure, run, and view simulation results.
+    \item \textbf{Simulation Management:} Allows process managers to configure and execute process simulations with parameter customization. The system provides real-time simulation results and comparative analysis capabilities.
     
-    \item \textbf{Model Processes:} Allows the process designer to create and edit BPMN process models.
+    \item \textbf{Process Modeling:} Enables process designers to create and edit BPMN process models using intuitive drag-and-drop interfaces. The system includes validation, version control, and collaborative editing features.
     
-    \item \textbf{Consult Audit Log:} Allows the administrator to view all actions performed in the system for traceability.
+    \item \textbf{Audit and Compliance:} Provides administrators with comprehensive audit trail functionality for tracking all system activities. The system supports filtering, searching, and reporting of audit events for compliance monitoring.
     
-    \item \textbf{Integrate V-GRC:} Allows the system to exchange risk data and compliance indicators with the V-GRC platform.
+    \item \textbf{V-GRC Integration:} Enables seamless data exchange between the BPM platform and external GRC systems. The system supports risk data synchronization and compliance indicator sharing for integrated governance.
 \end{itemize}
 
 \section{Identification of Non-Functional Needs}
@@ -65,7 +66,7 @@ The system involves several types of actors, each having specific roles and perm
 
 \textbf{Administrator} The administrator is responsible for the global management of the system. They administer users (designers, managers), roles, categories, processes, organizational charts, services, and archives. They consult all requests, can archive and restore them if necessary. They parameterize the system, and supervise system activity.
 
-\textbf{V-GRC System} The V-GRC System has consultation-only access for risk data exchange. It visualizes statistics related to risks and compliance indicators to monitor service activity. It cannot make any modifications to the system and does not intervene in data management.
+\textbf{V-GRC System} The V-GRC System is the external governance, risk, and compliance repository connected to V-BPM. It exchanges risk and control data with the BPM platform through an integration layer. It can provide existing risks to V-BPM for reuse, and it can receive newly created risks when they do not yet exist in the GRC repository.
 
 \section{Work Environment}
 
@@ -96,64 +97,79 @@ In this paragraph, we present the hardware environment we used to carry out our 
     \item \textbf{Graphics Card:} NVIDIA GeForce MX330
     \item \textbf{OS:} Microsoft Windows 11 Professional
 \end{itemize}
-
-\subsection{Software Environment}
-
-The chosen software environment for this project includes the tools and technologies necessary for the development, testing, and deployment of the application. It includes the code editor, frontend and backend frameworks, as well as version control and database systems, ensuring a coherent and effective chain of tools.
+\subsection{Software Environement}
 
 \begin{table}[H]
 \centering
-\caption{Tools Used for Project Development}
-\label{tab:tools}
-\begin{tabular}{|p{3cm}|p{10cm}|}
+\caption{Modeling and Design Tools}
+\label{tab:modeling-tools}
+\begin{tabular}{|p{2.5cm}|p{2cm}|p{10.5cm}|}
 \hline
-\textbf{Tool} & \textbf{Description} \\
+\textbf{Tool} & \textbf{Logo} & \textbf{Description} \\
 \hline
-Visual Studio Code & Visual Studio Code is a modern text editor developed by Microsoft. It is distinguished by its lightness, its multi-platform compatibility (Windows, macOS, Linux), and its vast ecosystem of extensions. It allows writing, testing, and debugging code in different languages, notably for web development. \\
+Visual Studio Code & \includegraphics[width=0.3cm]{vscode-logo.png} & Visual Studio Code is a source-code editor used to develop, edit, and manage the project files. \\
 \hline
-React & React is a JavaScript library for building user interfaces. Maintained by Meta (Facebook), it promotes a modular architecture and integrates advanced features such as hooks, components, and routing management. \\
+Node.js & \includegraphics[width=0.3cm]{nodejs-logo.png} & Node.js is a JavaScript runtime used to execute the backend server and project scripts. \\
 \hline
-
-Node.js & Node.js is a JavaScript runtime built on Chrome's V8 JavaScript engine. It allows developers to execute JavaScript code outside a web browser, making it ideal for backend development. \\
+PostgreSQL & \includegraphics[width=0.3cm]{postgresql-logo.png} & PostgreSQL is a relational database management system used to store users, processes, categories, simulations, and organizational data. \\
 \hline
-
-GitHub & GitHub is a collaborative development platform based on Git. It facilitates version tracking, project management, and collaboration between developers through tools like pull requests and issues. \\
+Visual Paradigm & \includegraphics[width=0.3cm]{visualparadigm-logo.png} & Visual Paradigm is a modeling tool used to design UML and analysis diagrams. \\
 \hline
-PostgreSQL & PostgreSQL is a powerful, open-source relational database management system known for its reliability, feature robustness, and performance. It supports advanced SQL features and is ideal for production applications requiring complex data management and ACID compliance. \\
+PlantUML & \includegraphics[width=0.3cm]{plantuml-logo.png} & PlantUML is a text-based diagram tool used to generate UML diagrams such as use case, sequence, and robustness diagrams. \\
 \hline
-Power AMC & Power AMC (PowerAMC) is a comprehensive data modeling tool from SAP that supports conceptual, logical, and physical data modeling. It provides features for database design, reverse engineering, and generation of database schemas, making it essential for enterprise-level database architecture planning. \\
+\end{tabular}
+\end{table}
+\subsection{Technologies Used}
+
+\begin{table}[H]
+\centering
+\caption{Development Tools}
+\label{tab:dev-tools}
+\begin{tabular}{|p{2.5cm}|p{2cm}|p{10.5cm}|}
 \hline
-
-
-
-
-BPMN.js & BPMN.js is a JavaScript toolkit for creating, embedding, and extending BPMN 2.0 diagrams. It provides a powerful rendering engine and modeling toolkit for business process management applications. \\
+\textbf{Tool} & \textbf{Logo} & \textbf{Description} \\
 \hline
-
-
-Jest & Jest is a JavaScript testing framework developed by Facebook. It provides a complete testing solution with zero configuration, snapshot testing, mocking capabilities, and excellent performance for testing React applications. \\
+React & \includegraphics[width=0.3cm]{react-logo.png} & React is a frontend library used to build the user interface of the platform. \\
 \hline
-
-
-
+Vite & \includegraphics[width=0.3cm]{vite-logo.png} & Vite is a development and build tool used to run the frontend locally and generate the production build. \\
+\hline
+Bootstrap & \includegraphics[width=0.3cm]{bootstrap-logo.png} & Bootstrap is a CSS framework used to structure and style the user interface. \\
+\hline
+Express.js & \includegraphics[width=0.3cm]{express-logo.png} & Express.js is a backend framework used to create the REST API and manage server-side logic. \\
+\hline
+bpmn-js & \includegraphics[width=0.3cm]{bpmnjs-logo.png} & bpmn-js is a BPMN modeling library used to display, edit, and export business process diagrams. \\
+\hline
+Jest & \includegraphics[width=0.3cm]{jest-logo.png} & Jest is a testing framework used to validate frontend and backend behavior. \\
+\hline
 \end{tabular}
 \end{table}
 
-\section{Work Methodology}
 
+\section{Work Methodology}
 The Agile method is based on a development cycle that brings the client to the center. The client is involved from the beginning to the end of the project. Thanks to the agile method, the requester obtains better visibility into work management than with a classic method. It allows delivering results quickly while remaining flexible in the face of changes.
 
 \textbf{Scrum}, an Agile method, helps organize work through well-defined roles and regular meetings, which facilitates communication and continuous improvement.
 
-\textbf{Why the choice of Scrum?}
+\textbf{Why Scrum was chosen for this project?}
 
-Scrum is a project management method from agile approaches. It relies on short cycles called sprints, and aims to improve collaboration between team members while delivering concrete and regular results. Thanks to well-defined roles, structured meetings, and a continuous improvement dynamic, Scrum favors a flexible organization centered on added value.
+Scrum was selected as the development methodology for this V-BPM platform project because it provides several key advantages that align perfectly with our project requirements:
+
+\begin{itemize}[leftmargin=1cm]
+    \item \textbf{Incremental Development:} Short sprint cycles (2-4 weeks) enable regular delivery of functional features and quick adaptation to changing requirements.
+    
+    \item \textbf{Enhanced Collaboration:} Daily stand-up meetings and sprint reviews improve team communication and ensure alignment on project goals.
+    
+    \item \textbf{Flexibility and Adaptability:} The iterative nature allows for rapid adjustments to evolving business needs and stakeholder feedback.
+    
+    \item \textbf{Risk Mitigation:} Short sprints reduce project risk by identifying issues early and allowing for quick course corrections.
+    
+    \item \textbf{Transparency:} Regular demonstrations and reviews provide stakeholders with clear visibility into project progress and deliverables.
+\end{itemize}
 
 \begin{itemize}[leftmargin=1cm]
     \item \textbf{Incremental and iterative delivery:} Development is done through short iterations called sprints, allowing regular delivery of functional versions of the product.
     \item \textbf{Continuous improvement:} Thanks to retrospective meetings, the team can analyze its functioning and make adjustments.
     \item \textbf{Transparency and communication:} Daily meetings (Daily Stand-Up) ensure good team coordination.
-    \item \textbf{Adaptability:} Ideal for projects whose needs may evolve during development.
 \end{itemize}
 
 \begin{figure}[H]
@@ -219,9 +235,9 @@ As a process designer, I can model a process & 2 & High & Sprint 1 \\
 \hline
 As an admin, I can consult the audit log & 2 & Medium & Sprint 1 \\
 \hline
-V-GRC System can receive risk and process data from V-BPM & 3 & Medium & Sprint 2 \\
+V-GRC System can provide its existing risk repository to V-BPM & 3 & Medium & Sprint 2 \\
 \hline
-V-GRC System can provide internal controls and compliance indicators to V-BPM & 3 & Medium & Sprint 2 \\
+V-BPM can create and synchronize new risks to V-GRC when they do not already exist & 3 & Medium & Sprint 2 \\
 \hline
 \end{tabular}
 \end{table}

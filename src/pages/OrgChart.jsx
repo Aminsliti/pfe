@@ -1208,32 +1208,6 @@ export function OrgChart({ publicView = false }) {
     }
   };
 
-  const clearOrgChart = async () => {
-    if (!canEdit) return;
-    const confirmed = await confirmAction({
-      title: 'Clear organigram',
-      message: 'This will delete ALL organigram nodes.',
-      confirmLabel: 'Clear all',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-
-    setSaving(true);
-    try {
-      await persistNode(`${API}/orgchart/clear`, 'POST', {});
-      showMessage('Organigram cleared.');
-      setSelectedId(null);
-      setFocusHistory([]);
-      setFocusedNodeId(null);
-      await loadOrgChart(true);
-    } catch (requestError) {
-      console.error(requestError);
-      showMessage(requestError.message || 'Failed to clear organigram.', 'danger');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <Container fluid className="org-page">
       {error && <Alert variant="danger">{error}</Alert>}
@@ -1265,11 +1239,6 @@ export function OrgChart({ publicView = false }) {
                     Auto arrange
                   </Button>
                 ) : null}
-                  {canEdit ? (
-                    <Button variant="outline-danger" size="sm" onClick={clearOrgChart} disabled={saving}>
-                      Clear organigram
-                    </Button>
-                  ) : null}
                 <Button variant="outline-secondary" className="org-fullscreen-btn" onClick={toggleBoardFullscreen}>
                   <i className={`bi ${boardFullscreen ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'} me-2`}></i>
                   {boardFullscreen ? 'Exit full screen' : 'Full screen'}

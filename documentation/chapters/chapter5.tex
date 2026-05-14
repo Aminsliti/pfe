@@ -1,15 +1,15 @@
 % =============================================
-% CHAPTER 4: SPRINT 1
+% CHAPTER 5: SPRINT 1
 % =============================================
 \chapter{Sprint 1: Organizational Chart and Simulations}
 
 \section{Introduction}
 
-This chapter presents Sprint 1, dedicated to organizational chart management, simulation management, BPMN modeling, and the audit log.
+This chapter presents Sprint 1 of the V-BPM platform, dedicated to the implementation of advanced functionalities related to organizational management, process modeling, simulation, and system monitoring. The objective of this sprint is to provide users with intelligent tools that facilitate the visualization, analysis, and optimization of business processes within the organization. 
 
 \section{Sprint 1 Backlog Identification}
 
-This section presents the user stories selected for Sprint 1, focusing on organizational chart management, simulations, and BPMN modeling capabilities.
+This section presents the user stories selected for Sprint 1, focusing on organizational chart management, simulations, and BPMN modeling capabilities, as detailed in table \ref{tab:backlog-sprint1}.
 
 \begin{table}[H]
 \centering
@@ -45,27 +45,14 @@ The organizational chart management process with comprehensive editing capabilit
 \label{fig:usecase-orgchart}
 \end{figure}
 
-\begin{longtable}{|p{4cm}|p{11cm}|}
+\begin{table}[H]
+\centering
 \caption{Refinement -- Manage Organizational Chart}
-\label{tab:raffinement-orgchart} \\
+\label{tab:raffinement-orgchart}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
-\endfirsthead
-
-\multicolumn{2}{c}%
-{{\bfseries \tablename\ \thetable{} -- continued from previous page}} \\
-\hline
-\textbf{Field} & \textbf{Description} \\
-\hline
-\endhead
-
-\hline
-\endfoot
-
-\hline
-\endlastfoot
-
 Use Case & Manage Organizational Chart \\
 \hline
 Actor & Administrator \\
@@ -86,21 +73,24 @@ Main Scenario Description &
 2. The administrator views the hierarchical chart with node details (name, role, department, level).\newline
 3. The administrator can zoom, pan, and navigate through the chart.\newline
 4. To create a node, the administrator clicks "Add Node" and enters name, role, and department.\newline
-5. To edit a node, the administrator selects it and updates the information.\newline
-6. To reposition a node, the administrator drag-and-drops it to a new location.\newline
-7. To delete a node, the administrator selects it and confirms the deletion.\newline
-8. For automatic layout, the administrator clicks "Auto-layout".\newline
-9. The system validates hierarchical integrity (no circular references).\newline
-10. The organizational chart is updated in real-time with visual feedback.\newline \\
+5. The administrator consults the details of a selected organizational node.\newline
+6. To edit a node, the administrator updates the node information.\newline
+7. To reposition a node, the administrator drag-and-drops it to a new location.\newline
+8. The administrator consults node dependencies before deletion.\newline
+9. To delete a node, the administrator selects it and confirms the deletion.\newline
+10. The administrator can decide whether a child is displayed as a direct child or kept inside a sub-structure.\newline
+11. The system validates hierarchical integrity (no circular references).\newline
+12. The organizational chart is updated with drill-down navigation and visual feedback.\newline
 \hline
 Exceptions & 
 - If required fields are missing during creation/editing, the system displays an error message.\newline
 - If circular reference is detected, the system shows "Cannot assign node as its own ancestor".\newline
-- If attempting to delete root node, an alert "Cannot delete root node" is shown.\newline
+- If attempting to create an invalid hierarchy, an alert indicating the parent/child constraint is shown.\newline
 - If node has dependencies, a message "This node contains sub-nodes. Please reassign them first" is displayed.\newline
 - If system/server error occurs, an error notification is displayed.\newline \\
 \hline
-\end{longtable}
+\end{tabular}
+\end{table}
 
 \subsection{Use Case Refinement -- Manage Simulations}
 
@@ -113,27 +103,14 @@ The simulation management process with comprehensive configuration and execution
 \label{fig:usecase-simulations}
 \end{figure}
 
-\begin{longtable}{|p{4cm}|p{11cm}|}
+\begin{table}[H]
+\centering
 \caption{Refinement -- Manage Simulations}
-\label{tab:raffinement-simulations} \\
+\label{tab:raffinement-simulations}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
-\endfirsthead
-
-\multicolumn{2}{c}%
-{{\bfseries \tablename\ \thetable{} -- continued from previous page}} \\
-\hline
-\textbf{Field} & \textbf{Description} \\
-\hline
-\endhead
-
-\hline
-\endfoot
-
-\hline
-\endlastfoot
-
 Use Case & Manage Simulations \\
 \hline
 Actor & Process Manager \\
@@ -168,12 +145,12 @@ Exceptions &
 - If insufficient resources, the system shows "Insufficient memory or CPU for this simulation".\newline
 - If system/server error occurs, an error notification is displayed. \\
 \hline
-\end{longtable}
+\end{tabular}
+\end{table}
 
 \subsection{Use Case Refinement -- Model Process}
 
 The process modeling functionality with BPMN diagram creation and editing capabilities is illustrated in Figure~\ref{fig:usecase-model}, complemented by detailed textual specification in Table~\ref{tab:raffinement-model}.
-
 % TODO: ADD USE CASE DIAGRAM -- MODEL PROCESS
 \begin{figure}[H]
 \centering
@@ -182,27 +159,14 @@ The process modeling functionality with BPMN diagram creation and editing capabi
 \label{fig:usecase-model}
 \end{figure}
 
-\begin{longtable}{|p{4cm}|p{11cm}|}
+\begin{table}[H]
+\centering
 \caption{Refinement -- Model Process}
-\label{tab:raffinement-model} \\
+\label{tab:raffinement-model}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
-\endfirsthead
-
-\multicolumn{2}{c}%
-{{\bfseries \tablename\ \thetable{} -- continued from previous page}} \\
-\hline
-\textbf{Field} & \textbf{Description} \\
-\hline
-\endhead
-
-\hline
-\endfoot
-
-\hline
-\endlastfoot
-
 Use Case & Model Process \\
 \hline
 Actor & Process Designer \\
@@ -237,11 +201,12 @@ Exceptions &
 - If validation fails, an error "Model validation failed. Please check BPMN structure" is displayed.\newline
 - If system/server error occurs, an error notification is displayed. \\
 \hline
-\end{longtable}
+\end{tabular}
+\end{table}
 
 \subsection{Use Case Refinement -- Consult Audit Log}
 
-The audit log consultation functionality with comprehensive filtering and reporting capabilities is illustrated in Figure~\ref{fig:usecase-audit}, complemented by detailed textual specification in Table~\ref{tab:raffinement-audit}.
+The audit log consultation functionality with comprehensive filtering and reporting capabilities is presented in Figure~\ref{fig:usecase-audit}, complemented by detailed textual specification in Table~\ref{tab:raffinement-audit}.
 
 % TODO: ADD USE CASE DIAGRAM -- CONSULT AUDIT LOG
 \begin{figure}[H]
@@ -251,27 +216,14 @@ The audit log consultation functionality with comprehensive filtering and report
 \label{fig:usecase-audit}
 \end{figure}
 
-\begin{longtable}{|p{4cm}|p{11cm}|}
+\begin{table}[H]
+\centering
 \caption{Refinement -- Consult Audit Log}
-\label{tab:raffinement-audit} \\
+\label{tab:raffinement-audit}
+\begin{tabular}{|p{3cm}|p{12cm}|}
 \hline
 \textbf{Field} & \textbf{Description} \\
 \hline
-\endfirsthead
-
-\multicolumn{2}{c}%
-{{\bfseries \tablename\ \thetable{} -- continued from previous page}} \\
-\hline
-\textbf{Field} & \textbf{Description} \\
-\hline
-\endhead
-
-\hline
-\endfoot
-
-\hline
-\endlastfoot
-
 Use Case & Consult Audit Log \\
 \hline
 Actor & Administrator \\
@@ -284,28 +236,27 @@ Pre-condition &
 \hline
 Post-condition & 
 - Audit logs are filtered and displayed successfully\newline
-- Reports are generated and exported\newline
+- Details of a selected log entry can be consulted\newline
 - System activities are tracked and documented \\
 \hline
 Main Scenario Description & 
 1. The system displays the Audit Log interface with filtering options.\newline
 2. The Administrator views the list of system activities with timestamps and user details.\newline
-3. The Administrator can filter logs by date range, user, action, or resource.\newline
+3. The Administrator can filter logs by entity type and action.\newline
 4. The Administrator can search logs for specific events or patterns.\newline
-5. The Administrator selects specific log entries for detailed view.\newline
-6. The Administrator can export logs in various formats (CSV, PDF, Excel).\newline
-7. The system provides real-time monitoring and alerting capabilities.\newline
-8. The Administrator can generate compliance and security reports.\newline
-9. The Administrator can configure retention policies for log management.\newline
-10. The system maintains audit trail integrity and provides backup functionality. \\
+5. The Administrator selects a log entry and opens its detailed view.\newline
+6. The system displays the structured details associated with the selected audit event.\newline
+7. The Administrator can refresh the journal to retrieve the latest system events.\newline
+8. The system maintains the traceability of operations performed on users, categories, processes, organigram nodes, and simulations. \\
 \hline
 Exceptions & 
 - If insufficient permissions, the system displays "Access denied. Insufficient privileges for this operation".\newline
-- If date range is invalid, an alert "Please enter a valid date range" is shown.\newline
-- If export fails, a message "Export failed. Please try again or contact administrator" is displayed.\newline
+- If no entries match the selected filters, the system displays an empty-state message.\newline
+- If the audit service is temporarily unavailable, the system displays a loading or error message.\newline
 - If system/server error occurs, an error notification is displayed. \\
 \hline
-\end{longtable}
+\end{tabular}
+\end{table}
 
 \section{Sprint 1 Design}
 
@@ -313,46 +264,105 @@ This section presents the design phase of Sprint 1, where we model the static an
 
 \subsection{Use Case Design -- Manage Organizational Chart}
 
-For the organizational chart management use case, the following diagrams showcase the system design by displaying participating classes and detailing their mutual interactions.
+The organizational chart management system is presented through the following diagrams, which showcase the participating classes and their dynamic interactions for hierarchical organization management.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-orgchart} presents the static architecture of the organizational chart module, displaying the classes responsible for managing hierarchical relationships and node operations.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=1\linewidth]{orgchartclass.png}
+\includegraphics[width=1\linewidth]{orgclass.png}
 \caption{Class Diagram -- Manage Organizational Chart}
 \label{fig:class-orgchart}
 \end{figure}
 
 \subsubsection{Sequence Diagram}
 
-The sequence diagram \ref{fig:seq-orgchart} illustrates the dynamic interactions during organizational chart editing operations.
+Figure~\ref{fig:seq-orgchart} demonstrates the dynamic interactions during organizational chart editing operations, including node creation, modification, and hierarchical reorganization.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=1\linewidth]{orgchartseq.png}
+\includegraphics[width=1\linewidth]{org chart.png}
 \caption{Sequence Diagram -- Manage Organizational Chart}
 \label{fig:seq-orgchart}
 \end{figure}
 
 \subsection{Use Case Design -- Manage Simulations}
 
-The simulation management design is presented through the following diagrams, highlighting the class diagram \ref{fig:class-simulations} presents the simulation management structure, including BPMN validation, configuration classes and their relationships.
+The simulation management functionality is demonstrated through the following diagrams, which highlight the classes responsible for simulation configuration, execution, and result analysis within the system.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-simulations} illustrates the comprehensive structure of the simulation management module, including BPMN validation, configuration classes, and their relationships for effective simulation workflows.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=1\linewidth]{simulationsclass.png}
+\includegraphics[width=1\linewidth]{simclass.png}
 \caption{Class Diagram -- Manage Simulations}
 \label{fig:class-simulations}
 \end{figure}
 
 \subsubsection{Sequence Diagram}
 
-The sequence diagram \ref{fig:seq-simulations} shows the interactions during simulation configuration and execution.
+Figure~\ref{fig:seq-simulations} depicts the dynamic interactions during simulation configuration and execution, showing the sequence of operations from setup through result analysis.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=1\linewidth]{simulationsseq.png}
+\includegraphics[width=1\linewidth]{simulation.png}
 \caption{Sequence Diagram -- Manage Simulations}
 \label{fig:seq-simulations}
+\end{figure}
+
+\subsection{Use Case Design -- Model Process}
+
+The process modeling system is showcased through the following diagrams, which emphasize the BPMN diagram creation, validation, and version management capabilities within the platform.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-model} represents the static structure of the process modeling module, displaying the classes responsible for BPMN diagram creation, validation, and collaborative editing.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{modelclass.png}
+\caption{Class Diagram -- Model Process}
+\label{fig:class-model}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+Figure~\ref{fig:seq-model} demonstrates the dynamic interactions during process modeling operations, including diagram creation, validation, and collaborative editing workflows.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{model process.png}
+\caption{Sequence Diagram -- Model Process}
+\label{fig:seq-model}
+\end{figure}
+
+\subsection{Use Case Design -- Consult Audit Log}
+
+The audit log consultation system is presented through the following diagrams, which highlight the classes responsible for tracking system activities, filtering operations, and opening detailed audit entries.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-audit} presents the static architecture of the audit log module, showcasing the classes responsible for activity tracking, log filtering, and detailed consultation.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{logclass.png}
+\caption{Class Diagram -- Consult Audit Log}
+\label{fig:class-audit}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+The dynamic interactions during audit log consultation operations, including filtering, searching, refreshing, and opening a detailed audit entry, are illustrated in Figure~\ref{fig:seq-audit}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{log.png}
+\caption{Sequence Diagram -- Consult Audit Log}
+\label{fig:seq-audit}
 \end{figure}
 
 \section{Sprint 1 Implementation}
@@ -370,7 +380,7 @@ The organizational chart management interface provides comprehensive tools for c
 \label{fig:ui-orgchart}
 \end{figure}
 
-For detailed node management, Figure~\ref{fig:ui-editorg} presents the editing interface where administrators can modify individual organizational units, update position details, and manage reporting relationships within the organizational structure.
+For detailed node management, figure~\ref{fig:ui-editorg} presents the editing interface where administrators can modify individual organizational units, update position details, and manage reporting relationships within the organizational structure.
 
 \begin{figure}[H]
 \centering
@@ -399,7 +409,7 @@ The simulation management interface enables comprehensive process simulation cap
 \label{fig:ui-simulations}
 \end{figure}
 
-For creating new simulations, Figure~\ref{fig:ui-createsim} presents the configuration interface where users can define simulation parameters, select target processes, and set up execution scenarios with specific resource allocations and time constraints.
+For creating new simulations, figure~\ref{fig:ui-createsim} presents the configuration interface where users can define simulation parameters, select target processes, and set up execution scenarios with specific resource allocations and time constraints.
 
 \begin{figure}[H]
 \centering
@@ -437,18 +447,18 @@ The BPMN modeling interface provides comprehensive tools for designing and editi
 \label{fig:ui-model}
 \end{figure}
 
-For enhanced productivity, Figure~\ref{fig:ui-importdiagram} illustrates the diagram import functionality that allows users to import existing BPMN diagrams from external sources, enabling seamless integration with other process modeling tools and platforms.
+For enhanced productivity, figure~\ref{fig:ui-importdiagram} illustrates the diagram import functionality that allows users to import existing BPMN diagrams from external sources, enabling seamless integration with other process modeling tools and platforms.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=1\linewidth]{importdiagram.png}
+\includegraphics[width=0.6\linewidth]{importdiagram.png}
 \caption{BPMN Modeling Interface}
 \label{fig:ui-importdiagram}
 \end{figure}
 
 \subsection{Use Case Implementation -- Consult Audit Log}
 
-The audit log functionality provides comprehensive system activity tracking and monitoring capabilities for maintaining security and compliance. Figure~\ref{fig:ui-audit} displays the audit log interface where administrators can view detailed system activities, filter logs by various criteria, and export audit trails for compliance reporting and analysis.
+The audit log functionality provides comprehensive system activity tracking and monitoring capabilities for maintaining security and compliance. Figure~\ref{fig:ui-audit} displays the audit log interface where administrators can view system activities, filter logs by entity type and action, search entries, and inspect the details of each event.
 
 \begin{figure}[H]
 \centering

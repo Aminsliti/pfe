@@ -89,6 +89,29 @@ function normalizeManualData(value) {
     }
     return [];
   };
+  const normalizeRowList = (entry, fields = []) => {
+    if (!Array.isArray(entry)) {
+      return [];
+    }
+
+    return entry
+      .map((row) => {
+        const sourceRow = row && typeof row === 'object' ? row : {};
+        const normalized = {};
+        let hasValue = false;
+
+        fields.forEach((field) => {
+          const resolved = normalizeText(sourceRow[field]);
+          normalized[field] = resolved;
+          if (resolved) {
+            hasValue = true;
+          }
+        });
+
+        return hasValue ? normalized : null;
+      })
+      .filter(Boolean);
+  };
 
   return {
     code: normalizeText(source.code),
@@ -104,6 +127,16 @@ function normalizeManualData(value) {
     support_systems: normalizeTextList(source.support_systems || source.supportSystems),
     support_documents: normalizeTextList(source.support_documents || source.supportDocuments),
     support_data: normalizeTextList(source.support_data || source.supportData),
+    workflow_notes: normalizeTextList(source.workflow_notes || source.workflowNotes),
+    raci_responsible: normalizeTextList(source.raci_responsible || source.raciResponsible),
+    raci_accountable: normalizeTextList(source.raci_accountable || source.raciAccountable),
+    raci_consulted: normalizeTextList(source.raci_consulted || source.raciConsulted),
+    raci_informed: normalizeTextList(source.raci_informed || source.raciInformed),
+    kpi_details: normalizeRowList(source.kpi_details || source.kpiDetails, ['name', 'target', 'source']),
+    support_data_details: normalizeRowList(source.support_data_details || source.supportDataDetails, ['name', 'description', 'format', 'source', 'destination', 'criticality']),
+    support_document_details: normalizeRowList(source.support_document_details || source.supportDocumentDetails, ['name', 'type', 'generated_by', 'output_of', 'version']),
+    support_system_details: normalizeRowList(source.support_system_details || source.supportSystemDetails, ['name', 'role']),
+    risk_details: normalizeRowList(source.risk_details || source.riskDetails, ['title', 'severity', 'status', 'category', 'element', 'description', 'mitigation']),
   };
 }
 
@@ -948,6 +981,36 @@ async function notifyAssignedProcessManagers({
     severity,
   });
 }
+
+async function notifyAssignedProcessDesigners({
+  actor,
+  process,
+  userIds = [],
+  type,
+  title,
+  message,
+  severity = 'info',
+}) {
+  if (!process?.id) {
+    return;
+  }
+
+  const recipientIds = [...new Set((userIds || []).map((id) => Number(id)).filter(Number.isInteger))];
+  if (!recipientIds.length) {
+    return;
+  }
+
+  await notifySpecificRecipients({
+    actor,
+    companyId: process.company_id,
+    userIds: recipientIds,
+    type,
+    title,
+    message,
+    entityId: process.id,
+    severity,
+  });
+}
 function cleanupUploadedFile(file) {
   if (file?.path && fs.existsSync(file.path)) {
     fs.unlinkSync(file.path);
@@ -1377,6 +1440,15 @@ router.post('/processes', async (req, res) => {
       message: `${process.name} has been assigned to you in process management.`,
       severity: 'info',
     });
+    await notifyAssignedProcessDesigners({
+      actor: req.user,
+      process,
+      userIds: governanceAssignments.assignedDesignerIds,
+      type: 'process_designer_assignment',
+      title: 'New design task assigned',
+      message: `${process.name} has been assigned to you for process design.`,
+      severity: 'info',
+    });
     res.status(201).json(serializeProcessRecord(process));
   } catch (error) {
     console.error('Create process error:', error);
@@ -1469,6 +1541,10 @@ router.put('/processes/:id', async (req, res) => {
         ? bpmn_xml
         : (currentProcess.bpmn_xml || buildDefaultBpmnXml(nextName));
     const nextVersion = normalizeInteger(currentProcess.version, 1) || 1;
+    const previousDesignerIds = getAssignedDesignerIds(currentProcess);
+    const nextDesignerIds = governanceAssignments.assignedDesignerIds;
+    const newlyAssignedDesignerIds = nextDesignerIds.filter((id) => !previousDesignerIds.includes(id));
+    const unchangedDesignerIds = nextDesignerIds.filter((id) => previousDesignerIds.includes(id));
     const previousValidatorIds = getAssignedValidatorIds(currentProcess);
     const nextValidatorIds = governanceAssignments.assignedValidatorIds;
     const newlyAssignedValidatorIds = nextValidatorIds.filter((id) => !previousValidatorIds.includes(id));
@@ -1556,10 +1632,31 @@ router.put('/processes/:id', async (req, res) => {
       });
     }
 
+    if (newlyAssignedDesignerIds.length) {
+      await notifyAssignedProcessDesigners({
+        actor: req.user,
+        process: updatedProcess,
+        userIds: newlyAssignedDesignerIds,
+        type: 'process_designer_assignment',
+        title: 'Design task assignment updated',
+        message: `${updatedProcess.name} has been assigned to you for process design.`,
+        severity: 'info',
+      });
+    }
+
     await notifyAssignedProcessManagers({
       actor: req.user,
       process: updatedProcess,
       userIds: newlyAssignedValidatorIds.length ? unchangedValidatorIds : nextValidatorIds,
+      type: 'process_updated',
+      title: 'Process updated',
+      message: buildWorkflowNotificationMessage(`${updatedProcess.name} was updated in process management.`, change_description),
+      severity: 'info',
+    });
+    await notifyAssignedProcessDesigners({
+      actor: req.user,
+      process: updatedProcess,
+      userIds: newlyAssignedDesignerIds.length ? unchangedDesignerIds : nextDesignerIds,
       type: 'process_updated',
       title: 'Process updated',
       message: buildWorkflowNotificationMessage(`${updatedProcess.name} was updated in process management.`, change_description),
@@ -1767,6 +1864,15 @@ router.post('/processes/import', upload.single('bpmnFile'), async (req, res) => 
       message: `${importedProcess.name} has been assigned to you in process management.`,
       severity: 'info',
     });
+    await notifyAssignedProcessDesigners({
+      actor: req.user,
+      process: importedProcess,
+      userIds: governanceAssignments.assignedDesignerIds,
+      type: 'process_designer_assignment',
+      title: 'Imported design task assigned',
+      message: `${importedProcess.name} has been assigned to you for process design.`,
+      severity: 'info',
+    });
     cleanupUploadedFile(req.file);
     res.status(201).json(serializeProcessRecord(importedProcess));
   } catch (error) {
@@ -1872,7 +1978,13 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
     return;
   }
 
-  if (!ensureProcessWorkspaceAccess(req, res, process.company_id)) {
+  const normalizedStatus = normalizeProcessStatus(process.status, 'draft');
+  if (!req.user && !['approved', 'active'].includes(normalizedStatus)) {
+    res.status(403).json({ error: 'This manual is not available in the public portal.' });
+    return;
+  }
+
+  if (!ensureProcessReadAccess(req, res, process.company_id)) {
     return;
   }
 
@@ -1924,9 +2036,6 @@ async function sendProcessReport(req, res, { format = 'html', diagramImageDataUr
 
 router.get('/processes/:id/manual', async (req, res) => {
   try {
-    if (!ensureAuthenticated(req, res)) {
-      return;
-    }
     await sendProcessReport(req, res, {
       format: String(req.query.format || 'json').toLowerCase(),
     });

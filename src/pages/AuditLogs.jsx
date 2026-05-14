@@ -1,29 +1,45 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Badge, Card, Col, Container, Form, Row, Table } from 'react-bootstrap';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Badge, Button, Card, Col, Container, Form, Modal, Row, Table } from 'react-bootstrap';
 
 import { API_BASE } from '../utils/api';
 
 const API = API_BASE;
 
 const entityLabels = {
-  user: 'Utilisateur',
-  process: 'Processus',
+  user: 'User',
+  process: 'Process',
+  process_category: 'Category',
   role: 'Role',
-  orgchart_node: 'Organigramme',
+  orgchart_node: 'Org chart',
   simulation: 'Simulation',
 };
+
+const AUDIT_LOG_POLL_MS = 5000;
+
+function formatActionLabel(action) {
+  const normalized = String(action || '')
+    .replace(/_/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return '-';
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
 
 export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedLog, setSelectedLog] = useState(null);
   const [filters, setFilters] = useState({
     search: '',
     entityType: '',
     action: '',
   });
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     setLoading(true);
     setError('');
 
@@ -39,20 +55,47 @@ export default function AuditLogs() {
         : [];
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Impossible de charger le journal d audit.');
+        throw new Error(payload.error || 'Unable to load the audit log.');
       }
 
       setLogs(Array.isArray(payload) ? payload : []);
     } catch (loadError) {
-      setError(loadError.message || 'Impossible de charger le journal d audit.');
+      setError(loadError.message || 'Unable to load the audit log.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.action, filters.entityType, filters.search]);
 
   useEffect(() => {
     loadLogs();
-  }, [filters.entityType, filters.action]);
+  }, [loadLogs]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadLogs().catch(() => {});
+      }
+    }, AUDIT_LOG_POLL_MS);
+
+    const handleFocus = () => {
+      loadLogs().catch(() => {});
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadLogs().catch(() => {});
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [loadLogs]);
 
   const filteredLogs = useMemo(() => {
     if (!filters.search) {
@@ -82,9 +125,9 @@ export default function AuditLogs() {
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
               <h3 className="mb-1">Audit Log</h3>
-              <div className="text-muted">Trace des changements sur les utilisateurs, processus, roles, organigrammes et simulations.</div>
+              <div className="text-muted">Track changes across users, categories, processes, the org chart, and simulations.</div>
             </div>
-            <Badge bg="dark">{filteredLogs.length} entree(s)</Badge>
+            <Badge bg="dark">{filteredLogs.length} entr{filteredLogs.length === 1 ? 'y' : 'ies'}</Badge>
           </div>
         </Col>
       </Row>
@@ -96,7 +139,7 @@ export default function AuditLogs() {
           <Row className="g-3">
             <Col md={5}>
               <Form.Control
-                placeholder="Rechercher par resume, utilisateur, action..."
+                placeholder="Search by summary, user, action, or entity..."
                 value={filters.search}
                 onChange={(event) => setFilters((previous) => ({ ...previous, search: event.target.value }))}
               />
@@ -106,7 +149,7 @@ export default function AuditLogs() {
                 value={filters.entityType}
                 onChange={(event) => setFilters((previous) => ({ ...previous, entityType: event.target.value }))}
               >
-                <option value="">Tous les types</option>
+                <option value="">All entity types</option>
                 {Object.entries(entityLabels).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
@@ -117,14 +160,14 @@ export default function AuditLogs() {
                 value={filters.action}
                 onChange={(event) => setFilters((previous) => ({ ...previous, action: event.target.value }))}
               >
-                <option value="">Toutes les actions</option>
+                <option value="">All actions</option>
                 {actions.map((action) => (
-                  <option key={action} value={action}>{action}</option>
+                  <option key={action} value={action}>{formatActionLabel(action)}</option>
                 ))}
               </Form.Select>
             </Col>
             <Col md={1}>
-              <button type="button" className="btn btn-outline-secondary w-100" onClick={loadLogs}>
+              <button type="button" className="btn btn-outline-secondary w-100" onClick={loadLogs} title="Refresh audit log" aria-label="Refresh audit log">
                 <i className="bi bi-arrow-repeat" />
               </button>
             </Col>
@@ -140,42 +183,49 @@ export default function AuditLogs() {
             </div>
           ) : filteredLogs.length === 0 ? (
             <div className="text-center py-5 text-muted">
-              Aucune entree d audit pour les filtres actuels.
+              No audit entries match the current filters.
             </div>
           ) : (
             <Table hover responsive className="mb-0">
               <thead className="table-light">
                 <tr>
                   <th>Date</th>
-                  <th>Utilisateur</th>
-                  <th>Type</th>
+                  <th>User</th>
+                  <th>Entity</th>
                   <th>Action</th>
-                  <th>Resume</th>
+                  <th>Summary</th>
+                  <th className="text-end">Details</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredLogs.map((log) => (
                   <tr key={log.id}>
                     <td style={{ whiteSpace: 'nowrap' }}>
-                      {log.created_at ? new Date(log.created_at).toLocaleString('fr-FR') : '-'}
+                      {log.created_at ? new Date(log.created_at).toLocaleString() : '-'}
                     </td>
                     <td>
-                      <strong>{log.user_name || 'Systeme'}</strong>
+                      <strong>{log.user_name || 'System'}</strong>
                       {log.user_role && <div className="text-muted small">{log.user_role}</div>}
                     </td>
                     <td>
                       <Badge bg="secondary">{entityLabels[log.entity_type] || log.entity_type}</Badge>
                       {log.entity_id && <div className="text-muted small mt-1">#{log.entity_id}</div>}
                     </td>
-                    <td><code>{log.action}</code></td>
+                    <td><code>{formatActionLabel(log.action)}</code></td>
                     <td>
                       <div>{log.summary || '-'}</div>
-                      {log.details && Object.keys(log.details).length > 0 && (
-                        <details className="mt-1">
-                          <summary className="small text-muted" style={{ cursor: 'pointer' }}>Details</summary>
-                          <pre className="small mb-0 mt-2 p-2 bg-light rounded">{JSON.stringify(log.details, null, 2)}</pre>
-                        </details>
-                      )}
+                      {log.details && Object.keys(log.details).length > 0 ? (
+                        <div className="text-muted small mt-1">Additional structured details are available.</div>
+                      ) : null}
+                    </td>
+                    <td className="text-end">
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        onClick={() => setSelectedLog(log)}
+                      >
+                        View details
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -184,6 +234,50 @@ export default function AuditLogs() {
           )}
         </Card.Body>
       </Card>
+
+      <Modal show={!!selectedLog} onHide={() => setSelectedLog(null)} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Audit log details</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {!selectedLog ? null : (
+            <div className="d-flex flex-column gap-3">
+              <Row className="g-3">
+                <Col md={6}>
+                  <div className="small text-uppercase text-muted fw-semibold mb-1">Date</div>
+                  <div>{selectedLog.created_at ? new Date(selectedLog.created_at).toLocaleString() : '-'}</div>
+                </Col>
+                <Col md={6}>
+                  <div className="small text-uppercase text-muted fw-semibold mb-1">User</div>
+                  <div>{selectedLog.user_name || 'System'}</div>
+                  {selectedLog.user_role ? <div className="text-muted small">{selectedLog.user_role}</div> : null}
+                </Col>
+                <Col md={6}>
+                  <div className="small text-uppercase text-muted fw-semibold mb-1">Entity</div>
+                  <div>{entityLabels[selectedLog.entity_type] || selectedLog.entity_type}</div>
+                  {selectedLog.entity_id ? <div className="text-muted small">#{selectedLog.entity_id}</div> : null}
+                </Col>
+                <Col md={6}>
+                  <div className="small text-uppercase text-muted fw-semibold mb-1">Action</div>
+                  <div>{formatActionLabel(selectedLog.action)}</div>
+                </Col>
+              </Row>
+
+              <div>
+                <div className="small text-uppercase text-muted fw-semibold mb-1">Summary</div>
+                <div>{selectedLog.summary || '-'}</div>
+              </div>
+
+              <div>
+                <div className="small text-uppercase text-muted fw-semibold mb-1">Structured details</div>
+                <pre className="small mb-0 mt-2 p-3 bg-light rounded border" style={{ maxHeight: 360, overflow: 'auto' }}>
+                  {JSON.stringify(selectedLog.details || {}, null, 2)}
+                </pre>
+              </div>
+            </div>
+          )}
+        </Modal.Body>
+      </Modal>
     </Container>
   );
 }

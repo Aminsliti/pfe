@@ -30,6 +30,23 @@ const DEFAULT_MANUAL_DATA = {
   support_systems: [],
   support_documents: [],
   support_data: [],
+  workflow_notes: [],
+  raci_responsible: [],
+  raci_accountable: [],
+  raci_consulted: [],
+  raci_informed: [],
+  kpi_details: [],
+  support_data_details: [],
+  support_document_details: [],
+  support_system_details: [],
+  risk_details: [],
+};
+const MANUAL_RECORD_FACTORIES = {
+  kpi_details: () => ({ name: '', target: '', source: '' }),
+  support_data_details: () => ({ name: '', description: '', format: '', source: '', destination: '', criticality: '' }),
+  support_document_details: () => ({ name: '', type: '', generated_by: '', output_of: '', version: '' }),
+  support_system_details: () => ({ name: '', role: '' }),
+  risk_details: () => ({ title: '', severity: '', status: '', category: '', element: '', description: '', mitigation: '' }),
 };
 const MANUAL_SECTION_CHOICES = [
   { key: 'identity', label: '1. Identite du processus' },
@@ -220,6 +237,30 @@ function normalizeManualList(value) {
   return [];
 }
 
+function normalizeManualRecordList(value, fields = []) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const source = entry && typeof entry === 'object' ? entry : {};
+      const normalized = {};
+      let hasValue = false;
+
+      fields.forEach((field) => {
+        const resolved = String(source[field] || '').trim();
+        normalized[field] = resolved;
+        if (resolved) {
+          hasValue = true;
+        }
+      });
+
+      return hasValue ? normalized : null;
+    })
+    .filter(Boolean);
+}
+
 function normalizeManualDataForForm(value = null) {
   const source = value && typeof value === 'object' ? value : {};
 
@@ -237,6 +278,16 @@ function normalizeManualDataForForm(value = null) {
     support_systems: normalizeManualList(source.support_systems || source.supportSystems),
     support_documents: normalizeManualList(source.support_documents || source.supportDocuments),
     support_data: normalizeManualList(source.support_data || source.supportData),
+    workflow_notes: normalizeManualList(source.workflow_notes || source.workflowNotes),
+    raci_responsible: normalizeManualList(source.raci_responsible || source.raciResponsible),
+    raci_accountable: normalizeManualList(source.raci_accountable || source.raciAccountable),
+    raci_consulted: normalizeManualList(source.raci_consulted || source.raciConsulted),
+    raci_informed: normalizeManualList(source.raci_informed || source.raciInformed),
+    kpi_details: normalizeManualRecordList(source.kpi_details || source.kpiDetails, ['name', 'target', 'source']),
+    support_data_details: normalizeManualRecordList(source.support_data_details || source.supportDataDetails, ['name', 'description', 'format', 'source', 'destination', 'criticality']),
+    support_document_details: normalizeManualRecordList(source.support_document_details || source.supportDocumentDetails, ['name', 'type', 'generated_by', 'output_of', 'version']),
+    support_system_details: normalizeManualRecordList(source.support_system_details || source.supportSystemDetails, ['name', 'role']),
+    risk_details: normalizeManualRecordList(source.risk_details || source.riskDetails, ['title', 'severity', 'status', 'category', 'element', 'description', 'mitigation']),
   };
 }
 
@@ -301,6 +352,100 @@ function ManualPreviewTable({ title, columns = [], rows = [], emptyLabel = 'No d
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function ManualStructuredRowsEditor({
+  title,
+  description = '',
+  rows = [],
+  columns = [],
+  disabled = false,
+  addLabel = 'Add row',
+  emptyLabel = 'No rows added yet.',
+  onAddRow,
+  onRemoveRow,
+  onUpdateRow,
+}) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  return (
+    <div className="border rounded-4 p-3 bg-white">
+      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+          <div className="fw-semibold">{title}</div>
+          {description ? <div className="text-muted small">{description}</div> : null}
+        </div>
+        <Button type="button" size="sm" variant="outline-dark" disabled={disabled} onClick={onAddRow}>
+          {addLabel}
+        </Button>
+      </div>
+
+      {safeRows.length === 0 ? (
+        <div className="text-muted small">{emptyLabel}</div>
+      ) : (
+        <div className="table-responsive">
+          <table className="table table-sm align-middle mb-0">
+            <thead className="table-light">
+              <tr>
+                {columns.map((column) => (
+                  <th key={`${title}-${column.key}`} className="small text-uppercase text-muted">
+                    {column.label}
+                  </th>
+                ))}
+                <th className="small text-uppercase text-muted text-end">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {safeRows.map((row, rowIndex) => (
+                <tr key={`${title}-row-${rowIndex}`}>
+                  {columns.map((column) => (
+                    <td key={`${title}-${rowIndex}-${column.key}`}>
+                      {column.input === 'select' ? (
+                        <Form.Select
+                          size="sm"
+                          disabled={disabled}
+                          value={row?.[column.key] || ''}
+                          onChange={(event) => onUpdateRow(rowIndex, column.key, event.target.value)}
+                        >
+                          <option value="">{column.placeholder || 'Select'}</option>
+                          {(column.options || []).map((option) => (
+                            <option key={`${column.key}-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </Form.Select>
+                      ) : (
+                        <Form.Control
+                          size="sm"
+                          as={column.input === 'textarea' ? 'textarea' : undefined}
+                          rows={column.input === 'textarea' ? 2 : undefined}
+                          disabled={disabled}
+                          value={row?.[column.key] || ''}
+                          onChange={(event) => onUpdateRow(rowIndex, column.key, event.target.value)}
+                          placeholder={column.placeholder || ''}
+                        />
+                      )}
+                    </td>
+                  ))}
+                  <td className="text-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline-danger"
+                      disabled={disabled}
+                      onClick={() => onRemoveRow(rowIndex)}
+                    >
+                      Remove
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -462,6 +607,10 @@ export function ProcessManagement({ publicView = false }) {
   };
 
   const fetchProtectedProcessAsset = (url, init = undefined) => {
+    if (publicView) {
+      return fetch(url, init);
+    }
+
     if (!user?.id) {
       throw new Error('Your session expired. Please log in again.');
     }
@@ -620,6 +769,446 @@ export function ProcessManagement({ publicView = false }) {
   const updateManualDataListField = (key, value) => {
     updateManualDataField(key, normalizeManualList(value));
   };
+
+  const updateManualDataRecordField = (key, rowIndex, field, value) => {
+    setFormData((current) => {
+      const manualData = normalizeManualDataForForm(current.manual_data);
+      const rows = Array.isArray(manualData[key]) ? [...manualData[key]] : [];
+      rows[rowIndex] = {
+        ...(rows[rowIndex] || {}),
+        [field]: value,
+      };
+
+      return {
+        ...current,
+        manual_data: {
+          ...manualData,
+          [key]: rows,
+        },
+      };
+    });
+  };
+
+  const addManualDataRecord = (key) => {
+    const createRow = MANUAL_RECORD_FACTORIES[key];
+    if (typeof createRow !== 'function') {
+      return;
+    }
+
+    setFormData((current) => {
+      const manualData = normalizeManualDataForForm(current.manual_data);
+      const rows = Array.isArray(manualData[key]) ? [...manualData[key]] : [];
+      rows.push(createRow());
+
+      return {
+        ...current,
+        manual_data: {
+          ...manualData,
+          [key]: rows,
+        },
+      };
+    });
+  };
+
+  const removeManualDataRecord = (key, rowIndex) => {
+    setFormData((current) => {
+      const manualData = normalizeManualDataForForm(current.manual_data);
+      const rows = Array.isArray(manualData[key]) ? [...manualData[key]] : [];
+      rows.splice(rowIndex, 1);
+
+      return {
+        ...current,
+        manual_data: {
+          ...manualData,
+          [key]: rows,
+        },
+      };
+    });
+  };
+
+  const renderManualMetadataEditor = () => (
+    <div className="border rounded-4 p-3 mb-3" style={{ background: '#fffdfa' }}>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h6 className="mb-1">Manuel de procedure</h6>
+          <div className="text-muted small">Remplissez les champs et les tableaux ci-dessous pour remplacer les cellules affichees comme "Non renseigne".</div>
+        </div>
+      </div>
+      <Row>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Code</Form.Label>
+            <Form.Control
+              disabled={!canEditSelectedProcess}
+              value={formData.manual_data?.code || ''}
+              onChange={(event) => updateManualDataField('code', event.target.value)}
+              placeholder="Ex: MP-CRT-001"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Owner</Form.Label>
+            <Form.Control
+              disabled={!canEditSelectedProcess}
+              value={formData.manual_data?.owner || ''}
+              onChange={(event) => updateManualDataField('owner', event.target.value)}
+              placeholder="Responsable du processus"
+            />
+          </Form.Group>
+        </Col>
+      </Row>
+      <Form.Group className="mb-3">
+        <Form.Label>Objectif</Form.Label>
+        <Form.Control
+          as="textarea"
+          rows={2}
+          disabled={!canEditSelectedProcess}
+          value={formData.manual_data?.objective || ''}
+          onChange={(event) => updateManualDataField('objective', event.target.value)}
+          placeholder="Objectif principal du processus"
+        />
+      </Form.Group>
+      <Row>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Perimetre</Form.Label>
+            <Form.Control
+              disabled={!canEditSelectedProcess}
+              value={formData.manual_data?.scope || ''}
+              onChange={(event) => updateManualDataField('scope', event.target.value)}
+              placeholder="Perimetre fonctionnel ou organisationnel"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Frequence</Form.Label>
+            <Form.Control
+              disabled={!canEditSelectedProcess}
+              value={formData.manual_data?.frequency || ''}
+              onChange={(event) => updateManualDataField('frequency', event.target.value)}
+              placeholder="Ex: Quotidienne / Hebdomadaire / A la demande"
+            />
+          </Form.Group>
+        </Col>
+      </Row>
+      <Row>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Declencheur</Form.Label>
+            <Form.Control
+              disabled={!canEditSelectedProcess}
+              value={formData.manual_data?.trigger || ''}
+              onChange={(event) => updateManualDataField('trigger', event.target.value)}
+              placeholder="Evenement de demarrage du processus"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Resultat attendu</Form.Label>
+            <Form.Control
+              disabled={!canEditSelectedProcess}
+              value={formData.manual_data?.expected_result || ''}
+              onChange={(event) => updateManualDataField('expected_result', event.target.value)}
+              placeholder="Livrable ou resultat final"
+            />
+          </Form.Group>
+        </Col>
+      </Row>
+      <Form.Group className="mb-3">
+        <Form.Label>Contexte</Form.Label>
+        <Form.Control
+          as="textarea"
+          rows={2}
+          disabled={!canEditSelectedProcess}
+          value={formData.manual_data?.context || ''}
+          onChange={(event) => updateManualDataField('context', event.target.value)}
+          placeholder="Contexte, limites ou remarques"
+        />
+      </Form.Group>
+      <Row>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>KPI cles</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={4}
+              disabled={!canEditSelectedProcess}
+              value={manualListToTextarea(formData.manual_data?.kpis)}
+              onChange={(event) => updateManualDataListField('kpis', event.target.value)}
+              placeholder="Une ligne par KPI"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={6}>
+          <Form.Group className="mb-3">
+            <Form.Label>Controles cles</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={4}
+              disabled={!canEditSelectedProcess}
+              value={manualListToTextarea(formData.manual_data?.controls)}
+              onChange={(event) => updateManualDataListField('controls', event.target.value)}
+              placeholder="Un controle par ligne"
+            />
+          </Form.Group>
+        </Col>
+      </Row>
+      <Row>
+        <Col md={4}>
+          <Form.Group className="mb-3">
+            <Form.Label>Systemes supports</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={4}
+              disabled={!canEditSelectedProcess}
+              value={manualListToTextarea(formData.manual_data?.support_systems)}
+              onChange={(event) => updateManualDataListField('support_systems', event.target.value)}
+              placeholder="Un systeme par ligne"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={4}>
+          <Form.Group className="mb-3">
+            <Form.Label>Documents supports</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={4}
+              disabled={!canEditSelectedProcess}
+              value={manualListToTextarea(formData.manual_data?.support_documents)}
+              onChange={(event) => updateManualDataListField('support_documents', event.target.value)}
+              placeholder="Un document par ligne"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={4}>
+          <Form.Group className="mb-3">
+            <Form.Label>Donnees supports</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={4}
+              disabled={!canEditSelectedProcess}
+              value={manualListToTextarea(formData.manual_data?.support_data)}
+              onChange={(event) => updateManualDataListField('support_data', event.target.value)}
+              placeholder="Une donnee par ligne"
+            />
+          </Form.Group>
+        </Col>
+      </Row>
+
+      <Accordion alwaysOpen defaultActiveKey={['raci', 'kpis', 'support', 'risks']} className="mt-2">
+        <Accordion.Item eventKey="raci" className="border rounded-4 overflow-hidden bg-white mb-2">
+          <Accordion.Header>RACI et workflow</Accordion.Header>
+          <Accordion.Body>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Responsible</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={3}
+                    disabled={!canEditSelectedProcess}
+                    value={manualListToTextarea(formData.manual_data?.raci_responsible)}
+                    onChange={(event) => updateManualDataListField('raci_responsible', event.target.value)}
+                    placeholder="Une personne par ligne"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Accountable</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={3}
+                    disabled={!canEditSelectedProcess}
+                    value={manualListToTextarea(formData.manual_data?.raci_accountable)}
+                    onChange={(event) => updateManualDataListField('raci_accountable', event.target.value)}
+                    placeholder="Une personne par ligne"
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Consulted</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={3}
+                    disabled={!canEditSelectedProcess}
+                    value={manualListToTextarea(formData.manual_data?.raci_consulted)}
+                    onChange={(event) => updateManualDataListField('raci_consulted', event.target.value)}
+                    placeholder="Une personne par ligne"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Informed</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={3}
+                    disabled={!canEditSelectedProcess}
+                    value={manualListToTextarea(formData.manual_data?.raci_informed)}
+                    onChange={(event) => updateManualDataListField('raci_informed', event.target.value)}
+                    placeholder="Une personne par ligne"
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+            <Form.Group>
+              <Form.Label>Workflow notes</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={4}
+                disabled={!canEditSelectedProcess}
+                value={manualListToTextarea(formData.manual_data?.workflow_notes)}
+                onChange={(event) => updateManualDataListField('workflow_notes', event.target.value)}
+                placeholder="Une note par ligne"
+              />
+            </Form.Group>
+          </Accordion.Body>
+        </Accordion.Item>
+
+        <Accordion.Item eventKey="kpis" className="border rounded-4 overflow-hidden bg-white mb-2">
+          <Accordion.Header>Details KPI</Accordion.Header>
+          <Accordion.Body>
+            <ManualStructuredRowsEditor
+              title="Matrice KPI detaillee"
+              description="Utilisez ces lignes pour renseigner le KPI, la cible et la source au lieu de laisser 'A definir' ou 'Non renseigne'."
+              rows={formData.manual_data?.kpi_details}
+              columns={[
+                { key: 'name', label: 'KPI', placeholder: 'Nom du KPI' },
+                { key: 'target', label: 'Cible', placeholder: 'Ex: 48h' },
+                { key: 'source', label: 'Source', placeholder: 'Ex: Tableau de bord' },
+              ]}
+              disabled={!canEditSelectedProcess}
+              addLabel="Add KPI"
+              onAddRow={() => addManualDataRecord('kpi_details')}
+              onRemoveRow={(rowIndex) => removeManualDataRecord('kpi_details', rowIndex)}
+              onUpdateRow={(rowIndex, field, value) => updateManualDataRecordField('kpi_details', rowIndex, field, value)}
+            />
+          </Accordion.Body>
+        </Accordion.Item>
+
+        <Accordion.Item eventKey="support" className="border rounded-4 overflow-hidden bg-white mb-2">
+          <Accordion.Header>Objets supports detailles</Accordion.Header>
+          <Accordion.Body>
+            <div className="d-flex flex-column gap-3">
+              <ManualStructuredRowsEditor
+                title="4.1 Donnees"
+                description="Completez les colonnes Definition, Format, Source, Cible et Sensibilite."
+                rows={formData.manual_data?.support_data_details}
+                columns={[
+                  { key: 'name', label: 'Nom', placeholder: 'Nom de la donnee' },
+                  { key: 'description', label: 'Definition', input: 'textarea', placeholder: 'Definition de la donnee' },
+                  { key: 'format', label: 'Format', placeholder: 'Ex: Decimal / Date / Texte' },
+                  { key: 'source', label: 'Source', placeholder: 'Origine de la donnee' },
+                  { key: 'destination', label: 'Cible', placeholder: 'Destination de la donnee' },
+                  { key: 'criticality', label: 'Sensibilite', placeholder: 'Ex: Haute' },
+                ]}
+                disabled={!canEditSelectedProcess}
+                addLabel="Add data row"
+                onAddRow={() => addManualDataRecord('support_data_details')}
+                onRemoveRow={(rowIndex) => removeManualDataRecord('support_data_details', rowIndex)}
+                onUpdateRow={(rowIndex, field, value) => updateManualDataRecordField('support_data_details', rowIndex, field, value)}
+              />
+              <ManualStructuredRowsEditor
+                title="4.2 Documents"
+                description="Completez les documents pour remplacer les lignes incompletes ou les versions non renseignees."
+                rows={formData.manual_data?.support_document_details}
+                columns={[
+                  { key: 'name', label: 'Nom', placeholder: 'Nom du document' },
+                  { key: 'type', label: 'Type', placeholder: 'Ex: Formulaire / Justificatif' },
+                  { key: 'generated_by', label: 'Genere par', placeholder: 'Acteur ou activite source' },
+                  { key: 'output_of', label: 'Sortie de', placeholder: 'Activite destination' },
+                  { key: 'version', label: 'Version', placeholder: 'Ex: V1.0' },
+                ]}
+                disabled={!canEditSelectedProcess}
+                addLabel="Add document"
+                onAddRow={() => addManualDataRecord('support_document_details')}
+                onRemoveRow={(rowIndex) => removeManualDataRecord('support_document_details', rowIndex)}
+                onUpdateRow={(rowIndex, field, value) => updateManualDataRecordField('support_document_details', rowIndex, field, value)}
+              />
+              <ManualStructuredRowsEditor
+                title="4.3 Systemes d information"
+                description="Renseignez le nom de l'application et son role dans le processus."
+                rows={formData.manual_data?.support_system_details}
+                columns={[
+                  { key: 'name', label: 'Application', placeholder: 'Nom du systeme' },
+                  { key: 'role', label: 'Role', input: 'textarea', placeholder: 'Role dans le processus' },
+                ]}
+                disabled={!canEditSelectedProcess}
+                addLabel="Add system"
+                onAddRow={() => addManualDataRecord('support_system_details')}
+                onRemoveRow={(rowIndex) => removeManualDataRecord('support_system_details', rowIndex)}
+                onUpdateRow={(rowIndex, field, value) => updateManualDataRecordField('support_system_details', rowIndex, field, value)}
+              />
+            </div>
+          </Accordion.Body>
+        </Accordion.Item>
+
+        <Accordion.Item eventKey="risks" className="border rounded-4 overflow-hidden bg-white">
+          <Accordion.Header>Risques detailles</Accordion.Header>
+          <Accordion.Body>
+            <ManualStructuredRowsEditor
+              title="5.2 Matrice des risques"
+              description="Ajoutez des risques manuels ou completez la description et la mitigation si le diagramme BPMN ne les porte pas."
+              rows={formData.manual_data?.risk_details}
+              columns={[
+                { key: 'title', label: 'Risque', placeholder: 'Titre du risque' },
+                {
+                  key: 'severity',
+                  label: 'Severite',
+                  input: 'select',
+                  placeholder: 'Select severity',
+                  options: [
+                    { value: 'low', label: 'Low' },
+                    { value: 'medium', label: 'Medium' },
+                    { value: 'high', label: 'High' },
+                    { value: 'critical', label: 'Very High' },
+                  ],
+                },
+                {
+                  key: 'status',
+                  label: 'Statut',
+                  input: 'select',
+                  placeholder: 'Select status',
+                  options: [
+                    { value: 'open', label: 'Open' },
+                    { value: 'monitoring', label: 'Monitoring' },
+                    { value: 'closed', label: 'Closed' },
+                  ],
+                },
+                {
+                  key: 'category',
+                  label: 'Categorie',
+                  input: 'select',
+                  placeholder: 'Select category',
+                  options: [
+                    { value: 'operational', label: 'Operational' },
+                    { value: 'compliance', label: 'Compliance' },
+                    { value: 'financial', label: 'Financial' },
+                    { value: 'quality', label: 'Quality' },
+                  ],
+                },
+                { key: 'element', label: 'Element BPMN', placeholder: 'Element concerne' },
+                { key: 'description', label: 'Description', input: 'textarea', placeholder: 'Description du risque' },
+                { key: 'mitigation', label: 'Mitigation', input: 'textarea', placeholder: 'Action de mitigation / controle' },
+              ]}
+              disabled={!canEditSelectedProcess}
+              addLabel="Add risk"
+              onAddRow={() => addManualDataRecord('risk_details')}
+              onRemoveRow={(rowIndex) => removeManualDataRecord('risk_details', rowIndex)}
+              onUpdateRow={(rowIndex, field, value) => updateManualDataRecordField('risk_details', rowIndex, field, value)}
+            />
+          </Accordion.Body>
+        </Accordion.Item>
+      </Accordion>
+    </div>
+  );
 
   const loadProcesses = async () => {
     if (!canViewWorkspace) return;
@@ -1730,6 +2319,23 @@ export function ProcessManagement({ publicView = false }) {
     setProcessReportBusy(format);
     try {
       const id = Number(process?.id || 0);
+      if (publicView) {
+        const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/manual?format=${format}`);
+        if (!response.ok) {
+          await readApiPayload(response, 'Export failed');
+          return;
+        }
+        const blob = await response.blob();
+        const extension = format === 'pdf' ? 'pdf' : format === 'docx' ? 'docx' : 'html';
+        const fallbackBase = buildProcessDownloadBase(process, `process-${id}`);
+        const filename = parseFilenameFromDisposition(
+          response.headers.get('Content-Disposition'),
+          `${fallbackBase} - manuel de procedure.${extension}`
+        );
+        downloadBlob(blob, filename);
+        return;
+      }
+
       const needsDiagramImage = format === 'pdf' || format === 'docx' || format === 'html';
       let diagramImageDataUrl = null;
       if (needsDiagramImage) {
@@ -2085,10 +2691,10 @@ export function ProcessManagement({ publicView = false }) {
 
     const severity = String(row?.severity || '').toLowerCase();
     const palette = {
-      low: { bg: '#fde68a', fg: '#7c2d12', label: 'Low' },
-      medium: { bg: '#fdba74', fg: '#7c2d12', label: 'Medium' },
-      high: { bg: '#fca5a5', fg: '#7f1d1d', label: 'High' },
-      critical: { bg: '#ef4444', fg: '#ffffff', label: 'Critical' },
+      low: { bg: '#dcfce7', fg: '#166534', label: 'Low' },
+      medium: { bg: '#fef9c3', fg: '#854d0e', label: 'Medium' },
+      high: { bg: '#ffedd5', fg: '#9a3412', label: 'High' },
+      critical: { bg: '#fee2e2', fg: '#991b1b', label: 'Very High' },
     };
     const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
 
@@ -2426,7 +3032,7 @@ export function ProcessManagement({ publicView = false }) {
             <div className="d-flex justify-content-between align-items-center">
               <div>
                 <h6 className="mb-1">Metadata</h6>
-                <div className="text-muted small">Name, category, description, assignments, and manual-generation fields.</div>
+                <div className="text-muted small">Name, category, description, assignments, and workflow status.</div>
               </div>
               <Badge bg={statusVariant(currentWorkflowStatus)}>{statusLabel(currentWorkflowStatus)}</Badge>
             </div>
@@ -2456,99 +3062,6 @@ export function ProcessManagement({ publicView = false }) {
                 </Form.Group>
               </Col>
             </Row>
-
-            <div className="border rounded-4 p-3" style={{ background: '#fffdfa' }}>
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <div>
-                  <h6 className="mb-1">Manuel de procedure</h6>
-                  <div className="text-muted small">Fields used to generate the procedure manual matrices.</div>
-                </div>
-              </div>
-              <Row>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Code</Form.Label>
-                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.code || ''} onChange={(event) => updateManualDataField('code', event.target.value)} placeholder="Ex: MP-CRT-001" />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Owner</Form.Label>
-                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.owner || ''} onChange={(event) => updateManualDataField('owner', event.target.value)} placeholder="Responsable du processus" />
-                  </Form.Group>
-                </Col>
-              </Row>
-              <Form.Group className="mb-3">
-                <Form.Label>Objectif</Form.Label>
-                <Form.Control as="textarea" rows={2} disabled={!canEditSelectedProcess} value={formData.manual_data?.objective || ''} onChange={(event) => updateManualDataField('objective', event.target.value)} placeholder="Objectif principal du processus" />
-              </Form.Group>
-              <Row>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Perimetre</Form.Label>
-                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.scope || ''} onChange={(event) => updateManualDataField('scope', event.target.value)} placeholder="Perimetre fonctionnel ou organisationnel" />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Frequence</Form.Label>
-                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.frequency || ''} onChange={(event) => updateManualDataField('frequency', event.target.value)} placeholder="Ex: Quotidienne / Hebdomadaire / A la demande" />
-                  </Form.Group>
-                </Col>
-              </Row>
-              <Row>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Declencheur</Form.Label>
-                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.trigger || ''} onChange={(event) => updateManualDataField('trigger', event.target.value)} placeholder="Evenement de demarrage du processus" />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Resultat attendu</Form.Label>
-                    <Form.Control disabled={!canEditSelectedProcess} value={formData.manual_data?.expected_result || ''} onChange={(event) => updateManualDataField('expected_result', event.target.value)} placeholder="Livrable ou resultat final" />
-                  </Form.Group>
-                </Col>
-              </Row>
-              <Form.Group className="mb-3">
-                <Form.Label>Contexte</Form.Label>
-                <Form.Control as="textarea" rows={2} disabled={!canEditSelectedProcess} value={formData.manual_data?.context || ''} onChange={(event) => updateManualDataField('context', event.target.value)} placeholder="Contexte, limites ou remarques" />
-              </Form.Group>
-              <Row>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>KPI cles</Form.Label>
-                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.kpis)} onChange={(event) => updateManualDataListField('kpis', event.target.value)} placeholder="Une ligne par KPI" />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Controles cles</Form.Label>
-                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.controls)} onChange={(event) => updateManualDataListField('controls', event.target.value)} placeholder="Un controle par ligne" />
-                  </Form.Group>
-                </Col>
-              </Row>
-              <Row>
-                <Col md={4}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Systemes supports</Form.Label>
-                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.support_systems)} onChange={(event) => updateManualDataListField('support_systems', event.target.value)} placeholder="Un systeme par ligne" />
-                  </Form.Group>
-                </Col>
-                <Col md={4}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Documents supports</Form.Label>
-                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.support_documents)} onChange={(event) => updateManualDataListField('support_documents', event.target.value)} placeholder="Un document par ligne" />
-                  </Form.Group>
-                </Col>
-                <Col md={4}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Donnees supports</Form.Label>
-                    <Form.Control as="textarea" rows={4} disabled={!canEditSelectedProcess} value={manualListToTextarea(formData.manual_data?.support_data)} onChange={(event) => updateManualDataListField('support_data', event.target.value)} placeholder="Une donnee par ligne" />
-                  </Form.Group>
-                </Col>
-              </Row>
-            </div>
 
             <Row>
               <Col md={6}>
@@ -2602,10 +3115,10 @@ export function ProcessManagement({ publicView = false }) {
 
         const severity = String(row?.severity || '').toLowerCase();
         const palette = {
-          low: { bg: '#fde68a', fg: '#7c2d12', label: 'Low' },
-          medium: { bg: '#fdba74', fg: '#7c2d12', label: 'Medium' },
-          high: { bg: '#fca5a5', fg: '#7f1d1d', label: 'High' },
-          critical: { bg: '#ef4444', fg: '#ffffff', label: 'Critical' },
+          low: { bg: '#dcfce7', fg: '#166534', label: 'Low' },
+          medium: { bg: '#fef9c3', fg: '#854d0e', label: 'Medium' },
+          high: { bg: '#ffedd5', fg: '#9a3412', label: 'High' },
+          critical: { bg: '#fee2e2', fg: '#991b1b', label: 'Very High' },
         };
         const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
 
@@ -2763,7 +3276,7 @@ export function ProcessManagement({ publicView = false }) {
 
           {canEditSelectedProcess ? (
             <div className="text-muted small">
-              Save metadata to refresh this preview after editing the manual fields or BPMN diagram.
+              Save metadata to refresh this preview after editing the process details or BPMN diagram.
             </div>
           ) : null}
 
@@ -2977,8 +3490,9 @@ export function ProcessManagement({ publicView = false }) {
               {detailLoading ? <div className="spinner-border spinner-border-sm text-danger ms-1" role="status" /> : null}
             </div>
 
-            {!publicView ? (
-              <div className="d-flex flex-wrap gap-2">
+            <div className="d-flex flex-wrap gap-2">
+              {!publicView ? (
+                <>
                 {canApproveProcess(selectedProcessRecord) ? (
                   <Button
                     type="button"
@@ -3001,35 +3515,36 @@ export function ProcessManagement({ publicView = false }) {
                 <Button type="button" size="sm" variant="outline-dark" onClick={() => handleExport(selectedProcessRecord)}>
                   BPMN
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline-dark"
-                  onClick={() => handleProcessReportDownload(selectedProcessRecord, 'html')}
-                  disabled={processReportBusy === 'html'}
-                >
-                  {processReportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline-secondary"
-                  onClick={() => handleProcessReportDownload(selectedProcessRecord, 'pdf')}
-                  disabled={processReportBusy === 'pdf'}
-                >
-                  {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline-primary"
-                  onClick={() => handleProcessReportDownload(selectedProcessRecord, 'docx')}
-                  disabled={processReportBusy === 'docx'}
-                >
-                  {processReportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
-                </Button>
-              </div>
-            ) : null}
+                </>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline-dark"
+                onClick={() => handleProcessReportDownload(selectedProcessRecord, 'html')}
+                disabled={processReportBusy === 'html'}
+              >
+                {processReportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline-secondary"
+                onClick={() => handleProcessReportDownload(selectedProcessRecord, 'pdf')}
+                disabled={processReportBusy === 'pdf'}
+              >
+                {processReportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline-primary"
+                onClick={() => handleProcessReportDownload(selectedProcessRecord, 'docx')}
+                disabled={processReportBusy === 'docx'}
+              >
+                {processReportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
+              </Button>
+            </div>
 
             <Row className="g-4">
               <Col xl={8}>
@@ -3700,177 +4215,6 @@ export function ProcessManagement({ publicView = false }) {
                             </Form.Group>
                           </Col>
                         </Row>
-                        <div className="border rounded-4 p-3 mb-3" style={{ background: '#fffdfa' }}>
-                          <div className="d-flex justify-content-between align-items-center mb-3">
-                            <div>
-                              <h6 className="mb-1">Manuel de procedure</h6>
-                              <div className="text-muted small">Champs standard utilises pour generer automatiquement les matrices du manuel.</div>
-                            </div>
-                          </div>
-                          <Row>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Code</Form.Label>
-                                <Form.Control
-                                  disabled={!canEditSelectedProcess}
-                                  value={formData.manual_data?.code || ''}
-                                  onChange={(event) => updateManualDataField('code', event.target.value)}
-                                  placeholder="Ex: MP-CRT-001"
-                                />
-                              </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Owner</Form.Label>
-                                <Form.Control
-                                  disabled={!canEditSelectedProcess}
-                                  value={formData.manual_data?.owner || ''}
-                                  onChange={(event) => updateManualDataField('owner', event.target.value)}
-                                  placeholder="Responsable du processus"
-                                />
-                              </Form.Group>
-                            </Col>
-                          </Row>
-                          <Form.Group className="mb-3">
-                            <Form.Label>Objectif</Form.Label>
-                            <Form.Control
-                              as="textarea"
-                              rows={2}
-                              disabled={!canEditSelectedProcess}
-                              value={formData.manual_data?.objective || ''}
-                              onChange={(event) => updateManualDataField('objective', event.target.value)}
-                              placeholder="Objectif principal du processus"
-                            />
-                          </Form.Group>
-                          <Row>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Perimetre</Form.Label>
-                                <Form.Control
-                                  disabled={!canEditSelectedProcess}
-                                  value={formData.manual_data?.scope || ''}
-                                  onChange={(event) => updateManualDataField('scope', event.target.value)}
-                                  placeholder="Perimetre fonctionnel ou organisationnel"
-                                />
-                              </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Frequence</Form.Label>
-                                <Form.Control
-                                  disabled={!canEditSelectedProcess}
-                                  value={formData.manual_data?.frequency || ''}
-                                  onChange={(event) => updateManualDataField('frequency', event.target.value)}
-                                  placeholder="Ex: Quotidienne / Hebdomadaire / A la demande"
-                                />
-                              </Form.Group>
-                            </Col>
-                          </Row>
-                          <Row>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Declencheur</Form.Label>
-                                <Form.Control
-                                  disabled={!canEditSelectedProcess}
-                                  value={formData.manual_data?.trigger || ''}
-                                  onChange={(event) => updateManualDataField('trigger', event.target.value)}
-                                  placeholder="Evenement de demarrage du processus"
-                                />
-                              </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Resultat attendu</Form.Label>
-                                <Form.Control
-                                  disabled={!canEditSelectedProcess}
-                                  value={formData.manual_data?.expected_result || ''}
-                                  onChange={(event) => updateManualDataField('expected_result', event.target.value)}
-                                  placeholder="Livrable ou resultat final"
-                                />
-                              </Form.Group>
-                            </Col>
-                          </Row>
-                          <Form.Group className="mb-3">
-                            <Form.Label>Contexte</Form.Label>
-                            <Form.Control
-                              as="textarea"
-                              rows={2}
-                              disabled={!canEditSelectedProcess}
-                              value={formData.manual_data?.context || ''}
-                              onChange={(event) => updateManualDataField('context', event.target.value)}
-                              placeholder="Contexte, limites ou remarques"
-                            />
-                          </Form.Group>
-                          <Row>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>KPI cles</Form.Label>
-                                <Form.Control
-                                  as="textarea"
-                                  rows={4}
-                                  disabled={!canEditSelectedProcess}
-                                  value={manualListToTextarea(formData.manual_data?.kpis)}
-                                  onChange={(event) => updateManualDataListField('kpis', event.target.value)}
-                                  placeholder="Une ligne par KPI"
-                                />
-                              </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Controles cles</Form.Label>
-                                <Form.Control
-                                  as="textarea"
-                                  rows={4}
-                                  disabled={!canEditSelectedProcess}
-                                  value={manualListToTextarea(formData.manual_data?.controls)}
-                                  onChange={(event) => updateManualDataListField('controls', event.target.value)}
-                                  placeholder="Un controle par ligne"
-                                />
-                              </Form.Group>
-                            </Col>
-                          </Row>
-                          <Row>
-                            <Col md={4}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Systemes supports</Form.Label>
-                                <Form.Control
-                                  as="textarea"
-                                  rows={4}
-                                  disabled={!canEditSelectedProcess}
-                                  value={manualListToTextarea(formData.manual_data?.support_systems)}
-                                  onChange={(event) => updateManualDataListField('support_systems', event.target.value)}
-                                  placeholder="Un systeme par ligne"
-                                />
-                              </Form.Group>
-                            </Col>
-                            <Col md={4}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Documents supports</Form.Label>
-                                <Form.Control
-                                  as="textarea"
-                                  rows={4}
-                                  disabled={!canEditSelectedProcess}
-                                  value={manualListToTextarea(formData.manual_data?.support_documents)}
-                                  onChange={(event) => updateManualDataListField('support_documents', event.target.value)}
-                                  placeholder="Un document par ligne"
-                                />
-                              </Form.Group>
-                            </Col>
-                            <Col md={4}>
-                              <Form.Group className="mb-3">
-                                <Form.Label>Donnees supports</Form.Label>
-                                <Form.Control
-                                  as="textarea"
-                                  rows={4}
-                                  disabled={!canEditSelectedProcess}
-                                  value={manualListToTextarea(formData.manual_data?.support_data)}
-                                  onChange={(event) => updateManualDataListField('support_data', event.target.value)}
-                                  placeholder="Une donnee par ligne"
-                                />
-                              </Form.Group>
-                            </Col>
-                          </Row>
-                        </div>
                         <Row>
                           <Col md={6}>
                             <Form.Group className="mb-3">
@@ -4039,7 +4383,7 @@ export function ProcessManagement({ publicView = false }) {
 
                       {canEditSelectedProcess ? (
                         <div className="text-muted small mb-3">
-                          Save metadata to refresh this preview after editing the manual fields or BPMN diagram.
+                          Save metadata to refresh this preview after editing the process details or BPMN diagram.
                         </div>
                       ) : null}
 
@@ -4049,51 +4393,11 @@ export function ProcessManagement({ publicView = false }) {
                         </div>
                       ) : (
                         <div className="d-flex flex-column gap-3">
-                          <ManualPreviewTable
-                            title="5.2 Matrice des risques"
-                            columns={[
-                              { key: 'title', label: 'Risque' },
-                              { key: 'severity', label: 'Severite' },
-                              { key: 'status', label: 'Statut' },
-                              { key: 'category', label: 'Categorie' },
-                              { key: 'element', label: 'Element BPMN' },
-                              { key: 'description', label: 'Description' },
-                              { key: 'mitigation', label: 'Mitigation / Controle' },
-                            ]}
-                            rows={manualPreview?.matrices?.risks}
-                            renderCell={(row, column) => {
-                              if (column.key !== 'severity') {
-                                return formatManualPreviewCellValue(row?.[column.key]);
-                              }
-
-                              const severity = String(row?.severity || '').toLowerCase();
-                              const palette = {
-                                low: { bg: '#fde68a', fg: '#7c2d12', label: 'Low' }, // yellow
-                                medium: { bg: '#fdba74', fg: '#7c2d12', label: 'Medium' }, // orange
-                                high: { bg: '#fca5a5', fg: '#7f1d1d', label: 'High' }, // red
-                                critical: { bg: '#ef4444', fg: '#ffffff', label: 'Critical' }, // strong red
-                              };
-                              const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
-
-                              return (
-                                <span
-                                  className="d-inline-flex align-items-center"
-                                  style={{
-                                    background: resolved.bg,
-                                    color: resolved.fg,
-                                    borderRadius: 999,
-                                    padding: '2px 8px',
-                                    fontWeight: 700,
-                                    fontSize: 11,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.04em',
-                                  }}
-                                >
-                                  {resolved.label}
-                                </span>
-                              );
-                            }}
-                          />
+                          {MANUAL_SECTION_CHOICES.map((section) => (
+                            <div key={section.key}>
+                              {renderManualSection(section.key)}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </Card.Body>

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, ListGroup, Offcanvas } from 'react-bootstrap';
 
 import { API_BASE } from '../utils/api';
 
 const API = API_BASE;
+const NOTIFICATION_POLL_MS = 5000;
 
 function formatDate(value) {
   if (!value) return '-';
@@ -53,7 +54,7 @@ export function NotificationCenter() {
     [notifications]
   );
 
-  const loadNotifications = async (silent = false) => {
+  const loadNotifications = useCallback(async (silent = false) => {
     if (!silent) {
       setLoading(true);
     }
@@ -71,13 +72,33 @@ export function NotificationCenter() {
         setLoading(false);
       }
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadNotifications(true);
-    const timer = setInterval(() => loadNotifications(true), 30000);
-    return () => clearInterval(timer);
-  }, []);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadNotifications(true);
+      }
+    }, NOTIFICATION_POLL_MS);
+    const handleFocus = () => {
+      loadNotifications(true);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadNotifications(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [loadNotifications]);
 
   const markRead = async (notification) => {
     setNotifications((current) =>

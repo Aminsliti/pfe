@@ -235,9 +235,9 @@ function addTable(context, table = {}) {
     });
   }
 
-  const fontSize = table.fontSize || 8.8;
-  const headerFontSize = table.headerFontSize || 9.2;
-  const padding = table.padding || 4;
+  const fontSize = table.fontSize || 9;
+  const headerFontSize = table.headerFontSize || 9.5;
+  const padding = table.padding || 5;
   const contentWidth = table.width || (context.pageWidth - context.left * 2);
   const totalWeight = columns.reduce((sum, column) => sum + Number(column.width || 1), 0) || columns.length;
   const widths = columns.map((column) => (contentWidth * Number(column.width || 1)) / totalWeight);
@@ -249,7 +249,7 @@ function addTable(context, table = {}) {
   const bodyLineHeight = lineHeightFor(fontSize);
   const headerLineHeight = lineHeightFor(headerFontSize);
 
-  const drawRow = (lineSets, rowHeight, isHeader = false, row = null) => {
+  const drawRow = (lineSets, rowHeight, isHeader = false, row = null, rowIndex = 0) => {
     if (context.state.y - rowHeight < context.bottom) {
       context.state.page = context.startNewPage().page;
       context.state.y = context.top;
@@ -262,16 +262,18 @@ function addTable(context, table = {}) {
     positions.forEach((x, index) => {
       const width = widths[index];
       if (isHeader) {
-        context.state.page.commands.push(`0.97 0.98 0.99 rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
+        context.state.page.commands.push(`0.96 0.97 0.98 rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
       } else {
         const column = columns[index];
         const fill = typeof column?.cellFill === 'function' ? column.cellFill(row, column) : null;
         if (fill && Array.isArray(fill) && fill.length === 3) {
           const [r, g, b] = fill.map((value) => Math.max(0, Math.min(1, Number(value) || 0)));
           context.state.page.commands.push(`${r} ${g} ${b} rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
+        } else if (rowIndex % 2 === 1) {
+          context.state.page.commands.push(`0.98 0.99 1.0 rg ${x} ${rowBottom} ${width} ${rowHeight} re f`);
         }
       }
-      context.state.page.commands.push(`0.80 0.84 0.89 RG ${x} ${rowBottom} ${width} ${rowHeight} re S`);
+      context.state.page.commands.push(`0.88 0.91 0.94 RG ${x} ${rowBottom} ${width} ${rowHeight} re S`);
 
       const textFont = isHeader ? 'F2' : 'F1';
       const textSize = isHeader ? headerFontSize : fontSize;
@@ -280,7 +282,7 @@ function addTable(context, table = {}) {
 
       lineSets[index].forEach((line, lineIndex) => {
         context.state.page.commands.push(
-          `0 g BT /${textFont} ${textSize} Tf ${x + padding} ${startY - (lineIndex * textLineHeight)} Td (${pdfEscape(line)}) Tj ET`
+          `0.12 g BT /${textFont} ${textSize} Tf ${x + padding} ${startY - (lineIndex * textLineHeight)} Td (${pdfEscape(line)}) Tj ET`
         );
       });
     });
@@ -300,19 +302,19 @@ function addTable(context, table = {}) {
   const headerHeight = Math.max(...headerLines.map((lines) => lines.length)) * headerLineHeight + padding * 2 + 2;
 
   const renderHeader = () => {
-    if (!drawRow(headerLines, headerHeight, true, null)) {
-      drawRow(headerLines, headerHeight, true, null);
+    if (!drawRow(headerLines, headerHeight, true, null, 0)) {
+      drawRow(headerLines, headerHeight, true, null, 0);
     }
   };
 
   renderHeader();
 
-  rows.forEach((row) => {
+  rows.forEach((row, rowIndex) => {
     const lineSets = buildLineSets(row, false);
     const rowHeight = Math.max(...lineSets.map((lines) => lines.length)) * bodyLineHeight + padding * 2 + 2;
-    if (!drawRow(lineSets, rowHeight, false, row)) {
+    if (!drawRow(lineSets, rowHeight, false, row, rowIndex)) {
       renderHeader();
-      drawRow(lineSets, rowHeight, false, row);
+      drawRow(lineSets, rowHeight, false, row, rowIndex);
     }
   });
 
@@ -351,21 +353,22 @@ function renderSections(context, sections = []) {
   });
 }
 
-export function buildPdfDocument({
-  title = '',
-  subtitle = '',
-  description = '',
-  sections = [],
-  heroImage = null,
-  orientation = 'portrait',
-} = {}) {
+export function buildPdfDocument(data = {}, options = {}) {
+  const {
+    title = '',
+    subtitle = '',
+    description = '',
+    sections = [],
+    heroImage = null,
+    orientation = 'portrait',
+  } = data;
   const pageWidth = orientation === 'landscape' ? 842 : 595;
   const pageHeight = orientation === 'landscape' ? 595 : 842;
   const left = orientation === 'landscape' ? 30 : 42;
   const top = pageHeight - 36;
   const bottom = 32;
   const contentWidth = pageWidth - left * 2;
-  const normalizedHeroImage = normalizeHeroImage(heroImage, contentWidth, orientation === 'landscape' ? 180 : 220);
+  const normalizedHeroImage = normalizeHeroImage(heroImage, contentWidth, orientation === 'landscape' ? 380 : 440);
   const context = createPdfState({ pageWidth, pageHeight, left, top, bottom });
 
   if (title) {
@@ -394,6 +397,26 @@ export function buildPdfDocument({
 
   addImageBlock(context, normalizedHeroImage);
   renderSections(context, sections);
+
+  // Add header and footer to each page if provided
+  const metaSize = 8;
+  if (options.header) {
+    const headerY = pageHeight - 20;
+    context.pages.forEach((page) => {
+      page.commands.push(
+        `0.58 g BT /F2 ${metaSize} Tf ${context.left} ${headerY} Td (${pdfEscape(options.header)}) Tj ET`
+      );
+    });
+  }
+
+  if (options.footer) {
+    const footerY = context.bottom - 12;
+    context.pages.forEach((page) => {
+      page.commands.push(
+        `0.45 g BT /F1 ${metaSize} Tf ${context.left} ${footerY} Td (${pdfEscape(options.footer)}) Tj ET`
+      );
+    });
+  }
 
   const pageObjectIds = context.pages.map((_, index) => 3 + index * 2);
   const contentObjectIds = context.pages.map((_, index) => 4 + index * 2);

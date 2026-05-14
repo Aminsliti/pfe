@@ -25,7 +25,7 @@ function buildHeatmapEntries(results = {}) {
       const waitScore = Number(task.avg_wait_min ?? 0) / maxWait;
       const bottleneckBoost = taskBottleneckNames.has(task.task_name || task.task_id) ? 0.25 : 0;
       const score = durationScore * 0.55 + waitScore * 0.35 + bottleneckBoost;
-      const level = score >= 0.75 ? 'high' : score >= 0.45 ? 'medium' : score >= 0.18 ? 'low' : 'normal';
+      const level = score >= 0.85 ? 'very-high' : score >= 0.6 ? 'high' : score >= 0.35 ? 'medium' : score >= 0.15 ? 'low' : 'normal';
 
       return {
         ...task,
@@ -110,7 +110,8 @@ export default function BpmnHeatmapViewer({ bpmnXml, results }) {
         <div className="sim-heatmap-legend">
           <span className="sim-heatmap-chip level-low">Faible</span>
           <span className="sim-heatmap-chip level-medium">Moyen</span>
-          <span className="sim-heatmap-chip level-high">Critique</span>
+          <span className="sim-heatmap-chip level-high">Élevé</span>
+          <span className="sim-heatmap-chip level-very-high">Très Élevé</span>
         </div>
       </div>
 

@@ -89,6 +89,67 @@ function statusMatches(status, filter) {
   return status === filter;
 }
 
+function formatManualPreviewCellValue(value) {
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  return String(value);
+}
+
+function ManualPreviewTable({ title, columns = [], rows = [], emptyLabel = 'No data available.', renderCell = null }) {
+  const safeColumns = Array.isArray(columns) && columns.length
+    ? columns
+    : [{ key: 'value', label: 'Value' }];
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  return (
+    <div className="border rounded-4 overflow-hidden bg-white">
+      <div className="px-3 py-2 border-bottom bg-light fw-semibold" style={{ fontSize: 13 }}>
+        {title}
+      </div>
+      <div className="table-responsive">
+        <table className="table table-sm table-bordered align-middle mb-0">
+          <thead className="table-light">
+            <tr>
+              {safeColumns.map((column) => (
+                <th key={`${title}-${column.key}`} className="small text-uppercase text-muted">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {safeRows.length === 0 ? (
+              <tr>
+                {safeColumns.map((column, columnIndex) => (
+                  <td key={`${title}-empty-${column.key}`} className="small text-muted" style={{ whiteSpace: 'pre-wrap' }}>
+                    {columnIndex === 0 ? emptyLabel : '-'}
+                  </td>
+                ))}
+              </tr>
+            ) : safeRows.map((row, rowIndex) => (
+              <tr key={`${title}-row-${rowIndex}`}>
+                {safeColumns.map((column) => (
+                  <td key={`${title}-${rowIndex}-${column.key}`} className="small" style={{ whiteSpace: 'pre-wrap' }}>
+                    {typeof renderCell === 'function'
+                      ? renderCell(row, column, rowIndex)
+                      : formatManualPreviewCellValue(row?.[column.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function normalizeSection(value, fallbackValue = DEFAULT_SECTION) {
   const normalized = normalizeText(value);
   return SECTION_IDS.includes(normalized) ? normalized : fallbackValue;
@@ -504,8 +565,12 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
   const status = getStatusMeta(process.status);
   const [previewRootElementId, setPreviewRootElementId] = useState(null);
   const [showDiagramModal, setShowDiagramModal] = useState(false);
+  const [showManualModal, setShowManualModal] = useState(false);
   const [bpmnTarget, setBpmnTarget] = useState(null);
   const [exportBusy, setExportBusy] = useState('');
+  const [manualPreview, setManualPreview] = useState(null);
+  const [manualPreviewLoading, setManualPreviewLoading] = useState(false);
+  const [manualPreviewError, setManualPreviewError] = useState('');
   const subprocesses = useMemo(() => getBpmnSubprocesses(process.bpmn_xml), [process.bpmn_xml]);
   const previewTrail = useMemo(
     () => buildBpmnSubprocessTrail(subprocesses, previewRootElementId),
@@ -521,6 +586,11 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
       setPreviewRootElementId(null);
     }
   }, [previewRootElementId, subprocesses]);
+
+  useEffect(() => {
+    setManualPreview(null);
+    setManualPreviewError('');
+  }, [process.id]);
 
   const buildEditorRootProcess = (p) => ({
     id: p?.id,
@@ -595,6 +665,9 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
   };
 
   const fetchProtectedProcessAsset = (url, init = undefined) => {
+    if (publicView) {
+      return fetch(url, init);
+    }
     if (!user?.id) {
       throw new Error('Your session expired. Please log in again.');
     }
@@ -602,6 +675,31 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
     headers.set('x-user-id', String(user.id));
     return fetch(url, { ...init, headers });
   };
+
+  const loadManualPreview = useCallback(async () => {
+    setManualPreviewLoading(true);
+    setManualPreviewError('');
+    try {
+      const response = await fetchProtectedProcessAsset(`${API}/processes/${process.id}/manual?format=json`);
+      const payload = await readApiPayload(response, 'Unable to load the procedure manual.');
+      setManualPreview(payload?.manual || null);
+      return payload?.manual || null;
+    } catch (error) {
+      const message = error.message || 'Unable to load the procedure manual.';
+      setManualPreviewError(message);
+      throw error;
+    } finally {
+      setManualPreviewLoading(false);
+    }
+  }, [process.id]);
+
+  useEffect(() => {
+    if (!publicView) {
+      return;
+    }
+
+    loadManualPreview().catch(() => {});
+  }, [loadManualPreview, publicView]);
 
   const renderProcessDiagramImage = async (id, { version = null, mimeType = 'image/png', quality = 0.92 } = {}) => {
     let viewer;
@@ -703,6 +801,20 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
   const handleProcessReportDownload = async (id, format = 'pdf') => {
     setExportBusy(format);
     try {
+      if (publicView) {
+        const response = await fetchProtectedProcessAsset(`${API}/processes/${id}/manual?format=${format}`);
+        if (!response.ok) {
+          await readApiPayload(response, 'Export failed');
+          return;
+        }
+
+        const blob = await response.blob();
+        const extension = format === 'pdf' ? 'pdf' : format === 'docx' ? 'docx' : 'html';
+        const filename = parseFilenameFromDisposition(response.headers.get('Content-Disposition'), `process-${id}-manuel-de-procedure.${extension}`);
+        downloadBlob(blob, filename);
+        return;
+      }
+
       const needsDiagramImage = ['pdf', 'docx', 'html'].includes(format);
       let diagramImageDataUrl = null;
       if (needsDiagramImage) {
@@ -740,6 +852,180 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
   };
 
   const canEdit = !publicView && hasAnyRole([ROLES.ADMIN, ROLES.DESIGNER, ROLES.VALIDATOR]);
+  const manualWorkflowRows = Array.isArray(manualPreview?.workflowBullets)
+    ? manualPreview.workflowBullets.map((value, index) => ({ label: `Note ${index + 1}`, value }))
+    : [];
+  const manualRaciRows = [
+    { label: 'Responsible', value: Array.isArray(manualPreview?.raci?.responsible) ? manualPreview.raci.responsible.join(', ') : '-' },
+    { label: 'Accountable', value: Array.isArray(manualPreview?.raci?.accountable) ? manualPreview.raci.accountable.join(', ') : '-' },
+    { label: 'Consulted', value: Array.isArray(manualPreview?.raci?.consulted) ? manualPreview.raci.consulted.join(', ') : '-' },
+    { label: 'Informed', value: Array.isArray(manualPreview?.raci?.informed) ? manualPreview.raci.informed.join(', ') : '-' },
+  ];
+  const supportObjectSections = Array.isArray(manualPreview?.matrices?.supportObjects?.sections)
+    ? manualPreview.matrices.supportObjects.sections
+    : [];
+  const renderRiskSeverityCell = (row, column) => {
+    if (column.key !== 'severity') {
+      return formatManualPreviewCellValue(row?.[column.key]);
+    }
+
+    const severity = String(row?.severity || '').toLowerCase();
+    const palette = {
+      low: { bg: '#dcfce7', fg: '#166534', label: 'Low' },
+      medium: { bg: '#fef9c3', fg: '#854d0e', label: 'Medium' },
+      high: { bg: '#ffedd5', fg: '#9a3412', label: 'High' },
+      critical: { bg: '#fee2e2', fg: '#991b1b', label: 'Very High' },
+    };
+    const resolved = palette[severity] || { bg: '#e5e7eb', fg: '#111827', label: severity || '-' };
+
+    return (
+      <span
+        className="d-inline-flex align-items-center"
+        style={{
+          background: resolved.bg,
+          color: resolved.fg,
+          borderRadius: 999,
+          padding: '2px 8px',
+          fontWeight: 700,
+          fontSize: 11,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+        }}
+      >
+        {resolved.label}
+      </span>
+    );
+  };
+  const manualSections = [
+    {
+      key: 'identity',
+      title: '1. Identite du processus',
+      content: (
+        <ManualPreviewTable
+          title="1. Identite du processus"
+          columns={[
+            { key: 'label', label: 'Champ' },
+            { key: 'value', label: 'Valeur' },
+          ]}
+          rows={manualPreview?.matrices?.identity}
+        />
+      ),
+    },
+    {
+      key: 'whatWhoWhenWhy',
+      title: '2. Matrice what who when why',
+      content: (
+        <ManualPreviewTable
+          title="2. Matrice what who when why"
+          columns={Array.isArray(manualPreview?.matrices?.whatWhoWhenWhy?.columns) ? manualPreview.matrices.whatWhoWhenWhy.columns : []}
+          rows={manualPreview?.matrices?.whatWhoWhenWhy?.rows}
+        />
+      ),
+    },
+    {
+      key: 'activities',
+      title: '3. Matrice des activites',
+      content: (
+        <ManualPreviewTable
+          title="3. Matrice des activites"
+          columns={[
+            { key: 'activity', label: 'Activite' },
+            { key: 'actor', label: 'Acteur' },
+            { key: 'description', label: 'Description' },
+          ]}
+          rows={manualPreview?.matrices?.activities}
+        />
+      ),
+    },
+    {
+      key: 'workflow',
+      title: 'Workflow notes',
+      content: (
+        <ManualPreviewTable
+          title="Workflow notes"
+          columns={[
+            { key: 'label', label: 'Note' },
+            { key: 'value', label: 'Value' },
+          ]}
+          rows={manualWorkflowRows}
+          emptyLabel="No workflow notes generated."
+        />
+      ),
+    },
+    {
+      key: 'raci',
+      title: 'RACI',
+      content: (
+        <ManualPreviewTable
+          title="RACI"
+          columns={[
+            { key: 'label', label: 'Role' },
+            { key: 'value', label: 'Value' },
+          ]}
+          rows={manualRaciRows}
+        />
+      ),
+    },
+    {
+      key: 'supportObjects',
+      title: '4. Niveau objets supports',
+      content: (
+        <div className="border rounded-4 p-3 bg-white">
+          <div className="fw-semibold mb-2">4. Niveau objets supports</div>
+          <div className="text-muted small mb-3">{manualPreview?.matrices?.supportObjects?.intro || 'No support-object introduction available.'}</div>
+          <div className="d-flex flex-column gap-3">
+            {supportObjectSections.length > 0 ? (
+              supportObjectSections.map((section) => (
+                <ManualPreviewTable
+                  key={section.title}
+                  title={section.title}
+                  columns={Array.isArray(section.columns) ? section.columns : []}
+                  rows={section.rows}
+                />
+              ))
+            ) : (
+              <div className="text-muted small">No support-object sections available.</div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'kpis',
+      title: '5.1 Matrice KPI',
+      content: (
+        <ManualPreviewTable
+          title="5.1 Matrice KPI"
+          columns={[
+            { key: 'name', label: 'KPI' },
+            { key: 'target', label: 'Cible' },
+            { key: 'source', label: 'Source' },
+          ]}
+          rows={manualPreview?.matrices?.kpis}
+        />
+      ),
+    },
+    {
+      key: 'risks',
+      title: '5.2 Matrice des risques',
+      content: (
+        <ManualPreviewTable
+          title="5.2 Matrice des risques"
+          columns={[
+            { key: 'title', label: 'Risque' },
+            { key: 'severity', label: 'Severite' },
+            { key: 'status', label: 'Statut' },
+            { key: 'category', label: 'Categorie' },
+            { key: 'element', label: 'Element BPMN' },
+            { key: 'description', label: 'Description' },
+            { key: 'mitigation', label: 'Mitigation / Controle' },
+          ]}
+          rows={manualPreview?.matrices?.risks}
+          renderCell={renderRiskSeverityCell}
+        />
+      ),
+    },
+  ];
 
   if (bpmnTarget) {
     return (
@@ -831,6 +1117,67 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
                 </div>
               </div>
 
+              {publicView ? (
+                <div className="card border-0 shadow-sm" style={{ background: '#fffdfa', borderRadius: 24 }}>
+                  <div className="card-body d-flex flex-column gap-3">
+                    <div>
+                      <h3 className="h5 mb-1">Manuel de procedure</h3>
+                      <p className="text-muted small mb-0">Read the generated manual directly from the portal or download it in the format you need.</p>
+                    </div>
+                    {manualPreviewLoading ? <div className="text-muted small">Loading the procedure manual...</div> : null}
+                    {manualPreviewError ? <div className="text-danger small">{manualPreviewError}</div> : null}
+                    {manualPreview?.diagramDescription ? (
+                      <div className="border rounded-4 bg-white px-3 py-2 small text-muted">
+                        {manualPreview.diagramDescription}
+                      </div>
+                    ) : null}
+                    <div className="d-flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={async () => {
+                          if (!manualPreview) {
+                            try {
+                              await loadManualPreview();
+                            } catch {
+                              return;
+                            }
+                          }
+                          setShowManualModal(true);
+                        }}
+                        disabled={manualPreviewLoading}
+                      >
+                        {manualPreviewLoading ? 'Loading...' : 'Voir le manuel'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-dark"
+                        onClick={() => handleProcessReportDownload(process.id, 'html')}
+                        disabled={exportBusy === 'html'}
+                      >
+                        {exportBusy === 'html' ? 'Exporting...' : 'HTML'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => handleProcessReportDownload(process.id, 'pdf')}
+                        disabled={exportBusy === 'pdf'}
+                      >
+                        {exportBusy === 'pdf' ? 'Exporting...' : 'PDF'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => handleProcessReportDownload(process.id, 'docx')}
+                        disabled={exportBusy === 'docx'}
+                      >
+                        {exportBusy === 'docx' ? 'Exporting...' : 'Word'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               {subprocesses.length ? (
                 <div className="card border-0 shadow-sm" style={{ background: '#fffdfa', borderRadius: 24 }}>
                   <div className="card-body d-flex flex-column gap-3">
@@ -900,8 +1247,9 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
                     <h6 className="mb-1">Diagram preview</h6>
                     <div className="text-muted small">The BPMN diagram is shown as an image snapshot at the top of the process sheet.</div>
                   </div>
-                    {!publicView ? (
-                      <div className="d-flex gap-2 flex-wrap">
+                    <div className="d-flex gap-2 flex-wrap">
+                      {!publicView ? (
+                        <>
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-secondary"
@@ -918,30 +1266,6 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
                         >
                           {exportBusy === 'bpmn' ? 'Exporting...' : 'BPMN'}
                         </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-dark"
-                          onClick={() => handleProcessReportDownload(process.id, 'html')}
-                          disabled={exportBusy === 'html'}
-                        >
-                          {exportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-secondary"
-                          onClick={() => handleProcessReportDownload(process.id, 'pdf')}
-                          disabled={exportBusy === 'pdf'}
-                        >
-                          {exportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-primary"
-                          onClick={() => handleProcessReportDownload(process.id, 'docx')}
-                          disabled={exportBusy === 'docx'}
-                        >
-                          {exportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
-                        </button>
                         {canEdit ? (
                           <button
                             type="button"
@@ -951,8 +1275,52 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
                             Edit diagram
                           </button>
                         ) : null}
-                      </div>
-                    ) : null}
+                        </>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-dark"
+                        onClick={() => handleProcessReportDownload(process.id, 'html')}
+                        disabled={exportBusy === 'html'}
+                      >
+                        {exportBusy === 'html' ? 'Exporting...' : 'Manual HTML'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => handleProcessReportDownload(process.id, 'pdf')}
+                        disabled={exportBusy === 'pdf'}
+                      >
+                        {exportBusy === 'pdf' ? 'Exporting...' : 'Manual PDF'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => handleProcessReportDownload(process.id, 'docx')}
+                        disabled={exportBusy === 'docx'}
+                      >
+                        {exportBusy === 'docx' ? 'Exporting...' : 'Manual Word'}
+                      </button>
+                      {publicView ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={async () => {
+                            if (!manualPreview) {
+                              try {
+                                await loadManualPreview();
+                              } catch {
+                                return;
+                              }
+                            }
+                            setShowManualModal(true);
+                          }}
+                          disabled={manualPreviewLoading}
+                        >
+                          {manualPreviewLoading ? 'Loading...' : 'Voir le manuel'}
+                        </button>
+                      ) : null}
+                    </div>
                 </div>
 
                 <Suspense fallback={<div className="text-muted small">Loading BPMN preview...</div>}>
@@ -1059,6 +1427,35 @@ function ProcessLeafView({ process, onBack, publicView = false, onRefresh = null
               </div>
             </div>
           </div>
+        </Modal.Body>
+      </Modal>
+
+      <Modal show={showManualModal} onHide={() => setShowManualModal(false)} size="xl" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Manuel de procedure</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {manualPreviewLoading ? (
+            <div className="text-muted">Loading the procedure manual...</div>
+          ) : !manualPreview ? (
+            <div className="text-muted">{manualPreviewError || 'The procedure manual is not available for this process yet.'}</div>
+          ) : (
+            <div className="d-flex flex-column gap-4">
+              <div className="border rounded-4 bg-light px-3 py-3">
+                <div className="small text-uppercase fw-bold text-danger mb-2">Manuel de procedure</div>
+                <div className="fw-semibold text-dark mb-2">{process.name}</div>
+                <div className="text-muted small" style={{ whiteSpace: 'pre-wrap' }}>
+                  {manualPreview.diagramDescription || process.description || 'No generated narrative is available yet.'}
+                </div>
+              </div>
+
+              <div className="d-flex flex-column gap-3">
+                {manualSections.map((section) => (
+                  <div key={section.key}>{section.content}</div>
+                ))}
+              </div>
+            </div>
+          )}
         </Modal.Body>
       </Modal>
     </section>
