@@ -1,0 +1,552 @@
+% =============================================
+% CHAPTER 3: SPRINT 0
+% =============================================
+\chapter{Sprint 0: Authentication \& Data Management}
+
+\section{Introduction}
+
+This chapter presents Sprint 0 of the V-BPM project, which constitutes the foundation of the platform. This sprint is dedicated to setting up secure authentication mechanisms, user management, category management, and complete business process management.
+
+\section{Sprint 0 Backlog Identification}
+
+This section presents the product backlog items selected for Sprint 0, which constitutes the foundation of the V-BPM platform. These user stories address the essential functionalities required for authentication and data management, as illustrated in table \ref{tab:backlog-sprint0}.
+
+\begin{table}[H]
+\centering
+\caption{Sprint 0 Backlog}
+\label{tab:backlog-sprint0}
+\begin{tabular}{|p{11cm}|c|c|}
+\hline
+\textbf{User Story} & \textbf{Estimation} & \textbf{Priority} \\
+\hline
+As a process designer, I can authenticate to access my workspace & Very High & 1 \\
+\hline
+As an admin, I can manage users & Very High & 1 \\
+\hline
+As a process manager, I can manage categories & Very High & 1 \\
+\hline
+As a process manager, I can manage processes (create, edit, delete, archive, restore) & Very High & 1 \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Sprint 0 Refinement}
+
+This section presents the detailed refinement of the use cases identified for Sprint 0. Each use case is described through its textual specification, including actors, pre-conditions, post-conditions, main scenarios, and exceptions.
+
+\subsection{Use Case Refinement -- Authenticate}
+
+The authentication process with password reset extension is illustrated through the use case diagram in Figure~\ref{fig:usecase-auth}, while Table~\ref{tab:refinement-auth} provides the comprehensive textual specification.
+
+% TODO: ADD USE CASE DIAGRAM -- AUTHENTICATE
+\begin{figure}[H]
+\centering
+%\fbox{\parbox{0.7\textwidth}{\centering\vspace{2cm}
+\includegraphics[scale=0.95]{authenticateusecase.png}
+%\vspace{2cm}}}
+\caption{Use Case Diagram -- Authenticate}
+\label{fig:usecase-auth}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Refinement -- Authenticate}
+\label{tab:refinement-auth}
+\begin{tabular}{|p{3cm}|p{12cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Authenticate \\
+\hline
+Actor & Process Designer, Admin, Process Manager \\
+\hline
+Pre-condition & 
+- System is running \newline
+- User has an active account \\
+\hline
+Post-condition & 
+- User is successfully authenticated \newline
+- User is redirected to their personal workspace according to their role \\
+\hline
+Main Scenario Description & 
+1. The system displays the login page. \newline
+2. The user enters their email address and password. \newline
+3. The user clicks the "Login" button. \newline
+4. The system verifies the entered information. \newline
+5. If the credentials are valid, the user is redirected to their personal workspace according to their role. \newline
+6. If the user forgot their password, they click the "Forgot Password?" link. \newline
+7. The system asks them to enter their email address. \newline
+8. A secure reset link is sent by email. \newline
+9. The user clicks this link and accesses a form to define a new password. \newline
+10. Once the password is updated, the user is redirected to the login page. \\
+\hline
+Exceptions & 
+- If the email or password is incorrect, the system displays an error message "Invalid credentials". \newline
+- If the account is deactivated, the system shows "Account deactivated. Please contact administrator". \newline
+- If the email for password reset is not found, the system shows "Email not registered". \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Use Case Refinement -- Manage Users}
+User management operations with comprehensive CRUD functionality are presented in Figure~\ref{fig:usecase-users}, complemented by the detailed textual specification in Table~\ref{tab:refinement-users}.
+% TODO: ADD USE CASE DIAGRAM -- MANAGE USERS
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manageusersusecase.png}
+\caption{Use Case Diagram -- Manage Users}
+\label{fig:usecase-users}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Refinement -- Manage Users}
+\label{tab:refinement-users}
+\begin{tabular}{|p{3cm}|p{12cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Manage Users \\
+\hline
+Actor & Administrator \\
+\hline
+Pre-condition & 
+- System is running \newline
+- Administrator is authenticated \\
+\hline
+Post-condition & 
+- Users are created, updated, activated/deactivated, or deleted successfully \newline
+- Changes are reflected in the user list \\
+\hline
+Main Scenario Description & 
+1. The system displays the User Management page. \newline
+2. The admin views the list of users with details (username, email, role, status, activity). \newline
+3. The admin can search or filter users by name, role, or status. \newline
+4. To create a user, the admin clicks "Create User" and fills in the required information. \newline
+5. To edit a user, the admin clicks "Edit", updates the information, and saves changes. \newline
+6. To delete a user, the admin clicks "Delete" and confirms the action. \newline
+7. The admin can select multiple users and perform bulk actions (activate, deactivate, delete). \newline
+8. The system updates the user list accordingly. \newline
+9. The system shows the user's activity status (online/offline, last seen). \\
+\hline
+Exceptions & 
+- If required fields are missing during creation/editing, the system displays an error message. \newline
+- If email already exists, an error "This email is already associated with an account" is shown. \newline
+- If deletion fails (e.g., permissions issue), an error alert is shown. \newline
+- If no users are selected for bulk actions, the system prevents the operation. \newline
+- If system/server error occurs, an error notification is displayed. \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Use Case Refinement -- Manage Categories}
+
+Category management processes are depicted in Figure~\ref{fig:usecase-categories}, with Table~\ref{tab:refinement-categories} offering the complete textual description.
+
+% TODO: ADD USE CASE DIAGRAM -- MANAGE CATEGORIES
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{managecatusecase.png}
+\caption{Use Case Diagram -- Manage Categories}
+\label{fig:usecase-categories}
+\end{figure}
+\begin{table}[H]
+\centering
+\caption{Refinement -- Manage Categories}
+\label{tab:refinement-categories}
+\begin{tabular}{|p{3cm}|p{12cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Manage Categories \\
+\hline
+Actor & Admin, Process Manager \\
+\hline
+Pre-condition & 
+- System is running \newline
+- The actor is authenticated \newline
+- At least one category exists \\
+\hline
+Post-condition & 
+- Categories are created, updated, or deleted successfully \newline
+- Hierarchy is reorganized if needed \newline
+- Changes are reflected in the category tree \\
+\hline
+Main Scenario Description & 
+1. The system displays the Category Management page with hierarchical tree view. \newline
+2. The actor views the list of categories with details (name, description, parent, process count). \newline
+3. The actor can search or filter categories by name or description. \newline
+4. To create a category, the actor clicks "Create Category" and enters name, description, and selects parent category. \newline
+5. To edit a category, the actor clicks "Edit", updates the information, and saves changes. \newline
+6. To delete a category, the actor clicks "Delete" and confirms the action. \newline
+7. The actor can reorganize the hierarchy using drag-and-drop functionality. \newline
+8. The system validates there are no circular references in the hierarchy. \newline
+9. If a category contains processes, the system prompts to reassign them before deletion. \newline
+10. The system updates the category tree accordingly. \\
+\hline
+Exceptions & 
+- If required fields are missing during creation/editing, the system displays an error message. \newline
+- If category name already exists, an error "This category name is already used" is shown. \newline
+- If circular reference is detected, the system shows "Cannot create circular reference in hierarchy". \newline
+- If deletion fails due to dependencies, an alert "This category contains processes. Please reassign them first" is shown. \newline
+- If system/server error occurs, an error notification is displayed. \\
+\hline
+\end{tabular}
+\end{table}
+
+
+\subsection{Use Case Refinement -- Manage Processes}
+
+Figure~\ref{fig:usecase-process} encompasses the entire process management lifecycle, while Table~\ref{tab:refinement-process} presents the detailed textual specification.
+% TODO: ADD USE CASE DIAGRAM -- MANAGE PROCESSES
+\begin{figure}[H]
+\centering
+%\fbox{\parbox{0.75\textwidth}{\centering\vspace{2cm}
+\includegraphics[scale=1]{manageprocusecase.png}
+%\vspace{2cm}}}
+\caption{Use Case Diagram -- Manage Processes}
+\label{fig:usecase-process}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Refinement -- Manage Processes}
+\label{tab:refinement-process}
+\begin{tabular}{|p{3cm}|p{12cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Manage Process \\
+\hline
+Actor & Process Manager \\
+\hline
+Pre-condition & 
+- System is running \newline
+- Process Manager is authenticated \newline
+- User has appropriate permissions (assigned as Process Manager or Admin) \\
+\hline
+Post-condition & 
+- Process is created, updated, archived, restored, or deleted \newline
+- Workflow status is updated (Draft, Submitted, Approved, etc.) \newline
+- Version history is saved and traceable \newline
+- Assigned roles (Designer, Manager) are updated \\
+\hline
+Main Scenario Description & 
+1. The system displays the Process List page. \newline
+2. The Process Manager can search, filter, or browse processes. \newline
+3. The user selects an action: \newline
+   a. Consult Process: views process details, BPMN diagram, and version history. \newline
+   b. Create Process: clicks "Add", fills metadata (name, category, description, roles), and saves. \newline
+   c. Edit Process: clicks edit, modifies BPMN diagram or metadata, and saves changes. \newline
+   d. Delete Process: clicks delete and confirms removal. \newline
+   e. Archive Process: archives a process from active use. \newline
+   f. Restore Process: restores an archived process. \newline
+4. The user assigns Process Designers and Process Managers. \newline
+5. The system tracks versions and displays version history. \newline
+6. The user can compare two versions using the Version Diff feature. \newline
+7. The user submits the process for validation (approval workflow). \newline
+8. The system allows review of modification or confirmation requests. \newline
+9. The Process Manager (or authorized role) performs one of the following: \newline
+   a. Accept → process is approved. \newline
+   b. Refuse → process is rejected. \newline
+   c. Return to draft → process goes back for editing. \newline
+10. The system updates the workflow status and logs actions (timestamps, comments). \\
+\hline
+Exceptions & 
+- Missing required fields (name, category, roles) → system shows validation errors. \newline
+- Unauthorized action (e.g., user not assigned) → access denied message. \newline
+- Version comparison without selecting two versions → system prevents action. \newline
+- Approval action without required comment → system prompts for input. \newline
+- System error during save or workflow action → error notification displayed. \\
+\hline
+\end{tabular}
+\end{table}
+\section{Sprint 0 Design}
+
+The design phase of Sprint 0 focuses on comprehensive modeling of static and dynamic aspects for each use case through detailed class and sequence diagrams. These visual representations effectively demonstrate system architecture and object interactions.
+
+\subsection{Use Case Design -- Authenticate}
+
+The authentication system design is illustrated through the following diagrams, which showcase the participating classes and their dynamic interactions during the authentication process.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-auth} presents the static structure of the authentication module, displaying the main classes and their relationships within the system architecture.
+
+% TODO: ADD AUTHENTICATION CLASS DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{S'authetifier.png}
+\caption{Class Diagram -- Authenticate}
+\label{fig:class-auth}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+Figure~\ref{fig:seq-auth} demonstrates the dynamic interactions between objects during the authentication workflow, showing the sequence of operations from user input through database storage.
+
+% TODO: ADD AUTHENTICATION SEQUENCE DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{auth.png}
+\caption{Sequence Diagram -- Authenticate}
+\label{fig:seq-auth}
+\end{figure}
+
+\subsection{Use Case Design -- Manage Users}
+
+The user management functionality is demonstrated through the following diagrams, which highlight the classes responsible for handling user CRUD operations and their interactions within the system.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-users} illustrates the static architecture of the user management module, showcasing the User entity and its associated services for comprehensive user administration.
+
+% TODO: ADD USER MANAGEMENT CLASS DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{gereruserclass.png}
+\caption{Class Diagram -- Manage Users}
+\label{fig:class-users}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+Figure~\ref{fig:seq-users} depicts the dynamic interactions during user management operations, including the creation, modification, and deletion processes within the system.
+
+% TODO: ADD USER MANAGEMENT SEQUENCE DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manage_users.png}
+\caption{Sequence Diagram -- Manage Users}
+\label{fig:seq-users}
+\end{figure}
+
+\subsection{Use Case Design -- Manage Categories}
+
+The category management system is presented through the following diagrams, emphasizing the hierarchical organization and the relationships between different organizational entities.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-categories} represents the static structure of the category management module, displaying the Category entity and its relationships with other system components.
+
+% TODO: ADD CATEGORY MANAGEMENT CLASS DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{gerercatclass.png}
+\caption{Class Diagram -- Manage Categories}
+\label{fig:class-categories}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+Figure~\ref{fig:seq-categories} demonstrates the sequential flow of category management operations, including creation, editing, deletion, and hierarchical reassignment processes.
+
+% TODO: ADD CATEGORY MANAGEMENT SEQUENCE DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manage_categories.png}
+\caption{Sequence Diagram -- Manage Categories}
+\label{fig:seq-categories}
+\end{figure}
+
+\subsection{Use Case Design -- Manage Processes}
+
+The process management system design is showcased through the following diagrams, which encompass the complete business process lifecycle from creation through archiving.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-process} displays the comprehensive structure of the process management module, including BPMN validation, version control, and archiving functionalities.
+
+% TODO: ADD PROCESS MANAGEMENT CLASS DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{gererprocclass.png}
+\caption{Class Diagram -- Manage Processes}
+\label{fig:class-process}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+Figure~\ref{fig:seq-process} illustrates the dynamic interactions during process management operations, including validation workflows and archiving processes within the system.
+
+% TODO: ADD PROCESS MANAGEMENT SEQUENCE DIAGRAM
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manage_process.png}
+\caption{Sequence Diagram -- Manage Processes}
+\label{fig:seq-process}
+\end{figure}
+
+\section{Sprint 0 Implementation}
+
+This section presents the implementation phase of Sprint 0 of our project V-BPM, showcasing the realized user interfaces for each use case. These screenshots demonstrate the actual application interfaces as developed.
+
+\subsection{Use Case Implementation -- Authenticate}
+
+The figure \ref{fig:ui-login} shows the login interface where users enter their credentials to access the system.The login interface provides a clean and intuitive entry point for users to access the V-BPM platform. Users enter their email address and password credentials in the designated fields. The interface includes a "Forgot Password?" link for users who need to reset their credentials, and the system validates inputs before authentication.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{loginscreen.png}
+\caption{ V-BPM Authenticate Interface}
+\label{fig:ui-login}
+\end{figure}
+
+When users forget their password, they can request a reset link through their Gmail account, as shown in figure \ref{fig:ui-reset}. The password reset interface allows users to enter their registered email address, after which the system sends a secure reset link. This ensures a secure and user-friendly password recovery process while maintaining system security.
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.8]{reset.png}
+\caption{Reset Password Interface}
+\label{fig:ui-reset}
+\end{figure}
+
+
+
+\subsection{Use Case Implementation -- Manage Users}
+
+Following the authentication implementation, we now proceed to the user management phase. The figure \ref{fig:ui-users} presents the user management interface, allowing administrators to create, edit, and delete user accounts.This interface provides administrators with a comprehensive view of all system users. The dashboard displays user information including names, email addresses, roles, and current status. Administrators can easily search, filter, and sort users to quickly locate specific accounts for management operations.
+
+% TODO: ADD USER MANAGEMENT SCREENSHOT
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{usermanconsult.png}
+\caption{Manage Users Interface}
+\label{fig:ui-users}
+\end{figure}
+
+The add user interface allows administrators to create new user accounts by filling in essential information. The form includes fields for user name, email address, password, and role assignment, illustrated in figure \ref{fig:ui-users-add}. The system validates email uniqueness and password strength before account creation, ensuring data integrity and security standards are maintained.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{adduser.png}
+\caption{Add user interface}
+\label{fig:ui-users-add}
+\end{figure}
+
+The edit user interface enables administrators to modify existing user information and account settings. Administrators can update user details, change roles, reset passwords, and activate or desactivate accounts. The interface preserves data integrity by validating all changes before saving them to the system, as shown in \ref{fig:ui-users-edit} .
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{edituser.png}
+\caption{Edit user interface}
+\label{fig:ui-users-edit}
+\end{figure}
+
+
+
+\subsection{Use Case Implementation -- Manage Categories}
+
+Continuing with the implementation phase, the category management functionality is presented next. The figure \ref{fig:ui-categories} shows the category management interface, enabling process managers to organize processes hierarchically.
+The category management interface provides process managers with a hierarchical view of all process categories. The tree structure displays parent-child relationships clearly, allowing managers to understand the organizational structure of processes at a glance. Each category shows the number of associated processes for better management planning.
+
+% TODO: ADD CATEGORY MANAGEMENT SCREENSHOT
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{managecatconsult1.png}
+\caption{Manage Categories Interface}
+\label{fig:ui-categories}
+\end{figure}
+
+The detailed category view, illustrated in figure \ref{fig:ui-categories-list}, presents comprehensive information about each category including name, description, parent category, and associated processes. Process managers can perform various operations such as editing category details, viewing process counts, and managing category hierarchy from this centralized interface.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{managecatconsult.png}
+\caption{Detailed category view}
+\label{fig:ui-categories-list}
+\end{figure}
+
+The add category interface allows process managers to create new categories within the hierarchical structure. The form detailed in figure \ref{fig:ui-categories-add} includes fields for category name, description, and parent category selection. The system validates category uniqueness and prevents circular references in the hierarchy to maintain data integrity.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{addcat.png}
+\caption{Add category interface}
+\label{fig:ui-categories-add}
+\end{figure}
+
+The edit category interface of figure \ref{fig:ui-categories-edit} enables process managers to modify existing category information. Managers can update category names, descriptions, and parent relationships. The system validates all changes to ensure no conflicts arise in the category hierarchy and that all associated processes are properly handled.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{editcat.png}
+\caption{Edit category interface}
+\label{fig:ui-categories-edit}
+\end{figure}
+
+
+
+\subsection{Use Case Implementation -- Manage Processes}
+
+Completing the Sprint 0 implementation, the process management functionality represents the core component of the V-BPM platform. The figure \ref{fig:ui-process} displays the process management interface, providing tools for managing the complete process lifecycle. This interface provides process managers with a comprehensive overview of all processes in the system. The dashboard displays essential information including process names, categories, current status, version numbers, and last modification dates. Managers can easily filter and search processes to locate specific workflows for management operations.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manageprocconsult.png}
+\caption{Manage Processes Interface}
+\label{fig:ui-process}
+\end{figure}
+
+The list process view of figure \ref{fig:ui-process-detailed} presents comprehensive information about each process including metadata, version history, and workflow status. Process managers can review process descriptions, assigned roles, and approval workflow stages from this interface. The view also provides access to process versions and modification history.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manageprocconsult1.png}
+\caption{List process view}
+\label{fig:ui-process-detailed}
+\end{figure}
+
+The process actions interface shown in figure \ref{fig:ui-process-actions} enables process managers to perform various operations on selected processes. Managers can create new processes, edit existing ones, archive inactive workflows, restore archived processes, or permanently delete processes. Each action is accompanied by appropriate confirmation dialogs to prevent accidental modifications.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{manageproconsult2.png}
+\caption{Process actions interface}
+\label{fig:ui-process-actions}
+\end{figure}
+
+The process view interface of figures \ref{fig:ui-process-view} and \ref{fig:ui-process-bpmn} , displays the complete process information including BPMN diagram visualization. Process managers can review the process workflow, examine individual steps, and understand the flow of activities. The interface provides tools for zooming, panning, and navigating complex process diagrams. It enables managers to configure detailed process metadata including names, descriptions, categories, and assigned roles. Also it provides access to version control settings and workflow configuration options. All changes are validated before saving to maintain data integrity.
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{process.png}
+\caption{Process view interface-Part1}
+\label{fig:ui-process-view}
+\end{figure}
+
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{process1.png}
+\caption{Process view interface-Part2}
+\label{fig:ui-process-bpmn}
+\end{figure}
+
+The add process interface of figures \ref{fig:ui-process-add}, \ref{fig:ui-process-add-details} guides process managers through the process creation workflow. The step-by-step wizard ensures all required information is collected including basic metadata, category assignment, role assignments, and initial BPMN diagram creation. This interface validates each step before proceeding to the next.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{addproc.png}
+\caption{Add process interface - Part1}
+\label{fig:ui-process-add}
+\end{figure}
+
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\linewidth]{addproc1.png}
+\caption{Add process interface - Part2}
+\label{fig:ui-process-add-details}
+\end{figure}
+
+
+
+
+
+\section{Conclusion}
+Sprint 0 established the solid foundations of the V-BPM platform with essential features for authentication, user management, categories, and processes. These achievements provide a robust base for the following sprints.
+ 

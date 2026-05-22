@@ -1,0 +1,3673 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import BpmnModeler from 'bpmn-js/lib/Modeler';
+import 'bpmn-js/dist/assets/diagram-js.css';
+import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css';
+import './BpmnEditorModeler.css';
+import {
+  Save, 
+  Download, 
+  Maximize2, 
+  Minimize2, 
+  X, 
+  ArrowLeft, 
+  Search, 
+  Target,
+  FileDown,
+  ChevronRight,
+  SlidersHorizontal,
+  ShieldAlert,
+  UserCheck,
+  Link as LinkIcon,
+  Trash2,
+  Database,
+  RefreshCw
+} from 'lucide-react';
+import logo from '../../assets/logo.png';
+import {
+  buildBpmnSubprocessTrail,
+  getBpmnSubprocesses,
+  getSubprocessIdFromPlaneId,
+  toSubprocessPlaneId,
+} from '../../utils/bpmnSubprocesses';
+import { apiUrl } from '../../utils/api';
+
+const escapeXml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&apos;');
+
+function buildFallbackXml(processName = 'Process') {
+  const safeName = escapeXml(processName);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" name="${safeName}" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1" name="Start" />
+    <bpmn:endEvent id="EndEvent_1" name="End" />
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="EndEvent_1" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="152" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="312" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="188" y="120" />
+        <di:waypoint x="312" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+}
+
+const LEGACY_TYPE_TO_BPMN = {
+  startEvent: 'bpmn:startEvent',
+  endEvent: 'bpmn:endEvent',
+  intermediateEvent: 'bpmn:intermediateCatchEvent',
+  userTask: 'bpmn:userTask',
+  serviceTask: 'bpmn:serviceTask',
+  scriptTask: 'bpmn:scriptTask',
+  manualTask: 'bpmn:manualTask',
+  sendTask: 'bpmn:sendTask',
+  receiveTask: 'bpmn:receiveTask',
+  businessRuleTask: 'bpmn:businessRuleTask',
+  exclusiveGateway: 'bpmn:exclusiveGateway',
+  parallelGateway: 'bpmn:parallelGateway',
+  inclusiveGateway: 'bpmn:inclusiveGateway',
+  subProcess: 'bpmn:subProcess',
+  callActivity: 'bpmn:callActivity',
+  annotation: 'bpmn:textAnnotation',
+};
+
+const XML_NODE_TYPE_MAP = {
+  startEvent: 'bpmn:startEvent',
+  endEvent: 'bpmn:endEvent',
+  intermediateCatchEvent: 'bpmn:intermediateCatchEvent',
+  intermediateThrowEvent: 'bpmn:intermediateThrowEvent',
+  userTask: 'bpmn:userTask',
+  serviceTask: 'bpmn:serviceTask',
+  scriptTask: 'bpmn:scriptTask',
+  manualTask: 'bpmn:manualTask',
+  sendTask: 'bpmn:sendTask',
+  receiveTask: 'bpmn:receiveTask',
+  businessRuleTask: 'bpmn:businessRuleTask',
+  task: 'bpmn:task',
+  exclusiveGateway: 'bpmn:exclusiveGateway',
+  parallelGateway: 'bpmn:parallelGateway',
+  inclusiveGateway: 'bpmn:inclusiveGateway',
+  eventBasedGateway: 'bpmn:eventBasedGateway',
+  subProcess: 'bpmn:subProcess',
+  transaction: 'bpmn:transaction',
+  adHocSubProcess: 'bpmn:adHocSubProcess',
+  callActivity: 'bpmn:callActivity',
+  textAnnotation: 'bpmn:textAnnotation',
+};
+
+const BPMN_DEFAULT_SIZE = {
+  'bpmn:startEvent': { w: 36, h: 36 },
+  'bpmn:endEvent': { w: 36, h: 36 },
+  'bpmn:intermediateCatchEvent': { w: 36, h: 36 },
+  'bpmn:intermediateThrowEvent': { w: 36, h: 36 },
+  'bpmn:userTask': { w: 120, h: 80 },
+  'bpmn:serviceTask': { w: 120, h: 80 },
+  'bpmn:scriptTask': { w: 120, h: 80 },
+  'bpmn:manualTask': { w: 120, h: 80 },
+  'bpmn:sendTask': { w: 120, h: 80 },
+  'bpmn:receiveTask': { w: 120, h: 80 },
+  'bpmn:businessRuleTask': { w: 120, h: 80 },
+  'bpmn:task': { w: 120, h: 80 },
+  'bpmn:exclusiveGateway': { w: 50, h: 50 },
+  'bpmn:parallelGateway': { w: 50, h: 50 },
+  'bpmn:inclusiveGateway': { w: 50, h: 50 },
+  'bpmn:eventBasedGateway': { w: 50, h: 50 },
+  'bpmn:subProcess': { w: 160, h: 100 },
+  'bpmn:transaction': { w: 160, h: 100 },
+  'bpmn:adHocSubProcess': { w: 160, h: 100 },
+  'bpmn:callActivity': { w: 140, h: 90 },
+  'bpmn:textAnnotation': { w: 110, h: 50 },
+};
+
+const supportsModelerDiagram = (value) =>
+  typeof value === 'string' &&
+  value.trim().startsWith('<') &&
+  /<(?:[\w.-]+:)?BPMNDiagram\b/i.test(value);
+
+const sanitizeId = (value, fallback = 'Element') => {
+  const source = String(value || fallback).trim() || fallback;
+  const safe = source.replace(/[^A-Za-z0-9_.-]/g, '_');
+  return /^[A-Za-z_]/.test(safe) ? safe : `Id_${safe}`;
+};
+
+const anchorPoints = (shape) => [
+  { x: shape.x + shape.w / 2, y: shape.y },
+  { x: shape.x + shape.w, y: shape.y + shape.h / 2 },
+  { x: shape.x + shape.w / 2, y: shape.y + shape.h },
+  { x: shape.x, y: shape.y + shape.h / 2 },
+];
+
+const pickWaypoints = (source, target) => {
+  let best = null;
+  anchorPoints(source).forEach((from) => {
+    anchorPoints(target).forEach((to) => {
+      const distance = (from.x - to.x) ** 2 + (from.y - to.y) ** 2;
+      if (!best || distance < best.distance) {
+        best = { from, to, distance };
+      }
+    });
+  });
+  return [best.from, best.to];
+};
+
+function buildRenderableXml({ processName = 'Process', processId = 'Process_1', nodes = [], flows = [] }) {
+  if (!nodes.length) {
+    return buildFallbackXml(processName);
+  }
+
+  const safeProcessId = sanitizeId(processId, 'Process_1');
+  const shapeMarkup = nodes.map((node) => {
+    const width = node.w || BPMN_DEFAULT_SIZE[node.type]?.w || 120;
+    const height = node.h || BPMN_DEFAULT_SIZE[node.type]?.h || 80;
+    return `      <bpmndi:BPMNShape id="${node.id}_di" bpmnElement="${node.id}">
+        <dc:Bounds x="${node.x}" y="${node.y}" width="${width}" height="${height}" />
+      </bpmndi:BPMNShape>`;
+  });
+
+  const edgeMarkup = flows.map((flow) => {
+    const source = nodes.find((node) => node.id === flow.from);
+    const target = nodes.find((node) => node.id === flow.to);
+    if (!source || !target) return null;
+    const [from, to] = pickWaypoints(source, target);
+    return `      <bpmndi:BPMNEdge id="${flow.id}_di" bpmnElement="${flow.id}">
+        <di:waypoint x="${from.x}" y="${from.y}" />
+        <di:waypoint x="${to.x}" y="${to.y}" />
+      </bpmndi:BPMNEdge>`;
+  }).filter(Boolean);
+
+  const nodeMarkup = nodes.map((node) => {
+    const nameAttr = node.label ? ` name="${escapeXml(node.label)}"` : '';
+    return `    <${node.type} id="${node.id}"${nameAttr} />`;
+  });
+
+  const flowMarkup = flows.map((flow) => {
+    const nameAttr = flow.label ? ` name="${escapeXml(flow.label)}"` : '';
+    return `    <bpmn:sequenceFlow id="${flow.id}" sourceRef="${flow.from}" targetRef="${flow.to}"${nameAttr} />`;
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="${safeProcessId}" name="${escapeXml(processName)}" isExecutable="false">
+${nodeMarkup.join('\n')}
+${flowMarkup.join('\n')}
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${safeProcessId}">
+${shapeMarkup.join('\n')}
+${edgeMarkup.join('\n')}
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+}
+
+function buildXmlFromLegacyEditor(rawValue, processName) {
+  if (typeof rawValue !== 'string') return null;
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || !Array.isArray(parsed.elements)) return null;
+
+    const idMap = new Map();
+    const nodes = parsed.elements
+      .map((element, index) => {
+        const type = LEGACY_TYPE_TO_BPMN[element.type];
+        if (!type) return null;
+
+        const id = sanitizeId(element.id, `Element_${index + 1}`);
+        idMap.set(element.id, id);
+        return {
+          id,
+          type,
+          label: element.label || element.name || '',
+          x: Number.isFinite(element.x) ? element.x : 120 + index * 160,
+          y: Number.isFinite(element.y) ? element.y : 160,
+          w: Number.isFinite(element.w) ? element.w : BPMN_DEFAULT_SIZE[type]?.w,
+          h: Number.isFinite(element.h) ? element.h : BPMN_DEFAULT_SIZE[type]?.h,
+        };
+      })
+      .filter(Boolean);
+
+    if (!nodes.length) return null;
+
+    const validIds = new Set(nodes.map((node) => node.id));
+    const flows = Array.isArray(parsed.connections)
+      ? parsed.connections
+          .map((connection, index) => ({
+            id: sanitizeId(connection.id, `Flow_${index + 1}`),
+            from: idMap.get(connection.from),
+            to: idMap.get(connection.to),
+            label: connection.label || '',
+          }))
+          .filter((connection) => validIds.has(connection.from) && validIds.has(connection.to))
+      : [];
+
+    return buildRenderableXml({ processName, nodes, flows });
+  } catch {
+    return null;
+  }
+}
+
+function buildXmlFromSimpleBpmn(rawValue, processName) {
+  if (typeof rawValue !== 'string' || !rawValue.trim().startsWith('<')) return null;
+  if (!/(?:<[\w.-]+:)?process\b/i.test(rawValue)) return null;
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawValue, 'application/xml');
+    if (doc.querySelector('parsererror')) return null;
+
+    const processElement = Array.from(doc.getElementsByTagName('*')).find((node) => node.localName === 'process');
+    if (!processElement) return null;
+
+    const nodes = [];
+    const flows = [];
+    let order = 0;
+
+    Array.from(processElement.children).forEach((child) => {
+      const localName = child.localName;
+      if (localName === 'sequenceFlow') {
+        flows.push({
+          id: sanitizeId(child.getAttribute('id'), `Flow_${flows.length + 1}`),
+          from: sanitizeId(child.getAttribute('sourceRef'), `From_${flows.length + 1}`),
+          to: sanitizeId(child.getAttribute('targetRef'), `To_${flows.length + 1}`),
+          label: child.getAttribute('name') || '',
+        });
+        return;
+      }
+
+      const type = XML_NODE_TYPE_MAP[localName];
+      if (!type) return;
+
+      nodes.push({
+        id: sanitizeId(child.getAttribute('id'), `${localName}_${order + 1}`),
+        type,
+        label: child.getAttribute('name') || '',
+        order: order++,
+      });
+    });
+
+    if (!nodes.length) return null;
+
+    const outgoing = new Map();
+    const incomingCount = new Map(nodes.map((node) => [node.id, 0]));
+    flows.forEach((flow) => {
+      outgoing.set(flow.from, [...(outgoing.get(flow.from) || []), flow.to]);
+      incomingCount.set(flow.to, (incomingCount.get(flow.to) || 0) + 1);
+    });
+
+    const queue = nodes
+      .filter((node) => node.type === 'bpmn:startEvent' || (incomingCount.get(node.id) || 0) === 0)
+      .map((node) => node.id);
+    const levels = new Map(queue.map((id) => [id, 0]));
+
+    while (queue.length) {
+      const current = queue.shift();
+      const currentLevel = levels.get(current) || 0;
+      (outgoing.get(current) || []).forEach((targetId) => {
+        const nextLevel = currentLevel + 1;
+        if (!levels.has(targetId) || nextLevel > levels.get(targetId)) {
+          levels.set(targetId, nextLevel);
+          queue.push(targetId);
+        }
+      });
+    }
+
+    let fallbackLevel = Math.max(0, ...levels.values(), 0);
+    const rowsByLevel = new Map();
+    const positionedNodes = nodes.map((node) => {
+      const type = node.type;
+      const size = BPMN_DEFAULT_SIZE[type] || { w: 120, h: 80 };
+      let level = levels.get(node.id);
+      if (level === undefined) {
+        fallbackLevel += 1;
+        level = fallbackLevel;
+      }
+      const row = rowsByLevel.get(level) || 0;
+      rowsByLevel.set(level, row + 1);
+      return {
+        id: node.id,
+        type,
+        label: node.label,
+        w: size.w,
+        h: size.h,
+        x: 120 + level * 180,
+        y: 120 + row * 120,
+      };
+    });
+
+    const validIds = new Set(positionedNodes.map((node) => node.id));
+    const validFlows = flows.filter((flow) => validIds.has(flow.from) && validIds.has(flow.to));
+
+    return buildRenderableXml({
+      processName: processElement.getAttribute('name') || processName,
+      processId: processElement.getAttribute('id') || 'Process_1',
+      nodes: positionedNodes,
+      flows: validFlows,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProcessXml(rawValue, processName) {
+  if (supportsModelerDiagram(rawValue)) return rawValue;
+  return (
+    buildXmlFromLegacyEditor(rawValue, processName) ||
+    buildXmlFromSimpleBpmn(rawValue, processName) ||
+    buildFallbackXml(processName)
+  );
+}
+
+async function extractImportableDiagram(rawValue, processName = 'Imported Process') {
+  const xml = normalizeProcessXml(rawValue, processName);
+  const mountNode = document.createElement('div');
+  mountNode.style.position = 'absolute';
+  mountNode.style.width = '1px';
+  mountNode.style.height = '1px';
+  mountNode.style.overflow = 'hidden';
+  mountNode.style.opacity = '0';
+  mountNode.style.pointerEvents = 'none';
+  document.body.appendChild(mountNode);
+
+  const tempModeler = new BpmnModeler({ container: mountNode });
+
+  try {
+    await tempModeler.importXML(xml);
+    const canvas = tempModeler.get('canvas');
+    const elementRegistry = tempModeler.get('elementRegistry');
+    const root = canvas.getRootElement();
+    const rootElements = elementRegistry.filter((element) => element.parent === root && !element.labelTarget);
+    const shapes = rootElements.filter((element) => Number.isFinite(element.x) && Number.isFinite(element.y) && Number.isFinite(element.width) && Number.isFinite(element.height));
+    const allowedShapeIds = new Set(shapes.map((shape) => shape.id));
+    const connections = rootElements.filter(
+      (element) =>
+        Array.isArray(element.waypoints) &&
+        allowedShapeIds.has(element.source?.id) &&
+        allowedShapeIds.has(element.target?.id)
+    );
+
+    return {
+      shapes: shapes.map((shape) => ({
+        id: shape.id,
+        type: shape.type,
+        x: shape.x,
+        y: shape.y,
+        width: shape.width,
+        height: shape.height,
+        name: shape.businessObject?.name || '',
+        documentation: shape.businessObject?.documentation?.[0]?.text || '',
+        actorMetadata: getActorMetadata(shape.businessObject),
+        linkedProcessMetadata: getLinkedProcessMetadata(shape.businessObject),
+        riskMetadata: getRiskMetadata(shape.businessObject),
+      })),
+      connections: connections.map((connection) => ({
+        id: connection.id,
+        type: connection.type,
+        sourceId: connection.source.id,
+        targetId: connection.target.id,
+        name: connection.businessObject?.name || '',
+      })),
+    };
+  } finally {
+    tempModeler.destroy();
+    mountNode.remove();
+  }
+}
+
+const LEGACY_PALETTE_ELEMENTS = [
+  { id: 'bpmn:StartEvent', name: 'Start Event', category: 'Events', icon: '○' },
+  { id: 'bpmn:EndEvent', name: 'End Event', category: 'Events', icon: '◎' },
+  { id: 'bpmn:IntermediateThrowEvent', name: 'Intermediate / Boundary Event', category: 'Events', icon: '◌' },
+  { id: 'bpmn:Task', name: 'Task', category: 'Tasks', icon: '□' },
+  { id: 'bpmn:UserTask', name: 'User Task', category: 'Tasks', icon: '👤' },
+  { id: 'bpmn:ServiceTask', name: 'Service Task', category: 'Tasks', icon: '⚙' },
+  { id: 'bpmn:ScriptTask', name: 'Script Task', category: 'Tasks', icon: '📝' },
+  { id: 'bpmn:ManualTask', name: 'Manual Task', category: 'Tasks', icon: '✋' },
+  { id: 'bpmn:SendTask', name: 'Send Task', category: 'Tasks', icon: '📤' },
+  { id: 'bpmn:ReceiveTask', name: 'Receive Task', category: 'Tasks', icon: '📥' },
+  { id: 'bpmn:BusinessRuleTask', name: 'Business Rule Task', category: 'Tasks', icon: '📋' },
+  { id: 'bpmn:ExclusiveGateway', name: 'Exclusive Gateway', category: 'Gateways', icon: '◇' },
+  { id: 'bpmn:ParallelGateway', name: 'Parallel Gateway', category: 'Gateways', icon: '◆' },
+  { id: 'bpmn:InclusiveGateway', name: 'Inclusive Gateway', category: 'Gateways', icon: '⬡' },
+  { id: 'bpmn:EventBasedGateway', name: 'Event-Based Gateway', category: 'Gateways', icon: '⬢' },
+  { id: 'bpmn:SubProcess', name: 'Expanded Sub Process', category: 'Containers', icon: '▣' },
+  { id: 'bpmn:CallActivity', name: 'Call Activity', category: 'Containers', icon: '↻' },
+  { id: 'bpmn:Participant', name: 'Pool / Participant', category: 'Collaboration', icon: '▭' },
+  { id: 'bpmn:DataObjectReference', name: 'Data Object', category: 'Data & Artifacts', icon: '📄' },
+  { id: 'bpmn:DataStoreReference', name: 'Data Store', category: 'Data & Artifacts', icon: '🗄' },
+  { id: 'bpmn:Group', name: 'Group', category: 'Data & Artifacts', icon: '▤' },
+  { id: 'bpmn:TextAnnotation', name: 'Text Annotation', category: 'Data & Artifacts', icon: '🗒' },
+];
+
+const PALETTE_ELEMENTS = [
+  ...LEGACY_PALETTE_ELEMENTS.filter((element) => !['bpmn:SubProcess', 'bpmn:CallActivity'].includes(element.id)),
+  {
+    id: 'bpmn:SubProcess',
+    name: 'Expanded Sub Process',
+    category: 'Sub Processes',
+    icon: 'SP',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: true },
+  },
+  {
+    id: 'bpmn:CollapsedSubProcess',
+    name: 'Collapsed Sub Process',
+    category: 'Sub Processes',
+    icon: 'S+',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: false },
+  },
+  {
+    id: 'bpmn:EventSubProcess',
+    name: 'Expanded Event Sub Process',
+    category: 'Sub Processes',
+    icon: 'EP',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: true, triggeredByEvent: true },
+  },
+  {
+    id: 'bpmn:CollapsedEventSubProcess',
+    name: 'Collapsed Event Sub Process',
+    category: 'Sub Processes',
+    icon: 'E+',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: false, triggeredByEvent: true },
+  },
+  {
+    id: 'bpmn:Transaction',
+    name: 'Expanded Transaction',
+    category: 'Sub Processes',
+    icon: 'TX',
+    createOptions: { type: 'bpmn:Transaction', isExpanded: true },
+  },
+  {
+    id: 'bpmn:CollapsedTransaction',
+    name: 'Collapsed Transaction',
+    category: 'Sub Processes',
+    icon: 'T+',
+    createOptions: { type: 'bpmn:Transaction', isExpanded: false },
+  },
+  {
+    id: 'bpmn:AdHocSubProcess',
+    name: 'Expanded Ad-Hoc Sub Process',
+    category: 'Sub Processes',
+    icon: 'AH',
+    createOptions: { type: 'bpmn:AdHocSubProcess', isExpanded: true },
+  },
+  {
+    id: 'bpmn:CollapsedAdHocSubProcess',
+    name: 'Collapsed Ad-Hoc Sub Process',
+    category: 'Sub Processes',
+    icon: 'A+',
+    createOptions: { type: 'bpmn:AdHocSubProcess', isExpanded: false },
+  },
+  {
+    id: 'bpmn:CallActivity',
+    name: 'Call Activity',
+    category: 'Sub Processes',
+    icon: 'CA',
+    createOptions: { type: 'bpmn:CallActivity' },
+  },
+];
+
+const FEATURED_PALETTE_ELEMENTS = [
+  { id: 'bpmn:Task', name: 'Task', category: 'Quick Elements', icon: 'TK' },
+  {
+    id: 'bpmn:SubProcess',
+    name: 'Sous Process',
+    category: 'Quick Elements',
+    icon: 'SP',
+    createOptions: { type: 'bpmn:SubProcess', isExpanded: true },
+  },
+  { id: 'bpmn:StartEvent', name: 'Start', category: 'Quick Elements', icon: 'ST' },
+  { id: 'bpmn:EndEvent', name: 'End', category: 'Quick Elements', icon: 'EN' },
+  { id: 'bpmn:ExclusiveGateway', name: 'Gateway', category: 'Quick Elements', icon: 'GW' },
+  { id: 'bpmn:Participant', name: 'Pool', category: 'Quick Elements', icon: 'PL' },
+  {
+    id: 'pfe:RiskAnnotation',
+    name: 'Risk',
+    category: 'Quick Elements',
+    icon: 'RK',
+    createOptions: { type: 'bpmn:TextAnnotation' },
+    presetName: 'Risk',
+  },
+  {
+    id: 'pfe:ControlAnnotation',
+    name: 'Control',
+    category: 'Quick Elements',
+    icon: 'CT',
+    createOptions: { type: 'bpmn:TextAnnotation' },
+    presetName: 'Control',
+  },
+  {
+    id: 'pfe:CommentAnnotation',
+    name: 'Comment',
+    category: 'Quick Elements',
+    icon: 'CM',
+    createOptions: { type: 'bpmn:TextAnnotation' },
+    presetName: 'Comment',
+  },
+  {
+    id: 'pfe:DocumentObject',
+    name: 'Document',
+    category: 'Quick Elements',
+    icon: 'DC',
+    createOptions: { type: 'bpmn:DataObjectReference' },
+    presetName: 'Document',
+  },
+];
+
+const SEARCHABLE_PALETTE_ELEMENTS = (() => {
+  const merged = new Map(PALETTE_ELEMENTS.map((element) => [element.id, element]));
+  FEATURED_PALETTE_ELEMENTS.forEach((element) => {
+    const previous = merged.get(element.id);
+    merged.set(
+      element.id,
+      previous
+        ? { ...previous, ...element, createOptions: element.createOptions || previous.createOptions }
+        : element
+    );
+  });
+  return Array.from(merged.values());
+})();
+
+const PALETTE_DND_TYPE = 'application/vnd.vbpm.palette-element';
+const PALETTE_DEFAULTS_STORAGE_KEY = 'vbpm.bpmnEditor.defaultPaletteElements';
+
+const getElementPropertyName = (element) =>
+  String(
+    element?.businessObject?.name ||
+    element?.businessObject?.text ||
+    element?.businessObject?.id ||
+    ''
+  );
+
+const createPaletteShape = (elementFactory, element) => {
+  const createOptions = element?.createOptions || {};
+  const type = createOptions.type || element?.id;
+
+  if (type === 'bpmn:Participant') {
+    return elementFactory.createParticipantShape();
+  }
+
+  return elementFactory.createShape({ type, ...createOptions });
+};
+
+const applyPaletteElementDefaults = (modeler, createdElement, element) => {
+  const presetName = String(element?.presetName || '').trim();
+  if (!presetName || !createdElement || !modeler) {
+    return;
+  }
+
+  try {
+    const modeling = modeler.get('modeling');
+    modeling.updateLabel(createdElement, presetName);
+  } catch (error) {
+    console.warn('Unable to apply palette defaults:', error);
+  }
+};
+
+const ARTIFACT_TYPES = new Set([
+  'bpmn:TextAnnotation',
+  'bpmn:Group',
+]);
+
+const PROCESS_CONTAINER_TYPES = new Set([
+  'bpmn:Process',
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+
+const ensureArrayProperty = (target, key) => {
+  if (!target) {
+    return [];
+  }
+
+  if (!Array.isArray(target[key])) {
+    target[key] = [];
+  }
+
+  return target[key];
+};
+
+const findDefinitionsBusinessObject = (businessObject) => {
+  let current = businessObject || null;
+
+  while (current && current.$type !== 'bpmn:Definitions') {
+    current = current.$parent || null;
+  }
+
+  return current || null;
+};
+
+const ensureParticipantProcessRef = (participantElement, moddle) => {
+  const participantBusinessObject = participantElement?.businessObject;
+  if (!participantBusinessObject || !moddle) {
+    return null;
+  }
+
+  let processRef = participantBusinessObject.processRef || null;
+
+  if (!processRef) {
+    processRef = moddle.create('bpmn:Process', {
+      id: sanitizeId(`${participantBusinessObject.id || participantBusinessObject.name || 'Participant'}_Process`),
+      isExecutable: false,
+    });
+    participantBusinessObject.processRef = processRef;
+
+    const definitions = findDefinitionsBusinessObject(participantBusinessObject);
+    if (definitions) {
+      const rootElements = ensureArrayProperty(definitions, 'rootElements');
+      if (!rootElements.includes(processRef)) {
+        rootElements.push(processRef);
+      }
+      processRef.$parent = definitions;
+    }
+  }
+
+  ensureArrayProperty(processRef, 'flowElements');
+  ensureArrayProperty(processRef, 'artifacts');
+  ensureArrayProperty(processRef, 'laneSets');
+  return processRef;
+};
+
+const ensureContainerSemantics = (parentElement, elementType, moddle) => {
+  const businessObject = parentElement?.businessObject;
+  if (!businessObject) {
+    return;
+  }
+
+  if (parentElement.type === 'bpmn:Participant') {
+    ensureParticipantProcessRef(parentElement, moddle);
+    return;
+  }
+
+  if (parentElement.type === 'bpmn:Collaboration') {
+    ensureArrayProperty(businessObject, 'participants');
+    ensureArrayProperty(businessObject, 'artifacts');
+    ensureArrayProperty(businessObject, 'messageFlows');
+    return;
+  }
+
+  if (parentElement.type === 'bpmn:Lane') {
+    ensureArrayProperty(businessObject, 'flowNodeRef');
+    if (!businessObject.childLaneSet) {
+      businessObject.childLaneSet = moddle.create('bpmn:LaneSet', {
+        id: sanitizeId(`${businessObject.id || 'Lane'}_ChildLaneSet`),
+      });
+      businessObject.childLaneSet.$parent = businessObject;
+    }
+    ensureArrayProperty(businessObject.childLaneSet, 'lanes');
+    return;
+  }
+
+  if (PROCESS_CONTAINER_TYPES.has(parentElement.type) || businessObject.$type === 'bpmn:Process') {
+    ensureArrayProperty(businessObject, 'flowElements');
+    ensureArrayProperty(businessObject, 'artifacts');
+    return;
+  }
+
+  if (ARTIFACT_TYPES.has(elementType)) {
+    ensureArrayProperty(businessObject, 'artifacts');
+  }
+};
+
+const resolveCreationParent = ({ rootElement, selection, elementType, moddle }) => {
+  const activeSelection = selection?.get?.() || [];
+  const selectedElement = activeSelection[0] || null;
+  const allowsArtifactsOnRoot = ARTIFACT_TYPES.has(elementType);
+
+  if (elementType === 'bpmn:Participant') {
+    if (rootElement?.type !== 'bpmn:Collaboration') {
+      throw new Error('Participants can only be added inside a collaboration diagram.');
+    }
+
+    ensureContainerSemantics(rootElement, elementType, moddle);
+    return rootElement;
+  }
+
+  if (selectedElement?.type === 'bpmn:Lane') {
+    ensureContainerSemantics(selectedElement, elementType, moddle);
+    return selectedElement;
+  }
+
+  if (selectedElement?.type === 'bpmn:Participant') {
+    ensureContainerSemantics(selectedElement, elementType, moddle);
+    return selectedElement;
+  }
+
+  if (selectedElement && PROCESS_CONTAINER_TYPES.has(selectedElement.type)) {
+    ensureContainerSemantics(selectedElement, elementType, moddle);
+    return selectedElement;
+  }
+
+  if (rootElement?.type === 'bpmn:Collaboration' && !allowsArtifactsOnRoot) {
+    const participantElement = activeSelection.find((element) => element?.type === 'bpmn:Participant')
+      || rootElement.children?.find((child) => child?.type === 'bpmn:Participant' && !child?.labelTarget)
+      || null;
+
+    if (!participantElement) {
+      throw new Error('Add a participant before adding flow elements to a collaboration diagram.');
+    }
+
+    ensureContainerSemantics(participantElement, elementType, moddle);
+    return participantElement;
+  }
+
+  ensureContainerSemantics(rootElement, elementType, moddle);
+  return rootElement;
+};
+
+const PFE_NAMESPACE_PREFIX = 'pfe';
+const PFE_NAMESPACE_URI = 'https://pfe.local/schema/bpmn';
+const ACTOR_NODE_TYPES = new Set(['manager', 'function', 'org_unit', 'structure']);
+const ASSIGNABLE_ACTOR_TYPES = new Set([
+  'bpmn:Participant',
+  'bpmn:Lane',
+  'bpmn:Task',
+  'bpmn:UserTask',
+  'bpmn:ServiceTask',
+  'bpmn:ManualTask',
+  'bpmn:SendTask',
+  'bpmn:ReceiveTask',
+  'bpmn:BusinessRuleTask',
+  'bpmn:CallActivity',
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+const RISK_SEVERITY_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Very High' },
+];
+const RISK_CATEGORY_OPTIONS = [
+  { value: 'operational', label: 'Operational' },
+  { value: 'compliance', label: 'Compliance' },
+  { value: 'financial', label: 'Financial' },
+  { value: 'security', label: 'Security' },
+  { value: 'quality', label: 'Quality' },
+  { value: 'other', label: 'Other' },
+];
+const RISK_STATUS_OPTIONS = [
+  { value: 'open', label: 'Open' },
+  { value: 'monitoring', label: 'Monitoring' },
+  { value: 'mitigated', label: 'Mitigated' },
+  { value: 'accepted', label: 'Accepted' },
+];
+const RISK_SEVERITY_RANK = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+};
+
+const pfeAttrKey = (key) => `${PFE_NAMESPACE_PREFIX}:${key}`;
+const buildCalledElementKey = (processId) => {
+  const normalized = String(processId || '').trim();
+  return normalized ? `process_${normalized}` : '';
+};
+
+const isActorAssignableElement = (element) => ASSIGNABLE_ACTOR_TYPES.has(element?.type);
+const LINKABLE_PROCESS_ELEMENT_TYPES = new Set([
+  'bpmn:CallActivity',
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+const DRILLDOWN_PROCESS_ELEMENT_TYPES = new Set([
+  'bpmn:SubProcess',
+  'bpmn:Transaction',
+  'bpmn:AdHocSubProcess',
+]);
+const isLinkedProcessElement = (element) => LINKABLE_PROCESS_ELEMENT_TYPES.has(element?.type);
+const isDrilldownProcessElement = (element) => DRILLDOWN_PROCESS_ELEMENT_TYPES.has(element?.type);
+const isRiskAssignableElement = (element) =>
+  Boolean(element?.businessObject) &&
+  Boolean(element?.parent) &&
+  !element?.labelTarget &&
+  !Array.isArray(element?.waypoints);
+
+const shouldSyncActorNameToLabel = (element) => ['bpmn:Participant', 'bpmn:Lane'].includes(element?.type);
+const createEmptyRiskDraft = () => ({
+  title: '',
+  severity: 'medium',
+  category: 'operational',
+  status: 'open',
+  description: '',
+  mitigation: '',
+});
+const createRiskId = () => `risk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+function getActorMetadata(businessObject) {
+  const attrs = businessObject?.$attrs || {};
+  return {
+    actorNodeId: String(attrs[pfeAttrKey('actorNodeId')] || ''),
+    actorUserId: String(attrs[pfeAttrKey('actorUserId')] || ''),
+    actorName: attrs[pfeAttrKey('actorName')] || '',
+    actorType: attrs[pfeAttrKey('actorType')] || '',
+    actorPath: attrs[pfeAttrKey('actorPath')] || '',
+  };
+}
+
+function buildActorOptions(nodes = []) {
+  const byId = new Map(nodes.map((node) => [Number(node.id), node]));
+
+  const toPath = (node) => {
+    const lineage = [];
+    let current = node;
+
+    while (current) {
+      lineage.unshift(current.name || current.userName || current.title || `Node ${current.id}`);
+      current = current.parentId ? byId.get(Number(current.parentId)) : null;
+    }
+
+    return lineage.join(' / ');
+  };
+
+  return nodes
+    .filter((node) => node?.userId || ACTOR_NODE_TYPES.has(node?.nodeType))
+    .map((node) => {
+      const name = node.name || node.userName || `Actor ${node.id}`;
+      const subtitle = [node.title, node.userRole].filter(Boolean).join(' - ');
+
+      return {
+        id: String(node.id),
+        nodeId: Number(node.id),
+        userId: Number.isInteger(Number(node.userId)) ? Number(node.userId) : null,
+        name,
+        title: node.title || '',
+        userName: node.userName || '',
+        userRole: node.userRole || '',
+        nodeType: node.nodeType || 'function',
+        isVacant: Boolean(node.isVacant),
+        path: toPath(node),
+        subtitle,
+        searchText: [name, node.title, node.userName, node.userRole, node.nodeType, toPath(node)]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase(),
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path) || left.name.localeCompare(right.name));
+}
+
+function buildDiagramActorSummary(elementRegistry, actorOptions = []) {
+  if (!elementRegistry) {
+    return [];
+  }
+
+  const actorById = new Map(actorOptions.map((actor) => [String(actor.nodeId), actor]));
+  const grouped = new Map();
+
+  elementRegistry
+    .filter((element) => !element.labelTarget && element.businessObject)
+    .forEach((element) => {
+      const metadata = getActorMetadata(element.businessObject);
+      if (!metadata.actorNodeId) {
+        return;
+      }
+
+      const actor = actorById.get(metadata.actorNodeId);
+      const actorKey = metadata.actorNodeId;
+      const bucket = grouped.get(actorKey) || {
+        actorNodeId: metadata.actorNodeId,
+        actorName: actor?.name || metadata.actorName || `Actor ${metadata.actorNodeId}`,
+        actorType: actor?.nodeType || metadata.actorType || '',
+        actorPath: actor?.path || metadata.actorPath || '',
+        elements: [],
+      };
+
+      bucket.elements.push({
+        id: element.id,
+        type: element.type,
+        label: element.businessObject?.name || element.id,
+      });
+
+      grouped.set(actorKey, bucket);
+    });
+
+  return [...grouped.values()]
+    .map((entry) => ({
+      ...entry,
+      count: entry.elements.length,
+      elements: entry.elements.sort((left, right) => left.label.localeCompare(right.label)),
+    }))
+    .sort((left, right) => left.actorName.localeCompare(right.actorName));
+}
+
+function normalizeRiskEntry(risk = {}, index = 0) {
+  const severity = RISK_SEVERITY_OPTIONS.some((option) => option.value === risk?.severity) ? risk.severity : 'medium';
+  const category = RISK_CATEGORY_OPTIONS.some((option) => option.value === risk?.category) ? risk.category : 'operational';
+  const status = RISK_STATUS_OPTIONS.some((option) => option.value === risk?.status) ? risk.status : 'open';
+  const title = String(risk?.title || '').trim() || `Risk ${index + 1}`;
+
+  return {
+    id: String(risk?.id || `risk_${index + 1}`),
+    title,
+    severity,
+    category,
+    status,
+    description: String(risk?.description || ''),
+    mitigation: String(risk?.mitigation || ''),
+    source: risk?.source ? String(risk.source) : '',
+    remoteId: risk?.remoteId ? String(risk.remoteId) : '',
+    code: risk?.code ? String(risk.code) : '',
+    residualRisk: risk?.residualRisk ?? null,
+    inherentRisk: risk?.inherentRisk ?? null,
+    residualRiskLabel: risk?.residualRiskLabel ? String(risk.residualRiskLabel) : '',
+    inherentRiskLabel: risk?.inherentRiskLabel ? String(risk.inherentRiskLabel) : '',
+    remoteStatus: risk?.remoteStatus ? String(risk.remoteStatus) : '',
+    impactLabel: risk?.impactLabel ? String(risk.impactLabel) : '',
+    probabilityLabel: risk?.probabilityLabel ? String(risk.probabilityLabel) : '',
+    riskTypeId: risk?.riskTypeId ? String(risk.riskTypeId) : '',
+    businessProcessId: risk?.businessProcessId ? String(risk.businessProcessId) : '',
+    organizationalProcessId: risk?.organizationalProcessId ? String(risk.organizationalProcessId) : '',
+    actionPlanCount: Number.isFinite(Number(risk?.actionPlanCount)) ? Number(risk.actionPlanCount) : 0,
+    controlCount: Number.isFinite(Number(risk?.controlCount)) ? Number(risk.controlCount) : 0,
+    synchronizedAt: risk?.synchronizedAt ? String(risk.synchronizedAt) : '',
+  };
+}
+
+function serializeRiskMetadata(risks = []) {
+  if (!Array.isArray(risks) || !risks.length) {
+    return '';
+  }
+
+  return JSON.stringify(risks.map((risk, index) => normalizeRiskEntry(risk, index)));
+}
+
+function getRiskMetadata(businessObject) {
+  const attrs = businessObject?.$attrs || {};
+  const raw = attrs[pfeAttrKey('risks')];
+
+  if (!raw) {
+    return { risks: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return { risks: [] };
+    }
+
+    return {
+      risks: parsed.map((risk, index) => normalizeRiskEntry(risk, index)),
+    };
+  } catch {
+    return { risks: [] };
+  }
+}
+
+function getLinkedProcessMetadata(businessObject) {
+  const attrs = businessObject?.$attrs || {};
+  return {
+    calledElement: String(businessObject?.calledElement || attrs[pfeAttrKey('calledElement')] || ''),
+    linkedProcessId: String(attrs[pfeAttrKey('linkedProcessId')] || ''),
+    linkedProcessName: attrs[pfeAttrKey('linkedProcessName')] || '',
+  };
+}
+
+function buildDiagramRiskSummary(elementRegistry) {
+  if (!elementRegistry) {
+    return [];
+  }
+
+  const diagramRisks = [];
+
+  elementRegistry
+    .filter((element) => isRiskAssignableElement(element))
+    .forEach((element) => {
+      const { risks } = getRiskMetadata(element.businessObject);
+
+      risks.forEach((risk, index) => {
+        const normalizedRisk = normalizeRiskEntry(risk, index);
+        diagramRisks.push({
+          ...normalizedRisk,
+          elementId: element.id,
+          elementType: element.type,
+          elementLabel: element.businessObject?.name || element.id,
+        });
+      });
+    });
+
+  return diagramRisks.sort(
+    (left, right) =>
+      (RISK_SEVERITY_RANK[right.severity] || 0) - (RISK_SEVERITY_RANK[left.severity] || 0) ||
+      left.title.localeCompare(right.title) ||
+      left.elementLabel.localeCompare(right.elementLabel)
+  );
+}
+
+function getHighestRiskSeverity(risks = []) {
+  return risks.reduce((highest, risk) => {
+    if ((RISK_SEVERITY_RANK[risk.severity] || 0) > (RISK_SEVERITY_RANK[highest] || 0)) {
+      return risk.severity;
+    }
+
+    return highest;
+  }, 'low');
+}
+
+function ensurePfeNamespace(modeler) {
+  const definitions = modeler?.getDefinitions?.();
+  if (!definitions) {
+    return;
+  }
+
+  if (!definitions.$attrs) {
+    try {
+      definitions.$attrs = {};
+    } catch (e) {
+      // Read-only or handled by moddle
+    }
+  }
+
+  const attrs = definitions.$attrs;
+  if (attrs) {
+    attrs[`xmlns:${PFE_NAMESPACE_PREFIX}`] = PFE_NAMESPACE_URI;
+  }
+}
+
+function applyActorAssignment(modeler, element, actor, options = {}) {
+  if (!modeler || !element?.businessObject) {
+    return;
+  }
+
+  ensurePfeNamespace(modeler);
+
+  if (!element.businessObject.$attrs) {
+    try {
+      element.businessObject.$attrs = {};
+    } catch (e) {
+      // Read-only
+    }
+  }
+  const nextAttrs = element.businessObject.$attrs;
+
+  if (actor) {
+    nextAttrs[pfeAttrKey('actorNodeId')] = String(actor.nodeId);
+    nextAttrs[pfeAttrKey('actorName')] = actor.name;
+    nextAttrs[pfeAttrKey('actorType')] = actor.nodeType || '';
+    nextAttrs[pfeAttrKey('actorPath')] = actor.path || '';
+
+    if (actor.userId) {
+      nextAttrs[pfeAttrKey('actorUserId')] = String(actor.userId);
+    } else {
+      delete nextAttrs[pfeAttrKey('actorUserId')];
+    }
+  } else {
+    delete nextAttrs[pfeAttrKey('actorNodeId')];
+    delete nextAttrs[pfeAttrKey('actorUserId')];
+    delete nextAttrs[pfeAttrKey('actorName')];
+    delete nextAttrs[pfeAttrKey('actorType')];
+    delete nextAttrs[pfeAttrKey('actorPath')];
+  }
+
+  if (actor && options.syncLabel && shouldSyncActorNameToLabel(element)) {
+    modeler.get('modeling').updateLabel(element, actor.name);
+  } else {
+    modeler.get('eventBus').fire('elements.changed', { elements: [element] });
+  }
+}
+
+function applyRiskAssignment(modeler, element, risks = []) {
+  if (!modeler || !element?.businessObject) {
+    return;
+  }
+
+  ensurePfeNamespace(modeler);
+
+  if (!element.businessObject.$attrs) {
+    try {
+      element.businessObject.$attrs = {};
+    } catch (e) {
+      // Read-only
+    }
+  }
+  const nextAttrs = element.businessObject.$attrs;
+  const serializedRisks = serializeRiskMetadata(risks);
+
+  if (serializedRisks) {
+    nextAttrs[pfeAttrKey('risks')] = serializedRisks;
+  } else {
+    delete nextAttrs[pfeAttrKey('risks')];
+  }
+
+  modeler.get('eventBus').fire('elements.changed', { elements: [element] });
+}
+
+function applyCalledProcessAssignment(modeler, element, linkedProcess = null, options = {}) {
+  if (!modeler || !element?.businessObject) {
+    return;
+  }
+
+  ensurePfeNamespace(modeler);
+
+  const businessObject = element.businessObject;
+  if (!businessObject.$attrs) {
+    try {
+      businessObject.$attrs = {};
+    } catch (e) {
+      // Read-only
+    }
+  }
+  const nextAttrs = businessObject.$attrs;
+  const calledElement = String(
+    options.calledElement !== undefined
+      ? options.calledElement
+      : linkedProcess
+        ? buildCalledElementKey(linkedProcess.id)
+        : ''
+  ).trim();
+
+  if (calledElement && element.type === 'bpmn:CallActivity') {
+    businessObject.calledElement = calledElement;
+  } else {
+    delete businessObject.calledElement;
+  }
+
+  if (calledElement) {
+    nextAttrs[pfeAttrKey('calledElement')] = calledElement;
+  } else {
+    delete nextAttrs[pfeAttrKey('calledElement')];
+  }
+
+  if (linkedProcess?.id) {
+    nextAttrs[pfeAttrKey('linkedProcessId')] = String(linkedProcess.id);
+    nextAttrs[pfeAttrKey('linkedProcessName')] = linkedProcess.name || '';
+  } else {
+    delete nextAttrs[pfeAttrKey('linkedProcessId')];
+    delete nextAttrs[pfeAttrKey('linkedProcessName')];
+  }
+
+  modeler.get('eventBus').fire('elements.changed', { elements: [element] });
+}
+
+function syncRiskOverlays(modeler, overlayIdsRef) {
+  if (!modeler || !overlayIdsRef) {
+    return;
+  }
+
+  const overlays = modeler.get('overlays');
+  const elementRegistry = modeler.get('elementRegistry');
+
+  if (!overlays || !elementRegistry) {
+    return;
+  }
+
+  overlayIdsRef.current.forEach((overlayId) => overlays.remove(overlayId));
+  overlayIdsRef.current = [];
+
+  elementRegistry
+    .filter((element) => isRiskAssignableElement(element))
+    .forEach((element) => {
+      const { risks } = getRiskMetadata(element.businessObject);
+
+      if (!risks.length) {
+        return;
+      }
+
+      const highestSeverity = getHighestRiskSeverity(risks);
+      const badge = document.createElement('div');
+      badge.className = `bpmn-risk-overlay bpmn-risk-overlay--${highestSeverity}`;
+      badge.textContent = String(risks.length);
+      badge.title = `${risks.length} risk${risks.length > 1 ? 's' : ''}: ${risks
+        .slice(0, 3)
+        .map((risk) => risk.title)
+        .join(', ')}${risks.length > 3 ? '...' : ''}`;
+
+      const overlayId = overlays.add(element, {
+        position: { top: -10, right: -10 },
+        html: badge,
+      });
+
+      overlayIdsRef.current.push(overlayId);
+    });
+}
+
+function syncNavigationOverlays(modeler, overlayIdsRef, { onEnterSubprocess, onOpenLinkedProcess } = {}) {
+  if (!modeler || !overlayIdsRef) {
+    return;
+  }
+
+  const overlays = modeler.get('overlays');
+  const elementRegistry = modeler.get('elementRegistry');
+
+  if (!overlays || !elementRegistry) {
+    return;
+  }
+
+  overlayIdsRef.current.forEach((overlayId) => overlays.remove(overlayId));
+  overlayIdsRef.current = [];
+
+  elementRegistry
+    .filter((element) => Boolean(element?.businessObject) && !element?.labelTarget && !Array.isArray(element?.waypoints))
+    .forEach((element) => {
+      const linkedMetadata = getLinkedProcessMetadata(element.businessObject);
+      const actions = [];
+
+      if (isDrilldownProcessElement(element) && typeof onEnterSubprocess === 'function') {
+        actions.push({
+          key: 'enter',
+          label: 'Enter',
+          handler: () => onEnterSubprocess(element),
+        });
+      }
+
+      const linkedProcessId = Number(linkedMetadata.linkedProcessId || 0);
+      if (
+        !isDrilldownProcessElement(element) &&
+        Number.isInteger(linkedProcessId) &&
+        linkedProcessId > 0 &&
+        typeof onOpenLinkedProcess === 'function'
+      ) {
+        actions.push({
+          key: 'open',
+          label: 'Open',
+          handler: () => onOpenLinkedProcess(element, {
+            id: linkedProcessId,
+            name: linkedMetadata.linkedProcessName || `Process ${linkedProcessId}`,
+          }),
+        });
+      }
+
+      if (!actions.length) {
+        return;
+      }
+
+      const container = document.createElement('div');
+      container.className = 'bpmn-nav-overlay';
+
+      actions.forEach((action) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'bpmn-nav-overlay__btn';
+        button.textContent = action.label;
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          action.handler();
+        });
+        container.appendChild(button);
+      });
+
+      const overlayId = overlays.add(element, {
+        position: {
+          top: -12,
+          left: 12,
+        },
+        html: container,
+      });
+
+      overlayIdsRef.current.push(overlayId);
+    });
+}
+
+const BpmnEditorModeler = ({
+  process,
+  onClose,
+  onSave,
+  importOptions = [],
+  onImportExisting = null,
+  onOpenLinkedProcess = null,
+  onReturnToMainProcess = null,
+  readOnly = false,
+  reviewActionLabel = 'Approve',
+  onReviewAction = null,
+  reviewActionBusy = false,
+  initialSubprocessId = null,
+}) => {
+  const containerRef = useRef(null);
+  const modelerRef = useRef(null);
+  const mainContainerRef = useRef(null);
+  const mainRootIdRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const riskOverlayIdsRef = useRef([]);
+  const navigationOverlayIdsRef = useRef([]);
+  const modelerInitIdRef = useRef(0);
+  const suppressSelectionDialogRef = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [xml, setXml] = useState(() => normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
+  const [selectedElement, setSelectedElement] = useState(null);
+  const [properties, setProperties] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [navigationStack, setNavigationStack] = useState([]);
+  const [currentSubprocess, setCurrentSubprocess] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPropertiesCollapsed, setIsPropertiesCollapsed] = useState(false);
+  const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
+  const [showElementActionDialog, setShowElementActionDialog] = useState(false);
+  const [showPaletteDefaultsDialog, setShowPaletteDefaultsDialog] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredElements, setFilteredElements] = useState([]);
+  const [defaultPaletteElementIds, setDefaultPaletteElementIds] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(PALETTE_DEFAULTS_STORAGE_KEY);
+      if (!raw) {
+        return FEATURED_PALETTE_ELEMENTS.map((element) => element.id);
+      }
+
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map((value) => String(value || '')).filter(Boolean) : FEATURED_PALETTE_ELEMENTS.map((element) => element.id);
+    } catch {
+      return FEATURED_PALETTE_ELEMENTS.map((element) => element.id);
+    }
+  });
+  const [actorOptions, setActorOptions] = useState([]);
+  const [actorLoading, setActorLoading] = useState(false);
+  const [actorError, setActorError] = useState('');
+  const [diagramActors, setDiagramActors] = useState([]);
+  const [diagramRisks, setDiagramRisks] = useState([]);
+  const [riskDraft, setRiskDraft] = useState(createEmptyRiskDraft);
+  const [editingRiskId, setEditingRiskId] = useState('');
+  const [showGrcRiskPicker, setShowGrcRiskPicker] = useState(false);
+  const [grcRiskSearch, setGrcRiskSearch] = useState('');
+  const [grcRisks, setGrcRisks] = useState([]);
+  const [grcRiskLoading, setGrcRiskLoading] = useState(false);
+  const [grcRiskError, setGrcRiskError] = useState('');
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [selectedImportId, setSelectedImportId] = useState('');
+  const [importSearch, setImportSearch] = useState('');
+  const [callActivitySearch, setCallActivitySearch] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [editorSubprocesses, setEditorSubprocesses] = useState(() => getBpmnSubprocesses(xml));
+
+  const filteredImportOptions = useMemo(() => {
+    if (!importSearch) return importOptions;
+    return importOptions.filter(opt => 
+      opt.name.toLowerCase().includes(importSearch.toLowerCase()) || 
+      String(opt.id).includes(importSearch)
+    );
+  }, [importOptions, importSearch]);
+
+  const filteredCallActivityOptions = useMemo(() => {
+    if (!callActivitySearch) return importOptions;
+    return importOptions.filter(opt => 
+      opt.name.toLowerCase().includes(callActivitySearch.toLowerCase()) || 
+      String(opt.id).includes(callActivitySearch)
+    );
+  }, [importOptions, callActivitySearch]);
+  const callActivitySuggestions = useMemo(() => {
+    const normalized = callActivitySearch.trim().toLowerCase();
+    if (!normalized) {
+      return [];
+    }
+
+    return filteredCallActivityOptions.slice(0, 6);
+  }, [callActivitySearch, filteredCallActivityOptions]);
+  const visibleGrcRisks = useMemo(() => {
+    const normalized = grcRiskSearch.trim().toLowerCase();
+    if (!normalized) {
+      return grcRisks;
+    }
+
+    return grcRisks.filter((risk) =>
+      [risk.title, risk.remoteId, risk.code, risk.status, risk.category, risk.description]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized))
+    );
+  }, [grcRisks, grcRiskSearch]);
+
+  const bpmnElements = SEARCHABLE_PALETTE_ELEMENTS;
+  const defaultPaletteElements = useMemo(() => {
+    const allowedIds = new Set(defaultPaletteElementIds);
+    const defaults = bpmnElements.filter((element) => allowedIds.has(element.id));
+    return defaults.length ? defaults : FEATURED_PALETTE_ELEMENTS;
+  }, [bpmnElements, defaultPaletteElementIds]);
+  /*
+    { id: 'bpmn:StartEvent', name: 'Start Event', category: 'Events', icon: '⭕' },
+    { id: 'bpmn:EndEvent', name: 'End Event', category: 'Events', icon: '⭕' },
+    { id: 'bpmn:IntermediateThrowEvent', name: 'Intermediate Event', category: 'Events', icon: '⭕' },
+    { id: 'bpmn:UserTask', name: 'User Task', category: 'Tasks', icon: '👤' },
+    { id: 'bpmn:ServiceTask', name: 'Service Task', category: 'Tasks', icon: '⚙️' },
+    { id: 'bpmn:ScriptTask', name: 'Script Task', category: 'Tasks', icon: '📝' },
+    { id: 'bpmn:ManualTask', name: 'Manual Task', category: 'Tasks', icon: '✋' },
+    { id: 'bpmn:SendTask', name: 'Send Task', category: 'Tasks', icon: '📤' },
+    { id: 'bpmn:ReceiveTask', name: 'Receive Task', category: 'Tasks', icon: '📥' },
+    { id: 'bpmn:BusinessRuleTask', name: 'Business Rule Task', category: 'Tasks', icon: '📋' },
+    { id: 'bpmn:ExclusiveGateway', name: 'Exclusive Gateway', category: 'Gateways', icon: '◇' },
+    { id: 'bpmn:ParallelGateway', name: 'Parallel Gateway', category: 'Gateways', icon: '◈' },
+    { id: 'bpmn:InclusiveGateway', name: 'Inclusive Gateway', category: 'Gateways', icon: '⬡' },
+    { id: 'bpmn:SubProcess', name: 'Sub Process', category: 'Sub Processes', icon: '📦' },
+    { id: 'bpmn:CallActivity', name: 'Call Activity', category: 'Sub Processes', icon: '🔄' },
+    { id: 'bpmn:BoundaryEvent', name: 'Boundary Event', category: 'Events', icon: '⭕' },
+  */
+
+  // Set XML from process
+  useEffect(() => {
+    setXml(normalizeProcessXml(process?.bpmn_xml, process?.name || 'Process'));
+  }, [process]);
+
+  useEffect(() => {
+    setEditorSubprocesses(getBpmnSubprocesses(xml));
+  }, [xml]);
+
+  useEffect(() => {
+    setShowGrcRiskPicker(false);
+    setGrcRiskError('');
+  }, [selectedElement?.id]);
+
+  useEffect(() => {
+    setShowImportPanel(false);
+    setSelectedImportId('');
+    setShowElementActionDialog(false);
+  }, [process?.id]);
+
+  useEffect(() => {
+    setIsPropertiesCollapsed(false);
+  }, [process?.id]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PALETTE_DEFAULTS_STORAGE_KEY, JSON.stringify(defaultPaletteElementIds));
+    } catch {
+      // Ignore storage failures and keep the current session state.
+    }
+  }, [defaultPaletteElementIds]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadActors = async () => {
+      setActorLoading(true);
+      setActorError('');
+
+      try {
+        const response = await fetch(apiUrl('/orgchart/nodes'));
+        if (!response.ok) {
+          throw new Error('Failed to load actors from the org chart.');
+        }
+
+        const nodes = await response.json();
+        if (!cancelled) {
+          setActorOptions(buildActorOptions(Array.isArray(nodes) ? nodes : []));
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setActorError(loadError.message || 'Failed to load actors from the org chart.');
+          setActorOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setActorLoading(false);
+        }
+      }
+    };
+
+    loadActors();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Filter elements based on search
+  useEffect(() => {
+    if (!searchTerm) {
+      setFilteredElements(defaultPaletteElements);
+    } else {
+      const filtered = bpmnElements.filter(element => 
+        element.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        element.category.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredElements(filtered);
+    }
+  }, [searchTerm, bpmnElements, defaultPaletteElements]);
+
+  // Group filtered elements by category
+  const groupedElements = filteredElements.reduce((groups, element) => {
+    if (!groups[element.category]) {
+      groups[element.category] = [];
+    }
+    groups[element.category].push(element);
+    return groups;
+  }, {});
+
+  const selectedActor = useMemo(
+    () =>
+      actorOptions.find((actor) => String(actor.nodeId) === String(properties.actorNodeId || '')) ||
+      (properties.actorNodeId
+        ? {
+            nodeId: properties.actorNodeId,
+            name: properties.actorName || `Actor ${properties.actorNodeId}`,
+            subtitle: properties.actorType || '',
+            nodeType: properties.actorType || '',
+            path: properties.actorPath || '',
+          }
+        : null),
+    [actorOptions, properties.actorNodeId, properties.actorName, properties.actorPath, properties.actorType]
+  );
+  const selectedLinkedProcess = useMemo(
+    () =>
+      importOptions.find((option) => String(option.id) === String(properties.linkedProcessId || '')) ||
+      (properties.linkedProcessId
+        ? {
+            id: properties.linkedProcessId,
+            name: properties.linkedProcessName || `Process ${properties.linkedProcessId}`,
+          }
+        : null),
+    [importOptions, properties.linkedProcessId, properties.linkedProcessName]
+  );
+  const isLinkedProcessView =
+    Number(process?.rootProcessId || process?.id || 0) > 0 &&
+    Number(process?.rootProcessId || process?.id || 0) !== Number(process?.id || 0);
+  const canReturnToMainProcess = Boolean(currentSubprocess || isLinkedProcessView);
+  const canNavigateBack = Boolean(navigationStack.length > 0 || isLinkedProcessView);
+  const mainProcessName = process?.rootProcessName || process?.name || 'Main Process';
+
+  const openLinkedProcessForElement = async (element = null, fallbackProcess = null) => {
+    const linkedMetadata = element?.businessObject
+      ? getLinkedProcessMetadata(element.businessObject)
+      : {
+          linkedProcessId: properties.linkedProcessId,
+          linkedProcessName: properties.linkedProcessName,
+        };
+    const linkedProcessId = Number(linkedMetadata.linkedProcessId || 0);
+
+    if (!onOpenLinkedProcess || !Number.isInteger(linkedProcessId) || linkedProcessId <= 0) {
+      return;
+    }
+
+    const resolvedFallbackProcess = fallbackProcess || selectedLinkedProcess || {
+      id: linkedProcessId,
+      name: linkedMetadata.linkedProcessName || `Process ${linkedProcessId}`,
+    };
+
+    setShowElementActionDialog(false);
+
+    try {
+      await onOpenLinkedProcess(linkedProcessId, resolvedFallbackProcess);
+    } catch (openError) {
+      alert(openError.message || 'Failed to open the called process.');
+    }
+  };
+
+  const syncNavigationOverlayButtons = (modeler = modelerRef.current) => {
+    syncNavigationOverlays(modeler, navigationOverlayIdsRef, {
+      onEnterSubprocess: (element) => {
+        if (!element?.id) {
+          return;
+        }
+
+        setShowElementActionDialog(false);
+        openDiagramLevel(element.id);
+      },
+      onOpenLinkedProcess: (element, fallbackProcess) => {
+        void openLinkedProcessForElement(element, fallbackProcess);
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!modelerRef.current) {
+      return;
+    }
+
+    const elementRegistry = modelerRef.current.get('elementRegistry');
+    setDiagramActors(buildDiagramActorSummary(elementRegistry, actorOptions));
+    setDiagramRisks(buildDiagramRiskSummary(elementRegistry));
+    syncRiskOverlays(modelerRef.current, riskOverlayIdsRef);
+    syncNavigationOverlayButtons(modelerRef.current);
+  }, [actorOptions, xml, onOpenLinkedProcess]);
+
+  useEffect(() => {
+    setEditingRiskId('');
+    setRiskDraft(createEmptyRiskDraft());
+  }, [selectedElement?.id]);
+
+  const syncNavigationFromRoot = (rootElement) => {
+    const activeSubprocessId = getSubprocessIdFromPlaneId(rootElement?.id);
+    const trail = buildBpmnSubprocessTrail(editorSubprocesses, activeSubprocessId);
+    setNavigationStack(trail);
+    setCurrentSubprocess(trail.length ? trail[trail.length - 1] : null);
+  };
+
+  const openDiagramLevel = (subprocessId = null) => {
+    const canvas = modelerRef.current?.get('canvas');
+    if (!canvas) {
+      return;
+    }
+
+    const targetRoot = subprocessId
+      ? canvas.findRoot(toSubprocessPlaneId(subprocessId))
+      : mainRootIdRef.current
+        ? canvas.findRoot(mainRootIdRef.current)
+        : null;
+
+    if (targetRoot) {
+      canvas.setRootElement(targetRoot);
+    }
+
+    canvas.zoom('fit-viewport');
+  };
+
+  // Initialize modeler
+  useEffect(() => {
+    if (!xml || !containerRef.current) return;
+
+    const initId = modelerInitIdRef.current + 1;
+    modelerInitIdRef.current = initId;
+    let disposed = false;
+    let localModeler = null;
+
+    const destroyLocalModeler = () => {
+      const targetModeler = localModeler;
+
+      if (!targetModeler) {
+        return;
+      }
+
+      if (modelerRef.current === targetModeler) {
+        modelerRef.current = null;
+      }
+
+      targetModeler.destroy();
+      localModeler = null;
+    };
+
+    const initModeler = async () => {
+      if (disposed || initId !== modelerInitIdRef.current) return;
+
+      try {
+        const previousModeler = modelerRef.current;
+        if (previousModeler) {
+          modelerRef.current = null;
+          previousModeler.destroy();
+        }
+
+        if (!containerRef.current || disposed || initId !== modelerInitIdRef.current) {
+          return;
+        }
+
+        containerRef.current.innerHTML = '';
+
+        const modeler = new BpmnModeler({
+          container: containerRef.current,
+          palette: !readOnly,
+        });
+        localModeler = modeler;
+
+        if (disposed || initId !== modelerInitIdRef.current) {
+          destroyLocalModeler();
+          return;
+        }
+
+        modelerRef.current = modeler;
+
+        setError(null);
+        setLoading(true);
+        setSelectedElement(null);
+        setProperties({});
+
+        try {
+          const { warnings } = await modeler.importXML(xml);
+
+          if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+            destroyLocalModeler();
+            return;
+          }
+
+          if (warnings && warnings.length) {
+            console.warn('BPMN Import Warnings:', warnings);
+          }
+          console.log('BPMN XML imported successfully');
+        } catch (err) {
+          if (disposed || initId !== modelerInitIdRef.current) return;
+          console.error('BPMN Import Error:', err);
+
+          try {
+            const fallback = buildFallbackXml(process?.name || 'Process');
+            await modeler.importXML(fallback);
+            if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+              destroyLocalModeler();
+              return;
+            }
+            setError('Warning: Using minimal BPMN template');
+          } catch (fallbackErr) {
+            if (disposed || initId !== modelerInitIdRef.current) return;
+            console.error('BPMN fallback import error:', fallbackErr);
+            try {
+              await modeler.createDiagram();
+              if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+                destroyLocalModeler();
+                return;
+              }
+              setError('Warning: Opened a blank BPMN diagram');
+            } catch (createErr) {
+              if (disposed) return;
+              setError('Failed to initialize BPMN editor: ' + createErr.message);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+
+        if (disposed || initId !== modelerInitIdRef.current || modelerRef.current !== modeler) {
+          destroyLocalModeler();
+          return;
+        }
+
+        const canvas = modeler.get('canvas');
+        const eventBus = modeler.get('eventBus');
+        const elementRegistry = modeler.get('elementRegistry');
+
+        const refreshDiagramActors = () => {
+          setDiagramActors(buildDiagramActorSummary(elementRegistry, actorOptions));
+        };
+        const refreshDiagramRisks = () => {
+          setDiagramRisks(buildDiagramRiskSummary(elementRegistry));
+          syncRiskOverlays(modeler, riskOverlayIdsRef);
+        };
+        const refreshDerivedPanels = () => {
+          refreshDiagramActors();
+          refreshDiagramRisks();
+          syncNavigationOverlayButtons(modeler);
+        };
+
+        if (canvas) {
+          mainRootIdRef.current = canvas.getRootElement()?.id || null;
+        }
+
+        setLoading(false);
+        refreshDerivedPanels();
+
+        eventBus.on('selection.changed', (event) => {
+          const selection = event.newSelection;
+          if (suppressSelectionDialogRef.current) {
+            suppressSelectionDialogRef.current = false;
+            setShowElementActionDialog(false);
+            setSelectedElement(null);
+            setProperties({});
+            return;
+          }
+
+          if (selection.length === 1) {
+            const el = selection[0]?.labelTarget || selection[0];
+            const actorMetadata = getActorMetadata(el.businessObject);
+            const riskMetadata = getRiskMetadata(el.businessObject);
+            const linkedProcessMetadata = getLinkedProcessMetadata(el.businessObject);
+            setShowElementActionDialog(true);
+            setSelectedElement(el);
+            setProperties({
+              id: el.id,
+              name: getElementPropertyName(el),
+              type: el.type,
+              documentation: el.businessObject?.documentation?.[0]?.text || '',
+              actorNodeId: actorMetadata.actorNodeId,
+              actorName: actorMetadata.actorName,
+              actorType: actorMetadata.actorType,
+              actorPath: actorMetadata.actorPath,
+              calledElement: linkedProcessMetadata.calledElement,
+              linkedProcessId: linkedProcessMetadata.linkedProcessId,
+              linkedProcessName: linkedProcessMetadata.linkedProcessName,
+              risks: riskMetadata.risks,
+            });
+          } else {
+            setShowElementActionDialog(false);
+            setSelectedElement(null);
+            setProperties({});
+          }
+        });
+
+        eventBus.on('root.set', (event) => {
+          syncNavigationFromRoot(event.element);
+        });
+
+        eventBus.on('commandStack.changed', refreshDerivedPanels);
+        eventBus.on('elements.changed', refreshDerivedPanels);
+
+        openDiagramLevel(initialSubprocessId || null);
+        syncNavigationFromRoot(canvas?.getRootElement());
+        refreshDerivedPanels();
+
+      } catch (initErr) {
+        if (!disposed) {
+          setError('Failed to initialize BPMN modeler: ' + initErr.message);
+          setLoading(false);
+        }
+      }
+    };
+
+    initModeler();
+    return () => {
+      disposed = true;
+      if (modelerInitIdRef.current === initId) {
+        modelerInitIdRef.current += 1;
+      }
+      destroyLocalModeler();
+      riskOverlayIdsRef.current = [];
+      navigationOverlayIdsRef.current = [];
+    };
+  }, [xml, process?.name, readOnly]);
+
+  useEffect(() => {
+    if (!modelerRef.current) {
+      return;
+    }
+
+    openDiagramLevel(initialSubprocessId || null);
+  }, [initialSubprocessId]);
+
+  const handlePropertyChange = async (key, value) => {
+    if (readOnly || !selectedElement || !modelerRef.current) return;
+
+    const modeling = modelerRef.current.get('modeling');
+
+    if (key === 'name') {
+      modeling.updateLabel(selectedElement, value);
+    } else if (key === 'documentation') {
+      const commandStack = modelerRef.current.get('commandStack');
+      commandStack.execute('element.updateProperties', {
+        element: selectedElement,
+        properties: { documentation: [{ text: value }] }
+      });
+    } else if (key === 'calledElement') {
+      applyCalledProcessAssignment(modelerRef.current, selectedElement, null, { calledElement: value });
+    } else if (key === 'linkedProcessId') {
+      const linkedProcess = importOptions.find((option) => String(option.id) === String(value)) || null;
+      applyCalledProcessAssignment(modelerRef.current, selectedElement, linkedProcess);
+      if (linkedProcess && isDrilldownProcessElement(selectedElement)) {
+        try {
+          await syncLinkedProcessIntoSubprocess(selectedElement, linkedProcess);
+        } catch (syncError) {
+          alert(syncError.message || 'Failed to turn this called process into the sous-process content.');
+        }
+      }
+    } else if (key === 'actorNodeId') {
+      const actor = actorOptions.find((option) => String(option.nodeId) === String(value)) || null;
+      applyActorAssignment(modelerRef.current, selectedElement, actor, {
+        syncLabel: shouldSyncActorNameToLabel(selectedElement),
+      });
+    }
+
+    if (key === 'calledElement') {
+      setProperties((prev) => ({
+        ...prev,
+        calledElement: value,
+        linkedProcessId: '',
+        linkedProcessName: '',
+      }));
+      return;
+    }
+
+    if (key === 'linkedProcessId') {
+      const linkedProcess = importOptions.find((option) => String(option.id) === String(value)) || null;
+      setProperties((prev) => ({
+        ...prev,
+        linkedProcessId: linkedProcess ? String(linkedProcess.id) : '',
+        linkedProcessName: linkedProcess?.name || '',
+        calledElement: linkedProcess ? buildCalledElementKey(linkedProcess.id) : '',
+      }));
+      return;
+    }
+
+    if (key === 'actorNodeId') {
+      const actor = actorOptions.find((option) => String(option.nodeId) === String(value)) || null;
+      setProperties((prev) => ({
+        ...prev,
+        actorNodeId: actor ? String(actor.nodeId) : '',
+        actorName: actor?.name || '',
+        actorType: actor?.nodeType || '',
+        actorPath: actor?.path || '',
+        name: shouldSyncActorNameToLabel(selectedElement) && actor ? actor.name : prev.name,
+      }));
+      return;
+    }
+
+    setProperties(prev => ({ ...prev, [key]: value }));
+  };
+
+  const resetRiskEditor = () => {
+    setEditingRiskId('');
+    setRiskDraft(createEmptyRiskDraft());
+  };
+
+  const startRiskEdit = (risk) => {
+    setEditingRiskId(risk.id);
+    setRiskDraft({
+      title: risk.title || '',
+      severity: risk.severity || 'medium',
+      category: risk.category || 'operational',
+      status: risk.status || 'open',
+      description: risk.description || '',
+      mitigation: risk.mitigation || '',
+    });
+  };
+
+  const saveRiskForSelectedElement = () => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    const title = riskDraft.title.trim();
+    if (!title) {
+      alert('Please enter a risk title before saving.');
+      return;
+    }
+
+    const currentRisks = Array.isArray(properties.risks) ? properties.risks : [];
+    const nextRisk = normalizeRiskEntry(
+      {
+        id: editingRiskId || createRiskId(),
+        ...riskDraft,
+        title,
+      },
+      currentRisks.length
+    );
+
+    const nextRisks = editingRiskId
+      ? currentRisks.map((risk) => (risk.id === editingRiskId ? nextRisk : risk))
+      : [...currentRisks, nextRisk];
+
+    applyRiskAssignment(modelerRef.current, selectedElement, nextRisks);
+    setProperties((prev) => ({ ...prev, risks: nextRisks }));
+    resetRiskEditor();
+  };
+
+  const loadGrcRisks = async () => {
+    if (!selectedElement) {
+      alert('Select a BPMN element before importing a GRC risk.');
+      return;
+    }
+
+    setGrcRiskLoading(true);
+    setGrcRiskError('');
+
+    try {
+      const params = new URLSearchParams();
+      if (grcRiskSearch.trim()) {
+        params.set('search', grcRiskSearch.trim());
+      }
+
+      const response = await fetch(apiUrl(`/grc/risks${params.toString() ? `?${params.toString()}` : ''}`));
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || 'Unable to load risks from V-GRC.');
+      }
+
+      setGrcRisks(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (loadError) {
+      setGrcRisks([]);
+      setGrcRiskError(loadError.message || 'Unable to load risks from V-GRC.');
+    } finally {
+      setGrcRiskLoading(false);
+    }
+  };
+
+  const openGrcRiskPicker = () => {
+    if (!selectedElement) {
+      alert('Select a BPMN element before importing a GRC risk.');
+      return;
+    }
+
+    setShowGrcRiskPicker(true);
+    if (!grcRisks.length && !grcRiskLoading) {
+      loadGrcRisks();
+    }
+  };
+
+  const importGrcRiskForSelectedElement = (grcRisk) => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    const currentRisks = Array.isArray(properties.risks) ? properties.risks : [];
+    const remoteId = String(grcRisk?.remoteId || grcRisk?.id || '');
+    if (remoteId && currentRisks.some((risk) => String(risk.remoteId || '') === remoteId || String(risk.id || '') === remoteId)) {
+      alert('This V-GRC risk is already linked to the selected BPMN element.');
+      return;
+    }
+
+    const nextRisk = normalizeRiskEntry(
+      {
+        ...grcRisk,
+        id: remoteId ? `grc_${remoteId}` : createRiskId(),
+        source: 'v-grc',
+        remoteId,
+        synchronizedAt: new Date().toISOString(),
+      },
+      currentRisks.length
+    );
+    const nextRisks = [...currentRisks, nextRisk];
+
+    applyRiskAssignment(modelerRef.current, selectedElement, nextRisks);
+    setProperties((prev) => ({ ...prev, risks: nextRisks }));
+  };
+
+  const removeRiskFromSelectedElement = (riskId) => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    const currentRisks = Array.isArray(properties.risks) ? properties.risks : [];
+    const nextRisks = currentRisks.filter((risk) => risk.id !== riskId);
+
+    applyRiskAssignment(modelerRef.current, selectedElement, nextRisks);
+    setProperties((prev) => ({ ...prev, risks: nextRisks }));
+
+    if (editingRiskId === riskId) {
+      resetRiskEditor();
+    }
+  };
+
+  const navigateBack = () => {
+    if (navigationStack.length > 0) {
+      openDiagramLevel(currentSubprocess?.parentId || null);
+      return;
+    }
+
+    if (isLinkedProcessView && onReturnToMainProcess) {
+      onReturnToMainProcess();
+    }
+  };
+
+  const navigateToBreadcrumb = (index) => {
+    if (index === 0) {
+      openDiagramLevel(null);
+      return;
+    }
+
+    openDiagramLevel(navigationStack[index - 1]?.id || null);
+  };
+
+  const handleReturnToMainProcess = () => {
+    if (isLinkedProcessView && onReturnToMainProcess) {
+      onReturnToMainProcess();
+      return;
+    }
+
+    openDiagramLevel(null);
+  };
+
+  const handleOpenLinkedProcess = async () => {
+    await openLinkedProcessForElement(selectedElement);
+  };
+
+  const handleEnterSelectedSubprocess = () => {
+    if (!selectedElement || !isDrilldownProcessElement(selectedElement)) {
+      return;
+    }
+
+    setShowElementActionDialog(false);
+    openDiagramLevel(selectedElement.id);
+  };
+
+  const handleSave = async () => {
+    if (readOnly || !modelerRef.current) return;
+
+    try {
+      setSaving(true);
+      const { xml: newXml } = await modelerRef.current.saveXML({ format: true });
+      
+      if (onSave) await onSave(newXml);
+
+      setSaving(false);
+    } catch (err) {
+      alert('Error saving: ' + err.message);
+      setSaving(false);
+    }
+  };
+
+  const downloadXml = async () => {
+    if (!modelerRef.current) return;
+
+    try {
+      const { xml: newXml } = await modelerRef.current.saveXML({ format: true });
+      const blob = new Blob([newXml], { type: 'application/xml' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${process?.name || 'process'}.bpmn`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Error downloading: ' + err.message);
+    }
+  };
+
+  const toggleFullscreen = () => {
+    if (!isFullscreen) {
+      mainContainerRef.current?.requestFullscreen().catch(console.error);
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  // Add fullscreen event listener
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const syncLinkedProcessIntoSubprocess = async (element, linkedProcess) => {
+    if (
+      !modelerRef.current ||
+      !element ||
+      !linkedProcess?.id ||
+      !isDrilldownProcessElement(element) ||
+      !onImportExisting
+    ) {
+      return;
+    }
+
+    const imported = await onImportExisting(linkedProcess.id);
+    if (!imported?.xml) {
+      throw new Error('This process does not contain a diagram yet.');
+    }
+
+    const importable = await extractImportableDiagram(imported.xml, imported.name || linkedProcess.name || 'Process');
+    if (!importable.shapes.length) {
+      throw new Error('No importable BPMN elements were found in that diagram.');
+    }
+
+    const modeler = modelerRef.current;
+    const canvas = modeler.get('canvas');
+    const elementRegistry = modeler.get('elementRegistry');
+    const elementFactory = modeler.get('elementFactory');
+    const modeling = modeler.get('modeling');
+    const moddle = modeler.get('moddle');
+    const selection = modeler.get('selection');
+    const activeRoot = canvas.getRootElement();
+    const subprocessRoot = canvas.findRoot(toSubprocessPlaneId(element.id));
+    const importParent = subprocessRoot || element;
+    const usingDedicatedRoot = Boolean(subprocessRoot);
+
+    if (usingDedicatedRoot && activeRoot?.id !== subprocessRoot.id) {
+      canvas.setRootElement(subprocessRoot);
+    }
+
+    const existingElements = elementRegistry.filter(
+      (entry) => entry.parent === importParent && !entry.labelTarget
+    );
+
+    if (existingElements.length) {
+      modeling.removeElements(existingElements);
+    }
+
+    const timestamp = Date.now();
+    const importedShapeMap = new Map();
+
+    if (usingDedicatedRoot) {
+      const importedLeft = Math.min(...importable.shapes.map((shape) => shape.x));
+      const importedTop = Math.min(...importable.shapes.map((shape) => shape.y));
+
+      importable.shapes.forEach((shape, index) => {
+        const businessObject = moddle.create(shape.type, {
+          id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
+          name: shape.name || undefined,
+        });
+
+        if (!businessObject.$attrs) {
+          try {
+            businessObject.$attrs = {};
+          } catch (e) {
+            // Handled lazily by moddle internals.
+          }
+        }
+
+        if (shape.documentation) {
+          businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
+        }
+
+        const importedActorMetadata = shape.actorMetadata || {};
+        if (importedActorMetadata.actorNodeId && businessObject.$attrs) {
+          ensurePfeNamespace(modeler);
+          businessObject.$attrs[pfeAttrKey('actorNodeId')] = importedActorMetadata.actorNodeId;
+          businessObject.$attrs[pfeAttrKey('actorName')] = importedActorMetadata.actorName || '';
+          businessObject.$attrs[pfeAttrKey('actorType')] = importedActorMetadata.actorType || '';
+          businessObject.$attrs[pfeAttrKey('actorPath')] = importedActorMetadata.actorPath || '';
+
+          if (importedActorMetadata.actorUserId) {
+            businessObject.$attrs[pfeAttrKey('actorUserId')] = importedActorMetadata.actorUserId;
+          }
+        }
+
+        const importedRiskMetadata = shape.riskMetadata || {};
+        if (Array.isArray(importedRiskMetadata.risks) && importedRiskMetadata.risks.length && businessObject.$attrs) {
+          ensurePfeNamespace(modeler);
+          businessObject.$attrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
+        }
+
+        const importedLinkedProcessMetadata = shape.linkedProcessMetadata || {};
+        if ((importedLinkedProcessMetadata.calledElement || importedLinkedProcessMetadata.linkedProcessId) && businessObject.$attrs) {
+          ensurePfeNamespace(modeler);
+
+          if (shape.type === 'bpmn:CallActivity' && importedLinkedProcessMetadata.calledElement) {
+            businessObject.calledElement = importedLinkedProcessMetadata.calledElement;
+          }
+
+          if (importedLinkedProcessMetadata.calledElement) {
+            businessObject.$attrs[pfeAttrKey('calledElement')] = importedLinkedProcessMetadata.calledElement;
+          }
+
+          if (importedLinkedProcessMetadata.linkedProcessId) {
+            businessObject.$attrs[pfeAttrKey('linkedProcessId')] = importedLinkedProcessMetadata.linkedProcessId;
+            businessObject.$attrs[pfeAttrKey('linkedProcessName')] = importedLinkedProcessMetadata.linkedProcessName || '';
+          }
+        }
+
+        const createdShape = elementFactory.createShape({
+          type: shape.type,
+          businessObject,
+          width: shape.width,
+          height: shape.height,
+        });
+
+        modeling.createShape(
+          createdShape,
+          {
+            x: 120 + (shape.x - importedLeft) + (shape.width / 2),
+            y: 120 + (shape.y - importedTop) + (shape.height / 2),
+          },
+          importParent
+        );
+
+        importedShapeMap.set(shape.id, createdShape);
+      });
+    } else {
+      const importedLeft = Math.min(...importable.shapes.map((shape) => shape.x));
+      const importedTop = Math.min(...importable.shapes.map((shape) => shape.y));
+      const importedRight = Math.max(...importable.shapes.map((shape) => shape.x + shape.width));
+      const importedBottom = Math.max(...importable.shapes.map((shape) => shape.y + shape.height));
+      const importedWidth = Math.max(importedRight - importedLeft, 1);
+      const importedHeight = Math.max(importedBottom - importedTop, 1);
+      const innerPadding = 24;
+      const availableWidth = Math.max((element.width || 220) - innerPadding * 2, 80);
+      const availableHeight = Math.max((element.height || 140) - innerPadding * 2, 60);
+      const scale = Math.min(availableWidth / importedWidth, availableHeight / importedHeight, 1);
+
+      importable.shapes.forEach((shape, index) => {
+        const businessObject = moddle.create(shape.type, {
+          id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
+          name: shape.name || undefined,
+        });
+
+        const createdShape = elementFactory.createShape({
+          type: shape.type,
+          businessObject,
+          width: Math.max(24, Math.round(shape.width * scale)),
+          height: Math.max(24, Math.round(shape.height * scale)),
+        });
+
+        const scaledWidth = createdShape.width;
+        const scaledHeight = createdShape.height;
+        const relativeX = (shape.x - importedLeft) * scale;
+        const relativeY = (shape.y - importedTop) * scale;
+
+        modeling.createShape(
+          createdShape,
+          {
+            x: element.x + innerPadding + relativeX + (scaledWidth / 2),
+            y: element.y + innerPadding + relativeY + (scaledHeight / 2),
+          },
+          importParent
+        );
+
+        importedShapeMap.set(shape.id, createdShape);
+      });
+    }
+
+    importable.connections.forEach((connection, index) => {
+      const source = importedShapeMap.get(connection.sourceId);
+      const target = importedShapeMap.get(connection.targetId);
+      if (!source || !target) {
+        return;
+      }
+
+      const businessObject = moddle.create('bpmn:SequenceFlow', {
+        id: sanitizeId(`SequenceFlow_${timestamp}_${index + 1}`),
+        name: connection.name || undefined,
+      });
+
+      ensureContainerSemantics(importParent, 'bpmn:SequenceFlow', moddle);
+      modeling.createConnection(source, target, { type: 'bpmn:SequenceFlow', businessObject }, importParent);
+    });
+
+    selection.select([]);
+
+    if (usingDedicatedRoot && activeRoot?.id && activeRoot.id !== importParent.id) {
+      const restoreRoot = canvas.findRoot(activeRoot.id);
+      if (restoreRoot) {
+        canvas.setRootElement(restoreRoot);
+      }
+    }
+
+    const { xml: liveXml } = await modeler.saveXML({ format: true });
+    setEditorSubprocesses(getBpmnSubprocesses(liveXml));
+  };
+
+  const createPaletteElement = (element, position = null, options = {}) => {
+    if (readOnly || !modelerRef.current) return;
+
+    try {
+      const { selectAfterCreate = true } = options;
+      suppressSelectionDialogRef.current = !selectAfterCreate;
+      const modeler = modelerRef.current;
+      const elementFactory = modeler.get('elementFactory');
+      const canvas = modeler.get('canvas');
+      const modeling = modeler.get('modeling');
+      const moddle = modeler.get('moddle');
+      const selection = modeler.get('selection');
+      
+      const rootElement = canvas.getRootElement();
+      const targetParent = resolveCreationParent({
+        rootElement,
+        selection,
+        elementType: element?.createOptions?.type || element?.id,
+        moddle,
+      });
+      const viewbox = canvas.viewbox();
+      const resolvedPosition = position || {
+        x: -viewbox.x + viewbox.width / 2,
+        y: -viewbox.y + viewbox.height / 2,
+      };
+      const randomOffset = () => (Math.random() - 0.5) * 100;
+
+      const createdElement = createPaletteShape(elementFactory, element);
+
+      modeling.createShape(
+        createdElement,
+        {
+          x: resolvedPosition.x + (position ? 0 : randomOffset()),
+          y: resolvedPosition.y + (position ? 0 : randomOffset()),
+        },
+        targetParent
+      );
+
+      applyPaletteElementDefaults(modeler, createdElement, element);
+      if (selectAfterCreate) {
+        selection.select(createdElement);
+      }
+
+      return createdElement;
+    } catch (error) {
+      console.error('Error adding element:', error);
+    }
+  };
+
+  const addSearchElement = (element) => {
+    createPaletteElement(element);
+  };
+
+  const handlePaletteDragStart = (event, element) => {
+    if (readOnly) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(PALETTE_DND_TYPE, element.id);
+    event.dataTransfer.setData('text/plain', element.name);
+  };
+
+  const handleCanvasDragOver = (event) => {
+    if (readOnly) {
+      return;
+    }
+
+    if (!event.dataTransfer.types.includes(PALETTE_DND_TYPE)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsCanvasDragOver(true);
+  };
+
+  const handleCanvasDragLeave = () => {
+    setIsCanvasDragOver(false);
+  };
+
+  const handleCanvasDrop = (event) => {
+    if (readOnly || !containerRef.current || !modelerRef.current) {
+      setIsCanvasDragOver(false);
+      return;
+    }
+
+    const paletteId = event.dataTransfer.getData(PALETTE_DND_TYPE);
+    const element = SEARCHABLE_PALETTE_ELEMENTS.find((entry) => entry.id === paletteId);
+    setIsCanvasDragOver(false);
+
+    if (!element) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const canvas = modelerRef.current.get('canvas');
+    const viewbox = canvas.viewbox();
+    const offsetX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    const offsetY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const diagramX = -viewbox.x + ((offsetX / Math.max(rect.width, 1)) * viewbox.width);
+    const diagramY = -viewbox.y + ((offsetY / Math.max(rect.height, 1)) * viewbox.height);
+
+    createPaletteElement(element, { x: diagramX, y: diagramY }, { selectAfterCreate: false });
+  };
+
+  const clearSelectedElement = () => {
+    setShowElementActionDialog(false);
+    if (modelerRef.current) {
+      const selection = modelerRef.current.get('selection');
+      selection.select([]);
+      return;
+    }
+    setSelectedElement(null);
+    setProperties({});
+  };
+
+  const handleDeleteSelectedElement = () => {
+    if (readOnly || !selectedElement || !modelerRef.current) {
+      return;
+    }
+
+    try {
+      const modeling = modelerRef.current.get('modeling');
+      modeling.removeElements([selectedElement]);
+      clearSelectedElement();
+    } catch (deleteError) {
+      alert(deleteError.message || 'Failed to delete this element.');
+    }
+  };
+
+  const applyLinkedProcessSelection = (option) => {
+    if (!option) {
+      return;
+    }
+
+    setCallActivitySearch(option.name || '');
+    handlePropertyChange('linkedProcessId', String(option.id));
+  };
+
+  const toggleDefaultPaletteElement = (elementId) => {
+    const normalizedId = String(elementId || '').trim();
+    if (!normalizedId) {
+      return;
+    }
+
+    setDefaultPaletteElementIds((current) => (
+      current.includes(normalizedId)
+        ? current.filter((entry) => entry !== normalizedId)
+        : [...current, normalizedId]
+    ));
+  };
+
+  const resetDefaultPaletteElements = () => {
+    setDefaultPaletteElementIds(FEATURED_PALETTE_ELEMENTS.map((element) => element.id));
+  };
+
+  const applyImportedDiagram = async (rawValue, sourceName = 'Process') => {
+    if (!modelerRef.current) {
+      setXml(normalizeProcessXml(rawValue, sourceName));
+      setSelectedElement(null);
+      setProperties({});
+      setShowImportPanel(false);
+      setSelectedImportId('');
+      return;
+    }
+
+    const imported = await extractImportableDiagram(rawValue, sourceName);
+    if (!imported.shapes.length) {
+      throw new Error('No importable BPMN elements were found in that diagram.');
+    }
+
+    const modeler = modelerRef.current;
+    const canvas = modeler.get('canvas');
+    const elementRegistry = modeler.get('elementRegistry');
+    const elementFactory = modeler.get('elementFactory');
+    const modeling = modeler.get('modeling');
+    const moddle = modeler.get('moddle');
+    const selection = modeler.get('selection');
+    const root = canvas.getRootElement();
+    const existingRootShapes = elementRegistry.filter(
+      (element) => element.parent === root && !element.labelTarget && Number.isFinite(element.x) && Number.isFinite(element.width)
+    );
+    const currentRightEdge = existingRootShapes.reduce((max, shape) => Math.max(max, shape.x + shape.width), 120);
+    const importedLeftEdge = imported.shapes.reduce((min, shape) => Math.min(min, shape.x), imported.shapes[0].x);
+    const offsetX = currentRightEdge - importedLeftEdge + 140;
+    const offsetY = 40;
+    const timestamp = Date.now();
+    const importedShapeMap = new Map();
+
+    imported.shapes.forEach((shape, index) => {
+      const targetParent = resolveCreationParent({
+        rootElement: root,
+        selection,
+        elementType: shape.type,
+        moddle,
+      });
+      const businessObject = moddle.create(shape.type, {
+        id: sanitizeId(`${shape.type.replace(':', '_')}_${timestamp}_${index + 1}`),
+        name: shape.name || undefined,
+      });
+
+      // Safely ensure $attrs exists without breaking on read-only properties
+      if (!businessObject.$attrs) {
+        try {
+          businessObject.$attrs = {};
+        } catch (e) {
+          // If $attrs is read-only but undefined, we may need to use moddle-specific methods 
+          // or just proceed if the library handles it lazily.
+        }
+      }
+
+      if (shape.documentation) {
+        businessObject.documentation = [moddle.create('bpmn:Documentation', { text: shape.documentation })];
+      }
+
+      const importedActorMetadata = shape.actorMetadata || {};
+      if (importedActorMetadata.actorNodeId && businessObject.$attrs) {
+        ensurePfeNamespace(modeler);
+        const nextAttrs = businessObject.$attrs;
+
+        nextAttrs[pfeAttrKey('actorNodeId')] = importedActorMetadata.actorNodeId;
+        nextAttrs[pfeAttrKey('actorName')] = importedActorMetadata.actorName || '';
+        nextAttrs[pfeAttrKey('actorType')] = importedActorMetadata.actorType || '';
+        nextAttrs[pfeAttrKey('actorPath')] = importedActorMetadata.actorPath || '';
+
+        if (importedActorMetadata.actorUserId) {
+          nextAttrs[pfeAttrKey('actorUserId')] = importedActorMetadata.actorUserId;
+        } else {
+          delete nextAttrs[pfeAttrKey('actorUserId')];
+        }
+      }
+
+      const importedRiskMetadata = shape.riskMetadata || {};
+      if (Array.isArray(importedRiskMetadata.risks) && importedRiskMetadata.risks.length && businessObject.$attrs) {
+        ensurePfeNamespace(modeler);
+        businessObject.$attrs[pfeAttrKey('risks')] = serializeRiskMetadata(importedRiskMetadata.risks);
+      }
+
+      const importedLinkedProcessMetadata = shape.linkedProcessMetadata || {};
+      if ((importedLinkedProcessMetadata.calledElement || importedLinkedProcessMetadata.linkedProcessId) && businessObject.$attrs) {
+        ensurePfeNamespace(modeler);
+        const nextAttrs = businessObject.$attrs;
+
+        if (importedLinkedProcessMetadata.calledElement) {
+          businessObject.calledElement = importedLinkedProcessMetadata.calledElement;
+        }
+
+        if (importedLinkedProcessMetadata.linkedProcessId) {
+          nextAttrs[pfeAttrKey('linkedProcessId')] = importedLinkedProcessMetadata.linkedProcessId;
+          nextAttrs[pfeAttrKey('linkedProcessName')] = importedLinkedProcessMetadata.linkedProcessName || '';
+        }
+      }
+
+      const createdShape = elementFactory.createShape({
+        type: shape.type,
+        businessObject,
+        width: shape.width,
+        height: shape.height,
+      });
+
+      modeling.createShape(
+        createdShape,
+        {
+          x: shape.x + offsetX + (shape.width / 2),
+          y: shape.y + offsetY + (shape.height / 2),
+        },
+        targetParent
+      );
+
+      importedShapeMap.set(shape.id, createdShape);
+    });
+
+    imported.connections.forEach((connection, index) => {
+      const source = importedShapeMap.get(connection.sourceId);
+      const target = importedShapeMap.get(connection.targetId);
+      if (!source || !target) {
+        return;
+      }
+
+      const businessObject = moddle.create('bpmn:SequenceFlow', {
+        id: sanitizeId(`SequenceFlow_${timestamp}_${index + 1}`),
+        name: connection.name || undefined,
+      });
+
+      const connectionParent = source.parent || target.parent || root;
+      ensureContainerSemantics(connectionParent, 'bpmn:SequenceFlow', moddle);
+      modeling.createConnection(source, target, { type: 'bpmn:SequenceFlow', businessObject }, connectionParent);
+    });
+
+    const { xml: mergedXml } = await modeler.saveXML({ format: true });
+    setXml(mergedXml);
+    setSelectedElement(null);
+    setProperties({});
+    setShowImportPanel(false);
+    setSelectedImportId('');
+    selection.select([...importedShapeMap.values()]);
+    canvas.zoom('fit-viewport');
+  };
+
+  const handleImportExisting = async () => {
+    if (!selectedImportId || !onImportExisting) return;
+
+    try {
+      setImporting(true);
+      const imported = await onImportExisting(selectedImportId);
+      if (!imported?.xml) {
+        throw new Error('This process does not contain a diagram yet.');
+      }
+      applyImportedDiagram(imported.xml, imported.name || process?.name || 'Process');
+    } catch (importError) {
+      alert(importError.message || 'Failed to import the selected diagram.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportFromPc = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setImporting(true);
+      const text = await file.text();
+      applyImportedDiagram(text, file.name.replace(/\.[^.]+$/u, '') || process?.name || 'Process');
+    } catch (importError) {
+      alert(importError.message || 'Failed to import the BPMN file from this computer.');
+    } finally {
+      event.target.value = '';
+      setImporting(false);
+    }
+  };
+
+  const selectedElementRisks = Array.isArray(properties.risks) ? properties.risks : [];
+  const renderGrcRiskPicker = () => (
+    <div className="grc-risk-import">
+      <div className="grc-risk-import__header">
+        <div>
+          <div className="grc-risk-import__title">
+            <Database size={13} />
+            V-GRC Risk Repository
+          </div>
+          <div className="grc-risk-import__help">Fetch an existing governance risk and link it to this BPMN element.</div>
+        </div>
+        <button type="button" className="risk-action-btn" onClick={openGrcRiskPicker}>
+          Import from V-GRC
+        </button>
+      </div>
+
+      {showGrcRiskPicker ? (
+        <div className="grc-risk-import__body">
+          <div className="grc-risk-import__toolbar">
+            <div className="grc-risk-import__search">
+              <Search size={12} />
+              <input
+                type="text"
+                value={grcRiskSearch}
+                onChange={(event) => setGrcRiskSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    loadGrcRisks();
+                  }
+                }}
+                placeholder="Search V-GRC risks..."
+              />
+            </div>
+            <button type="button" className="risk-action-btn" onClick={loadGrcRisks} disabled={grcRiskLoading}>
+              <RefreshCw size={12} />
+              {grcRiskLoading ? 'Loading' : 'Fetch'}
+            </button>
+          </div>
+
+          {grcRiskError ? <div className="grc-risk-import__error">{grcRiskError}</div> : null}
+
+          {grcRiskLoading ? (
+            <div className="grc-risk-import__empty">Loading risks from V-GRC...</div>
+          ) : visibleGrcRisks.length ? (
+            <div className="grc-risk-import__list">
+              {visibleGrcRisks.map((risk) => (
+                <button
+                  type="button"
+                  key={risk.remoteId || risk.id}
+                  className="grc-risk-option"
+                  onClick={() => importGrcRiskForSelectedElement(risk)}
+                >
+                  <span className="grc-risk-option__main">
+                    <span className="grc-risk-option__title">{risk.title}</span>
+                    <span className="grc-risk-option__meta">
+                      {risk.remoteId || risk.id} / {risk.remoteStatus || risk.status || 'open'}
+                    </span>
+                  </span>
+                  <span className={`risk-pill risk-pill--${risk.severity || 'medium'}`}>{risk.severity || 'medium'}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="grc-risk-import__empty">No V-GRC risks found.</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderElementActionContent = () => (
+    <>
+      <div className="property-field">
+        <label>Type</label>
+        <div className="property-value type">{properties.type}</div>
+      </div>
+      <div className="property-field">
+        <label>ID</label>
+        <input type="text" value={properties.id} disabled />
+      </div>
+      <div className="property-field">
+        <label>Name</label>
+        <input
+          type="text"
+          value={properties.name}
+          onChange={(e) => handlePropertyChange('name', e.target.value)}
+          placeholder="Element name..."
+        />
+      </div>
+      {isActorAssignableElement(selectedElement) ? (
+        <div className="property-field">
+          <label>
+            <UserCheck size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Actor From Org Chart
+          </label>
+          <select
+            value={properties.actorNodeId || ''}
+            disabled={actorLoading || (!!actorError && actorOptions.length === 0)}
+            onChange={(event) => handlePropertyChange('actorNodeId', event.target.value)}
+          >
+            <option value="">
+              {actorLoading ? 'Loading actors...' : actorError && actorOptions.length === 0 ? 'Actors unavailable' : 'No actor assigned'}
+            </option>
+            {actorOptions.map((actor) => (
+              <option key={actor.nodeId} value={actor.nodeId}>
+                {actor.name} {actor.title ? `- ${actor.title}` : ''}
+              </option>
+            ))}
+          </select>
+          {actorError ? (
+            <div className="actor-assignment-empty">{actorError}</div>
+          ) : selectedActor ? (
+            <div className="actor-assignment-card">
+              <div className="actor-assignment-card__title">{selectedActor.name}</div>
+              <div className="actor-assignment-card__meta">{selectedActor.subtitle || selectedActor.nodeType}</div>
+              <div className="actor-assignment-card__path">{selectedActor.path}</div>
+              <button type="button" className="actor-clear-btn" onClick={() => handlePropertyChange('actorNodeId', '')}>
+                <Trash2 size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Clear actor
+              </button>
+            </div>
+          ) : (
+            <div className="actor-assignment-empty">
+              Assign an org chart actor to keep ownership visible in the diagram.
+            </div>
+          )}
+        </div>
+      ) : null}
+      {isLinkedProcessElement(selectedElement) ? (
+        <div className="property-field">
+          <label>
+            <LinkIcon size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Called Process
+          </label>
+          <div style={{ position: 'relative', marginBottom: 8 }}>
+            <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input
+              type="text"
+              style={{ paddingLeft: 30, width: '100%', marginBottom: 0, fontSize: 12, height: 32 }}
+              placeholder="Search processes..."
+              value={callActivitySearch}
+              onChange={(e) => setCallActivitySearch(e.target.value)}
+            />
+          </div>
+          {callActivitySuggestions.length ? (
+            <div className="call-activity-suggestions">
+              {callActivitySuggestions.map((option) => (
+                <button
+                  key={`suggestion-${option.id}`}
+                  type="button"
+                  className="call-activity-suggestion"
+                  onClick={() => applyLinkedProcessSelection(option)}
+                >
+                  <span>{option.name}</span>
+                  <span className="call-activity-suggestion__meta">ID: {option.id}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <select
+            value={properties.linkedProcessId || ''}
+            onChange={(event) => {
+              const option = filteredCallActivityOptions.find((entry) => String(entry.id) === String(event.target.value)) || null;
+              if (option) {
+                applyLinkedProcessSelection(option);
+                return;
+              }
+              handlePropertyChange('linkedProcessId', event.target.value);
+            }}
+          >
+            <option value="">
+              {filteredCallActivityOptions.length ? 'Choose an existing process' : 'No matches found'}
+            </option>
+            {filteredCallActivityOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+          {selectedLinkedProcess ? (
+            <div className="linked-process-card">
+              <div className="linked-process-card__title">{selectedLinkedProcess.name}</div>
+              <div className="linked-process-card__meta">Platform process ID: {selectedLinkedProcess.id}</div>
+              {isDrilldownProcessElement(selectedElement) ? (
+                <button type="button" className="linked-process-card__action" onClick={handleEnterSelectedSubprocess}>
+                  Enter sous process
+                </button>
+              ) : null}
+              {onOpenLinkedProcess && !isDrilldownProcessElement(selectedElement) ? (
+                <button type="button" className="linked-process-card__action" onClick={handleOpenLinkedProcess}>
+                  Open called process
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="actor-assignment-empty">
+              Link this element to a saved process, or enter a custom called element key below.
+            </div>
+          )}
+          <label style={{ marginTop: 12 }}>Called Element Key</label>
+          <input
+            type="text"
+            value={properties.calledElement || ''}
+            onChange={(event) => handlePropertyChange('calledElement', event.target.value)}
+            placeholder="process_123 or external process key..."
+          />
+        </div>
+      ) : null}
+      {isRiskAssignableElement(selectedElement) ? (
+        <div className="property-field">
+          <label>
+            <ShieldAlert size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Risks
+          </label>
+          {renderGrcRiskPicker()}
+          {selectedElementRisks.length ? (
+            <div className="risk-assignment-list">
+              {selectedElementRisks.map((risk) => (
+                <div key={risk.id} className={`risk-card risk-card--${risk.severity}`}>
+                  <div className="risk-card__header">
+                    <span>{risk.title}</span>
+                    <span className={`risk-pill risk-pill--${risk.severity}`}>{risk.severity}</span>
+                  </div>
+                  <div className="risk-card__meta">
+                    {risk.category} / {risk.remoteStatus || risk.status}
+                    {risk.source === 'v-grc' && risk.remoteId ? ` / V-GRC ${risk.remoteId}` : ''}
+                  </div>
+                  {risk.source === 'v-grc' ? (
+                    <div className="risk-card__text">
+                      Synchronized from V-GRC
+                      {risk.residualRisk !== null && risk.residualRisk !== undefined ? ` / Residual risk: ${risk.residualRisk}` : ''}
+                      {risk.controlCount ? ` / Controls: ${risk.controlCount}` : ''}
+                    </div>
+                  ) : null}
+                  {risk.description ? <div className="risk-card__text">{risk.description}</div> : null}
+                  {risk.mitigation ? (
+                    <div className="risk-card__text">Mitigation: {risk.mitigation}</div>
+                  ) : null}
+                  <div className="risk-card__actions">
+                    <button type="button" className="risk-action-btn" onClick={() => startRiskEdit(risk)}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="risk-action-btn risk-action-btn--danger"
+                      onClick={() => removeRiskFromSelectedElement(risk.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="risk-empty">
+              No risks linked yet. Add one below to keep the diagram's exposures visible.
+            </div>
+          )}
+          <div className="risk-editor">
+            <input
+              type="text"
+              value={riskDraft.title}
+              onChange={(event) => setRiskDraft((prev) => ({ ...prev, title: event.target.value }))}
+              placeholder="Risk title..."
+            />
+            <div className="risk-editor__grid">
+              <select
+                value={riskDraft.severity}
+                onChange={(event) => setRiskDraft((prev) => ({ ...prev, severity: event.target.value }))}
+              >
+                {RISK_SEVERITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={riskDraft.status}
+                onChange={(event) => setRiskDraft((prev) => ({ ...prev, status: event.target.value }))}
+              >
+                {RISK_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={riskDraft.category}
+                onChange={(event) => setRiskDraft((prev) => ({ ...prev, category: event.target.value }))}
+                className="risk-editor__grid-full"
+              >
+                {RISK_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              value={riskDraft.description}
+              onChange={(event) => setRiskDraft((prev) => ({ ...prev, description: event.target.value }))}
+              placeholder="Describe the risk..."
+              rows={3}
+            />
+            <textarea
+              value={riskDraft.mitigation}
+              onChange={(event) => setRiskDraft((prev) => ({ ...prev, mitigation: event.target.value }))}
+              placeholder="Mitigation or control plan..."
+              rows={3}
+            />
+            <div className="risk-card__actions">
+              <button type="button" className="risk-action-btn risk-action-btn--primary" onClick={saveRiskForSelectedElement}>
+                {editingRiskId ? 'Update risk' : 'Add risk'}
+              </button>
+              {editingRiskId ? (
+                <button type="button" className="risk-action-btn" onClick={resetRiskEditor}>
+                  Cancel
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div className="property-field">
+        <label>Documentation</label>
+        <textarea
+          value={properties.documentation}
+          onChange={(e) => handlePropertyChange('documentation', e.target.value)}
+          placeholder="Add documentation..."
+          rows={4}
+        />
+      </div>
+      {!readOnly ? (
+        <div className="element-danger-zone">
+          <button type="button" className="element-danger-btn" onClick={handleDeleteSelectedElement}>
+            Delete element
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+
+  if (error) {
+    return (
+      <div className="bpmn-modeler-error">
+        <h3>Error</h3>
+        <p>{error}</p>
+        <button onClick={onClose}>Close</button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={mainContainerRef} className={`bpmn-modeler-container${readOnly ? ' is-read-only' : ''}`}>
+      {/* Header */}
+      <header className="bpmn-modeler-header">
+        <div className="bpmn-modeler-header-left">
+          <div className="bpmn-modeler-logo">
+            <img src={logo} alt="v-bpm" width={32} />
+          </div>
+          <div className="bpmn-modeler-info">
+            <span className="bpmn-modeler-tag">Process Modeler</span>
+            <span className="bpmn-modeler-name">{process?.name || 'Untitled Process'}</span>
+          </div>
+          <div className="bpmn-modeler-divider" />
+          
+          {/* Breadcrumbs */}
+          <div className="bpmn-modeler-breadcrumbs">
+            <span 
+              onClick={() => navigateToBreadcrumb(0)}
+              className={!currentSubprocess ? 'active' : ''}
+            >
+              Main
+            </span>
+            {navigationStack.map((level, index) => (
+              <React.Fragment key={level.id}>
+                <ChevronRight size={14} className="breadcrumb-separator" />
+                <span 
+                  onClick={() => navigateToBreadcrumb(index + 1)}
+                  className={currentSubprocess?.id === level.id ? 'active' : ''}
+                >
+                  {level.name}
+                </span>
+              </React.Fragment>
+            ))}
+          </div>
+
+          {currentSubprocess && (
+            <button 
+              onClick={() => openDiagramLevel(currentSubprocess.parentId || null)}
+              className="bpmn-modeler-btn-levelup"
+              title="Go to parent level"
+            >
+              <ArrowLeft size={14} />
+              Level Up
+            </button>
+          )}
+        </div>
+
+        <div className="bpmn-modeler-header-right">
+          {canNavigateBack && (
+            <button onClick={navigateBack} className="bpmn-modeler-btn-back">
+              <ArrowLeft size={16} />
+              Back
+            </button>
+          )}
+          {isLinkedProcessView && navigationStack.length > 0 && (
+            <button onClick={handleReturnToMainProcess} className="bpmn-modeler-btn-back">
+              Main: {mainProcessName}
+            </button>
+          )}
+          <button onClick={handleSave} disabled={saving} className="bpmn-modeler-btn-save">
+            <Save size={16} />
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+          <button onClick={downloadXml} className="bpmn-modeler-btn-export">
+            <FileDown size={16} />
+            Export
+          </button>
+          <button onClick={toggleFullscreen} className="bpmn-modeler-btn-fullscreen">
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            {isFullscreen ? 'Exit' : 'Full'}
+          </button>
+          <button onClick={onClose} className="bpmn-modeler-btn-close"><X size={18} /></button>
+        </div>
+      </header>
+
+      {!readOnly ? (
+        <div className="bpmn-import-launcher">
+          <button type="button" className="bpmn-modeler-btn-export" onClick={() => setShowImportPanel(true)}>
+            Import diagram
+          </button>
+        </div>
+      ) : null}
+
+      {!readOnly && showImportPanel ? (
+        <div className="bpmn-import-overlay">
+          <div className="bpmn-import-panel">
+            <div className="bpmn-import-panel__header">
+              <div>
+                <strong>Import diagram</strong>
+                <div className="bpmn-import-panel__help">Use an existing platform diagram or a BPMN/XML file from this computer.</div>
+              </div>
+              <button type="button" className="bpmn-import-panel__close" onClick={() => setShowImportPanel(false)} disabled={importing}>Close</button>
+            </div>
+
+            <div className="bpmn-import-panel__section">
+              <label htmlFor="bpmn-existing-import">Existing platform diagram</label>
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  style={{ paddingLeft: 34, width: '100%', marginBottom: 0 }}
+                  placeholder="Search processes..."
+                  value={importSearch}
+                  onChange={(e) => setImportSearch(e.target.value)}
+                />
+              </div>
+              <select id="bpmn-existing-import" value={selectedImportId} onChange={(event) => setSelectedImportId(event.target.value)} disabled={importing}>
+                <option value="">{filteredImportOptions.length ? 'Choose a process' : 'No matches found'}</option>
+                {filteredImportOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name} (ID: {option.id})</option>
+                ))}
+              </select>
+              <button type="button" onClick={handleImportExisting} disabled={!selectedImportId || importing}>
+                {importing ? 'Importing...' : 'Import selected diagram'}
+              </button>
+            </div>
+
+            <div className="bpmn-import-panel__divider">or</div>
+
+            <div className="bpmn-import-panel__section">
+              <label>Diagram from this PC</label>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+                Import from computer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showPaletteDefaultsDialog ? (
+        <div className="bpmn-import-overlay" onClick={() => setShowPaletteDefaultsDialog(false)}>
+          <div className="bpmn-import-panel bpmn-import-panel--wide" onClick={(event) => event.stopPropagation()}>
+            <div className="bpmn-import-panel__header">
+              <div>
+                <strong>Default palette elements</strong>
+                <div className="bpmn-import-panel__help">
+                  Choose which elements appear in the left sidebar before you search.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="bpmn-import-panel__close"
+                onClick={() => setShowPaletteDefaultsDialog(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="palette-defaults-list">
+              {Object.entries(
+                bpmnElements.reduce((groups, element) => {
+                  if (!groups[element.category]) {
+                    groups[element.category] = [];
+                  }
+                  groups[element.category].push(element);
+                  return groups;
+                }, {})
+              ).map(([category, elements]) => (
+                <div key={`defaults-${category}`} className="palette-defaults-group">
+                  <div className="palette-defaults-group__title">{category}</div>
+                  <div className="palette-defaults-group__items">
+                    {elements.map((element) => {
+                      const checked = defaultPaletteElementIds.includes(element.id);
+                      return (
+                        <label key={`default-option-${element.id}`} className={`palette-defaults-item${checked ? ' is-checked' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleDefaultPaletteElement(element.id)}
+                          />
+                          <span className="palette-defaults-item__icon">{element.icon}</span>
+                          <span className="palette-defaults-item__name">{element.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="palette-defaults-actions">
+              <button type="button" className="palette-defaults-reset" onClick={resetDefaultPaletteElements}>
+                Reset defaults
+              </button>
+              <button type="button" className="bpmn-import-panel__close" onClick={() => setShowPaletteDefaultsDialog(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".bpmn,.xml,text/xml,application/xml"
+        style={{ display: 'none' }}
+        onChange={handleImportFromPc}
+      />
+
+      {/* Main Body */}
+      <div className="bpmn-modeler-body">
+        {/* Search Palette */}
+        <div className="bpmn-modeler-palette">
+          <div className="bpmn-modeler-search">
+            <div className="palette-toolbar">
+              <button
+                type="button"
+                className="palette-toolbar__button"
+                onClick={() => setShowPaletteDefaultsDialog(true)}
+              >
+                <SlidersHorizontal size={14} />
+                Defaults
+              </button>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                type="text" style={{ paddingLeft: 34 }}
+                placeholder="Search elements..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="palette-search-hint">
+              {searchTerm ? 'Search results from the full BPMN library.' : 'Core elements are shown here. Search to reveal the rest.'}
+            </div>
+          </div>
+          <div className="bpmn-modeler-palette-content">
+            {Object.entries(groupedElements).length ? (
+              Object.entries(groupedElements).map(([category, elements]) => (
+                <div key={category} className="palette-category">
+                  <div className="palette-category-header">{category}</div>
+                  {elements.map((element, index) => (
+                    <div
+                      key={`${element.id}-${index}`}
+                      onClick={() => addSearchElement(element)}
+                      onDragStart={(event) => handlePaletteDragStart(event, element)}
+                      className="palette-element"
+                      draggable={!readOnly}
+                      title={readOnly ? element.name : 'Drag to the canvas or click to add'}
+                    >
+                      <span className="palette-icon">{element.icon}</span>
+                      <span className="palette-name">{element.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ))
+            ) : (
+              <div className="palette-results-empty">No elements match this search.</div>
+            )}
+          </div>
+
+          {currentSubprocess && (
+            <button 
+              onClick={() => openDiagramLevel(currentSubprocess.parentId || null)}
+              className="bpmn-modeler-btn-levelup"
+              title="Go to parent level"
+            >
+              <ArrowLeft size={14} />
+              Level Up
+            </button>
+          )}
+        </div>
+
+        {/* Canvas */}
+        <div
+          className={`bpmn-modeler-canvas${isCanvasDragOver ? ' is-drop-target' : ''}`}
+          onDragOver={handleCanvasDragOver}
+          onDragLeave={handleCanvasDragLeave}
+          onDrop={handleCanvasDrop}
+        >
+          {loading && (
+            <div className="bpmn-modeler-loading">
+              Loading BPMN Editor...
+            </div>
+          )}
+          {isCanvasDragOver ? (
+            <div className="bpmn-modeler-drop-indicator">
+              Drop the element here
+            </div>
+          ) : null}
+          <div ref={containerRef} className="bpmn-canvas-container" />
+        </div>
+
+        {/* Properties Panel */}
+        <div className={`bpmn-modeler-properties${isPropertiesCollapsed ? ' is-collapsed' : ''}`}>
+          <div className="properties-header">
+            <span className="properties-header__title">Properties</span>
+            <button
+              type="button"
+              className="properties-toggle"
+              onClick={() => setIsPropertiesCollapsed((current) => !current)}
+              title={isPropertiesCollapsed ? 'Expand properties' : 'Collapse properties'}
+              aria-label={isPropertiesCollapsed ? 'Expand properties' : 'Collapse properties'}
+            >
+              <ChevronRight size={16} className={isPropertiesCollapsed ? '' : 'is-open'} />
+            </button>
+          </div>
+          <div className="properties-content">
+            {selectedElement ? (
+              <div className="properties-form">
+                <div className="property-field">
+                  <label>Type</label>
+                  <div className="property-value type">{properties.type}</div>
+                </div>
+                <div className="property-field">
+                  <label>ID</label>
+                  <input type="text" value={properties.id} disabled />
+                </div>
+                <div className="property-field">
+                  <label>Name</label>
+                  <input
+                    type="text"
+                    value={properties.name}
+                    onChange={(e) => handlePropertyChange('name', e.target.value)}
+                    placeholder="Element name..."
+                  />
+                </div>
+                {isActorAssignableElement(selectedElement) ? (
+                  <div className="property-field">
+                    <label>
+                      <UserCheck size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                      Actor From Org Chart
+                    </label>
+                    <select
+                      value={properties.actorNodeId || ''}
+                      disabled={actorLoading || (!!actorError && actorOptions.length === 0)}
+                      onChange={(event) => handlePropertyChange('actorNodeId', event.target.value)}
+                    >
+                      <option value="">
+                        {actorLoading ? 'Loading actors...' : actorError && actorOptions.length === 0 ? 'Actors unavailable' : 'No actor assigned'}
+                      </option>
+                      {actorOptions.map((actor) => (
+                        <option key={actor.nodeId} value={actor.nodeId}>
+                          {actor.name} {actor.title ? `- ${actor.title}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {actorError ? (
+                      <div className="actor-assignment-empty">{actorError}</div>
+                    ) : selectedActor ? (
+                      <div className="actor-assignment-card">
+                        <div className="actor-assignment-card__title">{selectedActor.name}</div>
+                        <div className="actor-assignment-card__meta">{selectedActor.subtitle || selectedActor.nodeType}</div>
+                        <div className="actor-assignment-card__path">{selectedActor.path}</div>
+                        <button type="button" className="actor-clear-btn" onClick={() => handlePropertyChange('actorNodeId', '')}>
+                          <Trash2 size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                          Clear actor
+                        </button>
+                      </div>
+                ) : (
+                      <div className="actor-assignment-empty">
+                        Assign an org chart actor to keep ownership visible in the diagram.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {isLinkedProcessElement(selectedElement) ? (
+                  <div className="property-field">
+                    <label>
+                      <LinkIcon size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                      Called Process
+                    </label>
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                      <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        style={{ paddingLeft: 30, width: '100%', marginBottom: 0, fontSize: 12, height: 32 }}
+                        placeholder="Search processes..."
+                        value={callActivitySearch}
+                        onChange={(e) => setCallActivitySearch(e.target.value)}
+                      />
+                    </div>
+                    <select
+                      value={properties.linkedProcessId || ''}
+                      onChange={(event) => {
+                        const option = filteredCallActivityOptions.find((entry) => String(entry.id) === String(event.target.value)) || null;
+                        if (option) {
+                          applyLinkedProcessSelection(option);
+                          return;
+                        }
+                        handlePropertyChange('linkedProcessId', event.target.value);
+                      }}
+                    >
+                      <option value="">
+                        {filteredCallActivityOptions.length ? 'Choose an existing process' : 'No matches found'}
+                      </option>
+                      {filteredCallActivityOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedLinkedProcess ? (
+                      <div className="linked-process-card">
+                        <div className="linked-process-card__title">{selectedLinkedProcess.name}</div>
+                        <div className="linked-process-card__meta">Platform process ID: {selectedLinkedProcess.id}</div>
+                        {isDrilldownProcessElement(selectedElement) ? (
+                          <button type="button" className="linked-process-card__action" onClick={handleEnterSelectedSubprocess}>
+                            Enter sous process
+                          </button>
+                        ) : null}
+                          {onOpenLinkedProcess && !isDrilldownProcessElement(selectedElement) ? (
+                            <button type="button" className="linked-process-card__action" onClick={handleOpenLinkedProcess}>
+                              Open called process
+                            </button>
+                          ) : null}
+                      </div>
+                    ) : (
+                      <div className="actor-assignment-empty">
+                        Link this element to a saved process, or enter a custom called element key below.
+                      </div>
+                    )}
+                    <label style={{ marginTop: 12 }}>Called Element Key</label>
+                    <input
+                      type="text"
+                      value={properties.calledElement || ''}
+                      onChange={(event) => handlePropertyChange('calledElement', event.target.value)}
+                      placeholder="process_123 or external process key..."
+                    />
+                  </div>
+                ) : null}
+                {isRiskAssignableElement(selectedElement) ? (
+                  <div className="property-field">
+                    <label>
+                      <ShieldAlert size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                      Risks
+                    </label>
+                    {renderGrcRiskPicker()}
+                    {selectedElementRisks.length ? (
+                      <div className="risk-assignment-list">
+                        {selectedElementRisks.map((risk) => (
+                          <div key={risk.id} className={`risk-card risk-card--${risk.severity}`}>
+                            <div className="risk-card__header">
+                              <span>{risk.title}</span>
+                              <span className={`risk-pill risk-pill--${risk.severity}`}>{risk.severity}</span>
+                            </div>
+                            <div className="risk-card__meta">
+                              {risk.category} / {risk.remoteStatus || risk.status}
+                              {risk.source === 'v-grc' && risk.remoteId ? ` / V-GRC ${risk.remoteId}` : ''}
+                            </div>
+                            {risk.source === 'v-grc' ? (
+                              <div className="risk-card__text">
+                                Synchronized from V-GRC
+                                {risk.residualRisk !== null && risk.residualRisk !== undefined ? ` / Residual risk: ${risk.residualRisk}` : ''}
+                                {risk.controlCount ? ` / Controls: ${risk.controlCount}` : ''}
+                              </div>
+                            ) : null}
+                            {risk.description ? <div className="risk-card__text">{risk.description}</div> : null}
+                            {risk.mitigation ? (
+                              <div className="risk-card__text">Mitigation: {risk.mitigation}</div>
+                            ) : null}
+                            <div className="risk-card__actions">
+                              <button type="button" className="risk-action-btn" onClick={() => startRiskEdit(risk)}>
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="risk-action-btn risk-action-btn--danger"
+                                onClick={() => removeRiskFromSelectedElement(risk.id)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="risk-empty">
+                        No risks linked yet. Add one below to keep the diagram's exposures visible.
+                      </div>
+                    )}
+                    <div className="risk-editor">
+                      <input
+                        type="text"
+                        value={riskDraft.title}
+                        onChange={(event) => setRiskDraft((prev) => ({ ...prev, title: event.target.value }))}
+                        placeholder="Risk title..."
+                      />
+                      <div className="risk-editor__grid">
+                        <select
+                          value={riskDraft.severity}
+                          onChange={(event) => setRiskDraft((prev) => ({ ...prev, severity: event.target.value }))}
+                        >
+                          {RISK_SEVERITY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={riskDraft.status}
+                          onChange={(event) => setRiskDraft((prev) => ({ ...prev, status: event.target.value }))}
+                        >
+                          {RISK_STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={riskDraft.category}
+                          onChange={(event) => setRiskDraft((prev) => ({ ...prev, category: event.target.value }))}
+                          className="risk-editor__grid-full"
+                        >
+                          {RISK_CATEGORY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <textarea
+                        value={riskDraft.description}
+                        onChange={(event) => setRiskDraft((prev) => ({ ...prev, description: event.target.value }))}
+                        placeholder="Describe the risk..."
+                        rows={3}
+                      />
+                      <textarea
+                        value={riskDraft.mitigation}
+                        onChange={(event) => setRiskDraft((prev) => ({ ...prev, mitigation: event.target.value }))}
+                        placeholder="Mitigation or control plan..."
+                        rows={3}
+                      />
+                      <div className="risk-card__actions">
+                        <button type="button" className="risk-action-btn risk-action-btn--primary" onClick={saveRiskForSelectedElement}>
+                          {editingRiskId ? 'Update risk' : 'Add risk'}
+                        </button>
+                        {editingRiskId ? (
+                          <button type="button" className="risk-action-btn" onClick={resetRiskEditor}>
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="property-field">
+                  <label>Documentation</label>
+                  <textarea
+                    value={properties.documentation}
+                    onChange={(e) => handlePropertyChange('documentation', e.target.value)}
+                    placeholder="Add documentation..."
+                    rows={4}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="properties-empty">
+                <div className="empty-icon">
+                  <Target size={48} strokeWidth={1.5} color="#cbd5e1" />
+                </div>
+                <p>Select an element to edit properties</p>
+              </div>
+            )}
+            <div className="diagram-actors-panel">
+              <div className="diagram-actors-panel__title">Diagram Actors</div>
+              {diagramActors.length ? (
+                diagramActors.map((actor) => (
+                  <div key={actor.actorNodeId} className="diagram-actor-item">
+                    <div className="diagram-actor-item__header">
+                      <span>{actor.actorName}</span>
+                      <span>{actor.count}</span>
+                    </div>
+                    <div className="diagram-actor-item__meta">{actor.actorType || 'actor'}</div>
+                    <div className="diagram-actor-item__path">{actor.actorPath}</div>
+                    <div className="diagram-actor-item__elements">
+                      {actor.elements.map((element) => element.label).join(', ')}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="diagram-actors-panel__empty">
+                  No actors assigned yet. Create a pool, lane, or task, then choose its actor from the properties panel.
+                </div>
+              )}
+            </div>
+            <div className="diagram-risks-panel">
+              <div className="diagram-actors-panel__title">Diagram Risks</div>
+              {diagramRisks.length ? (
+                diagramRisks.map((risk) => (
+                  <div key={`${risk.elementId}-${risk.id}`} className={`diagram-risk-item diagram-risk-item--${risk.severity}`}>
+                    <div className="diagram-risk-item__header">
+                      <span>{risk.title}</span>
+                      <span className={`risk-pill risk-pill--${risk.severity}`}>{risk.severity}</span>
+                    </div>
+                    <div className="diagram-risk-item__meta">
+                      {risk.category} · {risk.status}
+                    </div>
+                    <div className="diagram-risk-item__path">{risk.elementLabel}</div>
+                    {risk.description ? <div className="diagram-risk-item__body">{risk.description}</div> : null}
+                    {risk.mitigation ? <div className="diagram-risk-item__body">Mitigation: {risk.mitigation}</div> : null}
+                  </div>
+                ))
+              ) : (
+                <div className="diagram-actors-panel__empty">
+                  No risks added yet. Select a diagram element and register a risk from the properties panel.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {showElementActionDialog && selectedElement ? (
+          <div className="bpmn-element-overlay" onClick={clearSelectedElement}>
+            <div className="bpmn-element-panel" onClick={(event) => event.stopPropagation()}>
+              <div className="bpmn-element-panel__header">
+                <div>
+                  <div className="bpmn-element-panel__tag">Element actions</div>
+                  <div className="bpmn-element-panel__title">{properties.name || properties.type || 'Element'}</div>
+                  <div className="bpmn-element-panel__subtitle">
+                    Configure this element here instead of using the properties sidebar.
+                  </div>
+                </div>
+                <button type="button" className="bpmn-element-panel__close" onClick={clearSelectedElement}>
+                  Close
+                </button>
+              </div>
+              <div className="bpmn-element-panel__content">
+                {renderElementActionContent()}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
+export default BpmnEditorModeler;

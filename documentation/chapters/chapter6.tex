@@ -1,0 +1,226 @@
+\chapter{Sprint 2: V-GRC Integration and Risk Synchronization}
+
+\section{Introduction}
+
+This chapter presents Sprint 2 of the V-BPM platform. The objective of this sprint is to connect the BPM environment with the external V-GRC repository so that risk information can circulate between both systems in a controlled and traceable way. This sprint builds on the BPMN editor, the process management module, and the procedure manual generator already implemented in previous sprints.
+
+The integration target is twofold. First, V-BPM must be able to retrieve risks that already exist in the GRC repository so they can be reused when modeling or documenting processes. Second, when a new risk is created in V-BPM and does not yet exist in the external repository, the platform must be able to publish it to the GRC database and keep the relationship between the local process context and the remote risk record.
+
+\section{Sprint 2 Backlog Identification}
+
+This section presents the user stories selected for Sprint 2, focusing on the integration between V-BPM and the V-GRC repository, as detailed in Table~\ref{tab:backlog-sprint2}.
+
+\begin{table}[H]
+\centering
+\caption{Sprint 2 Backlog}
+\label{tab:backlog-sprint2}
+\begin{tabular}{|p{9cm}|c|c|}
+\hline
+\textbf{User Story} & \textbf{Estimation} & \textbf{Priority} \\
+\hline
+V-GRC System can provide its existing risk repository to V-BPM & Medium & 3 \\
+\hline
+V-BPM can create and synchronize new risks to V-GRC when they do not already exist & Medium & 3 \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Sprint 2 Refinement}
+
+This section details the refinement of Sprint 2 use cases through textual specifications that describe the actors, pre-conditions, post-conditions, main scenarios, and exceptions.
+
+\subsection{Use Case Refinement -- Synchronize Risks from V-GRC}
+
+The synchronization of existing risks from the external repository is illustrated by the use case in Figure~\ref{fig:usecase-grc-fetch}, while Table~\ref{tab:refinement-grc-fetch} details the textual specification.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][4.8cm][c]{0.82\linewidth}{\centering Use Case Diagram Placeholder\\Synchronize Risks from V-GRC}}
+\caption{Use Case Diagram -- Synchronize Risks from V-GRC}
+\label{fig:usecase-grc-fetch}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Refinement -- Synchronize Risks from V-GRC}
+\label{tab:refinement-grc-fetch}
+\begin{tabular}{|p{3cm}|p{12cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Synchronize Risks from V-GRC \\
+\hline
+Actor & Process Designer, Process Manager, V-GRC System \\
+\hline
+Pre-condition &
+- The system is running\newline
+- The user is authenticated\newline
+- The external V-GRC database connection is configured\newline
+- The target process or BPMN element is available for risk assignment \\
+\hline
+Post-condition &
+- Existing risks from the V-GRC repository are retrieved successfully\newline
+- Retrieved risks can be consulted and reused inside V-BPM\newline
+- The selected risk is linked to the local process context \\
+\hline
+Main Scenario Description &
+1. The user opens a process, a BPMN element, or a risk-oriented form inside V-BPM.\newline
+2. The system calls the integration layer to request the list of risks available in the V-GRC repository.\newline
+3. The integration layer connects to the external database and retrieves the relevant risk records.\newline
+4. The system normalizes the returned data and presents reusable risks to the user.\newline
+5. The user searches, filters, and selects the appropriate risk.\newline
+6. The selected risk is attached to the local process context (diagram element, process metadata, or manual matrix).\newline
+7. The system stores the association between the local process reference and the synchronized GRC risk.\newline
+8. The synchronized risk becomes available for later monitoring and reporting inside V-BPM. \\
+\hline
+Exceptions &
+- If the external database is unreachable, the system displays an integration error message.\newline
+- If no risks are returned, the system displays an empty-state message.\newline
+- If the data format received from V-GRC is invalid, the system rejects the synchronization and logs the error.\newline
+- If the user lacks the required permissions, the system denies access to the synchronization feature. \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Use Case Refinement -- Publish New Risks to V-GRC}
+
+The publication of newly created BPM risks to the external repository is illustrated in Figure~\ref{fig:usecase-grc-push}, while Table~\ref{tab:refinement-grc-push} details the corresponding textual refinement.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][4.8cm][c]{0.82\linewidth}{\centering Use Case Diagram Placeholder\\Publish New Risks to V-GRC}}
+\caption{Use Case Diagram -- Publish New Risks to V-GRC}
+\label{fig:usecase-grc-push}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Refinement -- Publish New Risks to V-GRC}
+\label{tab:refinement-grc-push}
+\begin{tabular}{|p{3cm}|p{12cm}|}
+\hline
+\textbf{Field} & \textbf{Description} \\
+\hline
+Use Case & Publish New Risks to V-GRC \\
+\hline
+Actor & Process Designer, Process Manager, V-GRC System \\
+\hline
+Pre-condition &
+- The system is running\newline
+- The user is authenticated\newline
+- A new risk is created in V-BPM from the BPMN editor or process context\newline
+- The external V-GRC database connection is configured \\
+\hline
+Post-condition &
+- The system checks whether the risk already exists in V-GRC\newline
+- Missing risks are inserted into the external repository\newline
+- The local platform keeps the reference to the synchronized risk \\
+\hline
+Main Scenario Description &
+1. The user creates a new risk inside V-BPM.\newline
+2. The system builds a business key based on the risk title, category, and context.\newline
+3. The integration layer checks whether the risk already exists in the V-GRC repository.\newline
+4. If the risk exists, the system reuses the remote reference and links it to the local process.\newline
+5. If the risk does not exist, the integration layer inserts a new risk record into the external database.\newline
+6. The external repository returns the identifier of the created risk.\newline
+7. V-BPM stores the returned identifier and confirms the synchronization to the user.\newline
+8. The synchronized risk can then be reused by other processes and governance workflows. \\
+\hline
+Exceptions &
+- If the uniqueness check fails, the system blocks duplicate creation and informs the user.\newline
+- If the insert operation into the external database fails, the local risk remains visible but is flagged as unsynchronized.\newline
+- If the external repository rejects the record because mandatory fields are missing, the system displays the validation error.\newline
+- If a server or network error occurs, the synchronization attempt is logged for audit and retry. \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Sprint 2 Design}
+
+This section presents the design of Sprint 2. The objective is to formalize the integration architecture through class diagrams and sequence diagrams that describe the collaboration between the BPM platform, the synchronization layer, and the external V-GRC repository.
+
+\subsection{Use Case Design -- Synchronize Risks from V-GRC}
+
+The synchronization of external risks relies on a dedicated integration layer responsible for connecting to the GRC repository, normalizing risk records, and exposing them to the BPM modules.
+
+\subsubsection{Class Diagram}
+
+The static view of this use case is shown in Figure~\ref{fig:class-grc-fetch}. The central classes are the user interface that requests the synchronization, the integration controller, the local process context, and the external risk repository abstraction.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][5cm][c]{0.82\linewidth}{\centering Class Diagram Placeholder\\Synchronize Risks from V-GRC}}
+\caption{Class Diagram -- Synchronize Risks from V-GRC}
+\label{fig:class-grc-fetch}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+The dynamic interactions of this use case are shown in Figure~\ref{fig:seq-grc-fetch}. The user requests the available risk list, the control layer queries the integration service, and the integration service reads the external repository before returning normalized data to V-BPM.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][5cm][c]{0.82\linewidth}{\centering Sequence Diagram Placeholder\\Synchronize Risks from V-GRC}}
+\caption{Sequence Diagram -- Synchronize Risks from V-GRC}
+\label{fig:seq-grc-fetch}
+\end{figure}
+
+\subsection{Use Case Design -- Publish New Risks to V-GRC}
+
+The publication of newly created BPM risks requires a verification and synchronization workflow to avoid duplicates and to preserve traceability between the local BPM context and the external governance repository.
+
+\subsubsection{Class Diagram}
+
+Figure~\ref{fig:class-grc-push} presents the static architecture of the publication use case. The main classes are the BPM risk entry, the synchronization controller, the duplicate-check component, and the external GRC repository adapter.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][5cm][c]{0.82\linewidth}{\centering Class Diagram Placeholder\\Publish New Risks to V-GRC}}
+\caption{Class Diagram -- Publish New Risks to V-GRC}
+\label{fig:class-grc-push}
+\end{figure}
+
+\subsubsection{Sequence Diagram}
+
+Figure~\ref{fig:seq-grc-push} illustrates the dynamic interactions of the synchronization workflow. After a new risk is created locally, the system checks the external repository, inserts the risk if necessary, and stores the returned external reference.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][5cm][c]{0.82\linewidth}{\centering Sequence Diagram Placeholder\\Publish New Risks to V-GRC}}
+\caption{Sequence Diagram -- Publish New Risks to V-GRC}
+\label{fig:seq-grc-push}
+\end{figure}
+
+\section{Sprint 2 Implementation}
+
+This section presents the implementation logic retained for Sprint 2 in relation to the platform that was developed in the previous sprints. The goal is to show how the existing BPM modules are extended so they can exchange risks with the V-GRC repository.
+
+\subsection{Use Case Implementation -- Synchronize Risks from V-GRC}
+
+On the V-BPM side, the synchronization entry point is naturally connected to the process modeling and process management modules. The BPMN editor already allows the user to associate risks with process elements, while process management already centralizes the generated procedure manual and the risk matrix. Sprint 2 extends these modules with a synchronization service capable of requesting the external risk catalog before the user decides whether to reuse an existing risk or define a new one.
+
+In practice, when the user opens a risk-related action, the platform calls the integration service, which queries the V-GRC repository and returns the relevant risks in a normalized format. This synchronized list is then exposed inside V-BPM so the user can link an existing governance risk to a BPMN task, a subprocess, or a manual section.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][5.4cm][c]{0.82\linewidth}{\centering Implementation Placeholder\\Risk synchronization from the external V-GRC repository to the V-BPM interface}}
+\caption{Implementation -- Synchronize Risks from V-GRC}
+\label{fig:impl-grc-fetch}
+\end{figure}
+
+\subsection{Use Case Implementation -- Publish New Risks to V-GRC}
+
+The second implementation flow starts from the local creation of a risk inside V-BPM. This can happen while modeling a process, while enriching the procedure manual, or while documenting control points related to a process activity. Once the user saves the new risk, the synchronization layer checks whether an equivalent entry already exists in the external repository. If the risk is not found, it is inserted into the V-GRC database and a remote identifier is returned.
+
+This mechanism ensures that the BPM platform remains operational even when the risk is first created locally, while also guaranteeing that the GRC repository is progressively enriched instead of remaining disconnected from operational process knowledge. It also improves traceability, since the same risk can later be reused in both environments.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox[c][5.4cm][c]{0.82\linewidth}{\centering Implementation Placeholder\\Creation of a new BPM risk and publication to the V-GRC repository when no matching record exists}}
+\caption{Implementation -- Publish New Risks to V-GRC}
+\label{fig:impl-grc-push}
+\end{figure}
+
+\section{Conclusion}
+
+Sprint 2 completes the BPM--GRC convergence targeted by the project. It introduces the integration logic required to reuse risks already maintained by the governance repository and to publish new BPM risks when they are created from operational process work. By connecting process modeling, procedure manuals, and external governance data, this sprint strengthens consistency between execution, documentation, and risk supervision.
