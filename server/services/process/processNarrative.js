@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { extractTasksFromDiagram } from './simulationEngine.js';
+import { extractTasksFromDiagram } from '../simulation/simulationEngine.js';
 import { normalizeProcessStatus, summarizeBpmnDefinition } from './processDiff.js';
 import { buildPdfDocument } from './pdfDocument.js';
 import {

@@ -1,5 +1,5 @@
 import pool from './db.js';
-import { replaceProcessCatalogFromWorkbook } from './utils/processWorkbookImport.js';
+import { replaceProcessCatalogFromWorkbook } from './services/process/processWorkbookImport.js';
 
 const initDatabase = async () => {
   try {

@@ -2,7 +2,7 @@ import pool from './db.js';
 import {
   DEFAULT_PROCESS_WORKBOOK_PATH,
   replaceProcessCatalogFromWorkbook,
-} from './utils/processWorkbookImport.js';
+} from './services/process/processWorkbookImport.js';
 
 const workbookPath = process.argv[2] || DEFAULT_PROCESS_WORKBOOK_PATH;
 

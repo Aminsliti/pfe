@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { JSDOM } from 'jsdom';
-import pool from '../db.js';
+import pool from '../../db.js';
 
 export const DEFAULT_PROCESS_WORKBOOK_PATH = path.resolve(
   process.cwd(),

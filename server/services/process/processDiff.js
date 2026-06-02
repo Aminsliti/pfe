@@ -1,4 +1,4 @@
-import { extractTasksFromDiagram } from './simulationEngine.js';
+import { extractTasksFromDiagram } from '../simulation/simulationEngine.js';
 
 export const PROCESS_STATUSES = new Set(['draft', 'review', 'approved', 'archived']);
 

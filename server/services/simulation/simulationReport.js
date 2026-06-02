@@ -1,4 +1,4 @@
-import { buildPdfDocument } from './pdfDocument.js';
+import { buildPdfDocument } from '../process/pdfDocument.js';
 
 function escapeHtml(value = '') {
   return String(value)

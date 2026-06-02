@@ -9,7 +9,7 @@ import collaborationRoutes from './routes/collaboration.js';
 import grcRoutes from './routes/grc.js';
 import processRoutes from './routes/processes.js';
 import simulationRoutes from './routes/simulations.js';
-import { attachRequestUser } from './utils/access.js';
+import { attachRequestUser } from './services/auth/access.js';
 
 function applySecurityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');

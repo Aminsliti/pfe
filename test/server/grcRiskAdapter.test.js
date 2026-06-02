@@ -4,7 +4,7 @@ import {
   filterGrcRisks,
   normalizeGrcRiskPayload,
   resolveRiskSeverity,
-} from '../../server/utils/grcRiskAdapter.js';
+} from '../../server/services/grc/grcRiskAdapter.js';
 
 describe('grcRiskAdapter', () => {
   it('normalizes V-GRC risk payloads into BPMN risk entries', () => {

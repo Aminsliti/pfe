@@ -1,4 +1,4 @@
-import pool from '../db.js';
+import pool from '../../db.js';
 import { extractBearerToken, JwtVerificationError, verifyAccessToken } from './jwt.js';
 
 export const ROLES = {

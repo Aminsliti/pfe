@@ -7,7 +7,7 @@ import {
   JwtVerificationError,
   parseDurationSeconds,
   verifyAccessToken,
-} from '../../server/utils/jwt.js';
+} from '../../server/services/auth/jwt.js';
 
 describe('jwt utilities', () => {
   const originalSecret = process.env.JWT_SECRET;

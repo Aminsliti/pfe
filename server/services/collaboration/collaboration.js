@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import pool from '../db.js';
-import { ensureCompanyAccess, ROLES } from './access.js';
-import { ensureOrgChartSchema } from '../routes/orgchart.js';
-import { sendPlatformEmail } from './mailer.js';
+import pool from '../../db.js';
+import { ensureCompanyAccess, ROLES } from '../auth/access.js';
+import { sendPlatformEmail } from '../mail/mailer.js';
+import { ensureOrgChartSchema } from '../../controllers/orgchartController.js';
 
 let collaborationSchemaPromise = null;
 

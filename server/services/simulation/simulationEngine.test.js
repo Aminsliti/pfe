@@ -11,7 +11,7 @@ import {
   runSensitivityAnalysis,
   runSimulation,
   runWhatIfAnalysis,
-} from './simulationEngine.js';
+} from '../simulation/simulationEngine.js';
 
 describe('simulationEngine', () => {
   it('extracts tasks from legacy JSON diagrams', () => {
